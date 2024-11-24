@@ -12,10 +12,15 @@
       "supportsTablet": true
     },
     "android": {
+      
+      "package" : "com.zile.zileWatch", 
+
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       }
+
+        
     },
     "web": {
       "bundler": "metro",

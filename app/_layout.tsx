@@ -1,39 +1,49 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import 'react-native-reanimated';
+import { Tabs } from "expo-router";
+import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
 
-import { useColorScheme } from '@/hooks/useColorScheme';
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
-
-export default function RootLayout() {
-  const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-  });
-
-  useEffect(() => {
-    if (loaded) {
-      SplashScreen.hideAsync();
-    }
-  }, [loaded]);
-
-  if (!loaded) {
-    return null;
-  }
-
+export default function Layout() {
   return (
-    <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-      <Stack>
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="+not-found" />
-      </Stack>
-      <StatusBar style="auto" />
-    </ThemeProvider>
+    <Tabs screenOptions={{ headerShown: false }}>
+      {/* Home Tab */}
+      <Tabs.Screen
+        name="index"
+        options={{
+          title: 'Home',
+          tabBarIcon: ({ focused, color, size }) => (
+            <MaterialIcons name="home" size={size} color={focused ? '#7d0b02' : color} />
+          ),
+        }}
+      />
+      {/* Games Tab */}
+      <Tabs.Screen
+        name="games"
+        options={{
+          title: 'Games',
+          tabBarIcon: ({ focused, color, size }) => (
+            <FontAwesome5 name="gamepad" size={size} color={focused ? '#7d0b02' : color} />
+          ),
+        }}
+      />
+      {/* Movies Tab */}
+      <Tabs.Screen
+        name="movies"
+        options={{
+          title: 'Movies',
+          tabBarIcon: ({ focused, color, size }) => (
+            <MaterialIcons name="movie" size={size} color={focused ? '#7d0b02' : color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
+        name="account"
+        options={{
+          title: "Me",
+          tabBarIcon: ({ focused, color, size }) => (
+            <FontAwesome5 name="user" size={size} color={focused ? '#7d0b02' : color} />
+          )
+        }}
+      />
+    </Tabs>
   );
 }
