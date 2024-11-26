@@ -1,9 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { Text, View, TextInput, TouchableOpacity, Image, FlatList } from "react-native";
-import styles from "@/components/styles";
-import { useRouter } from "expo-router";
-import { getApiKey } from "@/utils/secureStore";
-import axios from "axios";
+import { fetchPopularVids } from "../utils/apiService";
 
 type videos = {
   id: string; // Video ID
@@ -21,27 +18,16 @@ export default function Home() {
   const [videos, setVideos] = useState<videos[]>([]);
   const [search, setSearch] = useState("");
 
-  const router = useRouter();
-
-  const fetchTrendingVideos = async () => {
-    try {
-      const apiKey = process.env.YOUTUBE_API_KEY;
-      const response = await axios.get(`https://www.googleapis.com/youtube/v3/videos`, {
-        params: {
-          part: "snippet,contentDetails,statistics",
-          chart: "mostPopular",
-          regionCode: "KE",
-          key: apiKey
-        }
-      });
-      console.log("Fetched Videos", response.data.items);
-    } catch (error) {
-      console.log("Error Fetching Videos", error);
-    }
-  };
-
   useEffect(() => {
-    fetchTrendingVideos();
+    const loadVideos = async () => {
+      try {
+        const popularVids = await fetchPopularVids();
+        setVideos(popularVids);
+      } catch (error) {
+        console.log("Failed to load Videos", error);
+      }
+    };
+    loadVideos();
   }, []);
 
   return (
