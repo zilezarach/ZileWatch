@@ -1,6 +1,5 @@
 import { Tabs } from "expo-router";
-import { MaterialIcons, FontAwesome5 } from '@expo/vector-icons';
-
+import { MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
 
 export default function Layout() {
   return (
@@ -9,30 +8,30 @@ export default function Layout() {
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
+          title: "Home",
           tabBarIcon: ({ focused, color, size }) => (
-            <MaterialIcons name="home" size={size} color={focused ? '#7d0b02' : color} />
-          ),
+            <MaterialIcons name="home" size={size} color={focused ? "#7d0b02" : color} />
+          )
         }}
       />
       {/* Games Tab */}
       <Tabs.Screen
         name="games"
         options={{
-          title: 'Games',
+          title: "Games",
           tabBarIcon: ({ focused, color, size }) => (
-            <FontAwesome5 name="gamepad" size={size} color={focused ? '#7d0b02' : color} />
-          ),
+            <FontAwesome5 name="gamepad" size={size} color={focused ? "#7d0b02" : color} />
+          )
         }}
       />
       {/* Movies Tab */}
       <Tabs.Screen
         name="movies"
         options={{
-          title: 'Movies',
+          title: "Movies",
           tabBarIcon: ({ focused, color, size }) => (
-            <MaterialIcons name="movie" size={size} color={focused ? '#7d0b02' : color} />
-          ),
+            <MaterialIcons name="movie" size={size} color={focused ? "#7d0b02" : color} />
+          )
         }}
       />
       <Tabs.Screen
@@ -40,7 +39,7 @@ export default function Layout() {
         options={{
           title: "Me",
           tabBarIcon: ({ focused, color, size }) => (
-            <FontAwesome5 name="user" size={size} color={focused ? '#7d0b02' : color} />
+            <FontAwesome5 name="user" size={size} color={focused ? "#7d0b02" : color} />
           )
         }}
       />

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { Text, View, TextInput, TouchableOpacity, Image, FlatList } from "react-native";
-import { fetchPopularVids } from "../utils/apiService";
+import { Text, View, TextInput, TouchableOpacity, Image, FlatList, Button, StyleSheet } from "react-native";
+import { fetchPopularVids, fetchYouTubeSearchResults } from "../utils/apiService";
 
 type videos = {
   id: string; // Video ID
@@ -16,7 +16,21 @@ type videos = {
 
 export default function Home() {
   const [videos, setVideos] = useState<videos[]>([]);
-  const [search, setSearch] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const handleSearch = async () => {
+    if (!searchQuery) return;
+    setLoading(true);
+    try {
+      const videos = await fetchYouTubeSearchResults(searchQuery);
+      setSearchQuery(videos);
+    } catch (error) {
+      console.log("Error Fetching Videos", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     const loadVideos = async () => {
@@ -32,18 +46,17 @@ export default function Home() {
 
   return (
     <View style={{ flex: 1, padding: 10 }}>
-      <TextInput
-        placeholder="Search for videos..."
-        value={search}
-        onChangeText={setSearch}
-        style={{
-          borderWidth: 1,
-          borderColor: "gray",
-          borderRadius: 10,
-          padding: 10,
-          marginBottom: 10
-        }}
-      />
+      <View style={styles.container}>
+        <TextInput
+          style={styles.Input}
+          placeholder="Search Youtube...Paste Link"
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+        />
+        <TouchableOpacity style={styles.button} onPress={handleSearch}>
+          <Text style={styles.buttonText}>🔍</Text>
+        </TouchableOpacity>
+      </View>
       <FlatList
         data={videos}
         keyExtractor={item => item.id}
@@ -90,3 +103,28 @@ export default function Home() {
     </View>
   );
 }
+const styles = StyleSheet.create({
+  Input: {
+    flex: 1,
+    padding: 10
+  },
+
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    margin: 15,
+    borderColor: "#7d0b02",
+
+    borderRadius: 4,
+    overflow: "hidden"
+  },
+  button: {
+    backgroundColor: "#7d0b02",
+    borderRadius: 5,
+    padding: 10
+  },
+  buttonText: {
+    fontSize: 16
+  }
+});
