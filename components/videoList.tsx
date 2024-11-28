@@ -27,7 +27,8 @@ const VideoList: React.FC<VideoListProps> = ({ videos, onDownload }) => {
           thumbnail={item.snippet.thumbnails.medium.url}
           onDownload={() => onDownload(item.id)}
         />
-      )}
+      )
+      }
     />
   );
 };
