@@ -11,7 +11,7 @@ export const fetchPopularVids = async () => {
         part: "snippet,contentDetails,statistics",
         chart: "mostPopular",
         regionCode: "KE",
-        maxResults: 10, // Corrected parameter name
+        maxResults: 10,
         key: YOUTUBE_API // Pass API Key here
       }
     });

@@ -1,30 +1,22 @@
 import React, { useState, useEffect } from "react";
 import { Text, View, TextInput, TouchableOpacity, Image, FlatList, Button, StyleSheet } from "react-native";
 import { fetchPopularVids, fetchYouTubeSearchResults } from "../utils/apiService";
-
-type videos = {
-  id: string; // Video ID
-  snippet: {
-    title: string; // Video title
-    thumbnails: {
-      medium: {
-        url: string; // Thumbnail URL
-      };
-    };
-  };
-};
+import VideoList from "@/components/videoList";
+import ModalPick from "@/components/DownloadPrompt";
 
 export default function Home() {
-  const [videos, setVideos] = useState<videos[]>([]);
+  const [videos, setVideos] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isModalVisable, setModalVisable] = useState(false);
+  const [selectedVideo, setSelectedVideo] = useState("");
 
   const handleSearch = async () => {
     if (!searchQuery) return;
     setLoading(true);
     try {
-      const videos = await fetchYouTubeSearchResults(searchQuery);
-      setSearchQuery(videos);
+      const results = await fetchYouTubeSearchResults(searchQuery);
+      setVideos(results || []);
     } catch (error) {
       console.log("Error Fetching Videos", error);
     } finally {
@@ -36,13 +28,23 @@ export default function Home() {
     const loadVideos = async () => {
       try {
         const popularVids = await fetchPopularVids();
-        setVideos(popularVids);
+        setVideos(popularVids || []);
       } catch (error) {
         console.log("Failed to load Videos", error);
       }
     };
     loadVideos();
   }, []);
+
+  const handleDownload = (videoId: string) => {
+    setSelectedVideo(videoId);
+    setModalVisable(true);
+  };
+
+  const handleSelectOption = (option: "audio" | "video") => {
+    console.log("Downloading ${option} for video ID: ${selectedVideo}");
+    setModalVisable(false);
+  };
 
   return (
     <View style={{ flex: 1, padding: 10 }}>
@@ -57,49 +59,8 @@ export default function Home() {
           <Text style={styles.buttonText}>🔍</Text>
         </TouchableOpacity>
       </View>
-      <FlatList
-        data={videos}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => (
-          <View style={{ marginBottom: 20 }}>
-            <Image
-              source={{ uri: item.snippet.thumbnails.medium.url }}
-              style={{ height: 200, width: "100%", borderRadius: 10 }}
-            />
-            <Text style={{ fontWeight: "bold", marginVertical: 5 }}>{item.snippet.title}</Text>
-            <TouchableOpacity
-              style={{
-                backgroundColor: "#3498db",
-                padding: 10,
-                marginVertical: 5,
-                borderRadius: 5
-              }}
-              onPress={() => console.log(`Play video: ${item.id}`)}>
-              <Text style={{ color: "#fff", textAlign: "center" }}>Stream Video</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{
-                backgroundColor: "#2ecc71",
-                padding: 10,
-                marginVertical: 5,
-                borderRadius: 5
-              }}
-              onPress={() => console.log(`Download video: ${item.id}`)}>
-              <Text style={{ color: "#fff", textAlign: "center" }}>Download Video</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={{
-                backgroundColor: "#e74c3c",
-                padding: 10,
-                marginVertical: 5,
-                borderRadius: 5
-              }}
-              onPress={() => console.log(`Download audio: ${item.id}`)}>
-              <Text style={{ color: "#fff", textAlign: "center" }}>Download Audio</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      />
+      <VideoList videos={videos} onDownload={handleDownload} />
+      <ModalPick visable={isModalVisable} onClose={() => setModalVisable(false)} onSelect={handleSelectOption} />
     </View>
   );
 }
