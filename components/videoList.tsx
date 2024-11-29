@@ -4,19 +4,23 @@ import { FlatList } from "react-native";
 
 import VideoCard from "./videoCard";
 
-type VideoListProps = {
-  videos: {
-    id: string;
-    snippet: {
-      title: string;
-      thumbnails: { medium: { url: string } };
+type Video = {
+  id: string;
+  snippet: {
+    title: string;
+    thumbnails: {
+      medium: { url: string };
     };
-  }[];
-  onDownload: (id: string) => void;
+  };
 };
 
-const VideoList: React.FC<VideoListProps> = ({ videos, onDownload }) => {
-  if (!videos || videos.length === 0) return null;
+type VideoListProps = {
+  videos: Video[];
+  onPlay: (videoUrl: string) => void;
+  onDownload: (videoId: string) => void;
+};
+
+const VideoList: React.FC<VideoListProps> = ({ videos, onPlay, onDownload }) => {
   return (
     <FlatList
       data={videos}
@@ -25,10 +29,10 @@ const VideoList: React.FC<VideoListProps> = ({ videos, onDownload }) => {
         <VideoCard
           title={item.snippet.title}
           thumbnail={item.snippet.thumbnails.medium.url}
+          videoUrl={`https://www.youtube.com/watch?v=${item.id}`}
           onDownload={() => onDownload(item.id)}
         />
-      )
-      }
+      )}
     />
   );
 };

@@ -1,48 +1,9 @@
-import { Tabs } from "expo-router";
-import { MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
+import { Stack } from "expo-router";
 
 export default function Layout() {
   return (
-    <Tabs screenOptions={{ headerShown: false }}>
-      {/* Home Tab */}
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ focused, color, size }) => (
-            <MaterialIcons name="home" size={size} color={focused ? "#7d0b02" : color} />
-          )
-        }}
-      />
-      {/* Games Tab */}
-      <Tabs.Screen
-        name="games"
-        options={{
-          title: "Games",
-          tabBarIcon: ({ focused, color, size }) => (
-            <FontAwesome5 name="gamepad" size={size} color={focused ? "#7d0b02" : color} />
-          )
-        }}
-      />
-      {/* Movies Tab */}
-      <Tabs.Screen
-        name="movies"
-        options={{
-          title: "Movies",
-          tabBarIcon: ({ focused, color, size }) => (
-            <MaterialIcons name="movie" size={size} color={focused ? "#7d0b02" : color} />
-          )
-        }}
-      />
-      <Tabs.Screen
-        name="account"
-        options={{
-          title: "Me",
-          tabBarIcon: ({ focused, color, size }) => (
-            <FontAwesome5 name="user" size={size} color={focused ? "#7d0b02" : color} />
-          )
-        }}
-      />
-    </Tabs>
+    <Stack>
+      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+    </Stack>
   );
 }

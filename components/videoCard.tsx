@@ -1,8 +1,6 @@
 import React from "react";
 import { View, Text, Image, TouchableOpacity, StyleSheet, Dimensions } from "react-native";
-import { useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "react-native-screens/lib/typescript/native-stack/types";
-import videoPlayer from "./videoPlayer";
+import { useNavigation } from "expo-router";
 
 type VideoCardProps = {
   title: string;
@@ -11,26 +9,21 @@ type VideoCardProps = {
   videoUrl: string;
 };
 
-type RootParams = {
-  videoList: undefined;
-  videoPlayerSearch: { videoUrl: string };
-};
-
 const { width } = Dimensions.get("window");
 
-
 const VideoCard: React.FC<VideoCardProps> = ({ title, thumbnail, onDownload, videoUrl }) => {
-  const navigation = useNavigation<NativeStackNavigationProp<RootParams, "videoPlayerSearch">>();
+  const navigation = useNavigation();
 
   const handlePlay = () => {
-    navigation.navigate("videoPlayerSearch", { videoUrl })
+    navigation.navigate("videoPlayer", { videoUrl });
   };
-
 
   return (
     <View style={styles.card}>
       <Image source={{ uri: thumbnail }} style={styles.thumbnail} />
-      <Text style={styles.title} numberOfLines={2}>{title}</Text>
+      <Text style={styles.title} numberOfLines={2}>
+        {title}
+      </Text>
       <View style={styles.actions}>
         <TouchableOpacity onPress={onDownload} style={styles.downloadButton}>
           <Text style={styles.textdown}>Download</Text>
@@ -52,8 +45,8 @@ const styles = StyleSheet.create({
     elevation: 3
   },
   textButton: {
-    textAlign: 'center',
-    color: '#fff'
+    textAlign: "center",
+    color: "#fff"
   },
   thumbnail: {
     height: width * 0.56,
@@ -67,7 +60,7 @@ const styles = StyleSheet.create({
     margin: 11
   },
   actions: {
-    flexDirection: 'column',
+    flexDirection: "column",
     marginRight: 5,
     paddingHorizontal: 10,
     paddingVertical: 5
@@ -82,7 +75,7 @@ const styles = StyleSheet.create({
     margin: 10,
     borderRadius: 5,
     borderColor: "#7d0b02",
-    backgroundColor: "#7d0b02",
+    backgroundColor: "#7d0b02"
   },
   textdown: {
     textAlign: "center",

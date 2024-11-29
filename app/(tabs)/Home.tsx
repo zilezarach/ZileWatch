@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Text, View, TextInput, TouchableOpacity, Image, FlatList, Button, StyleSheet } from "react-native";
-import { fetchPopularVids, fetchYouTubeSearchResults } from "../utils/apiService";
+import { fetchPopularVids, fetchYouTubeSearchResults } from "@/utils/apiService";
 import VideoList from "@/components/videoList";
 import ModalPick from "@/components/DownloadPrompt";
 
-export default function Home() {
+export default function Home({ navigation }: any) {
   const [videos, setVideos] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
@@ -59,7 +59,7 @@ export default function Home() {
           <Text style={styles.buttonText}>🔍</Text>
         </TouchableOpacity>
       </View>
-      <VideoList videos={videos} onDownload={handleDownload} />
+      <VideoList videos={videos} onPlay={videoUrl => console.log("Play Video", videoUrl)} onDownload={handleDownload} />
       <ModalPick visable={isModalVisable} onClose={() => setModalVisable(false)} onSelect={handleSelectOption} />
     </View>
   );
