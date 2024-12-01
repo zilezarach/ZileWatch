@@ -1,6 +1,6 @@
 import React from "react";
 
-import { FlatList } from "react-native";
+import { FlatList, Text } from "react-native";
 
 import VideoCard from "./videoCard";
 
@@ -20,14 +20,22 @@ type VideoListProps = {
   onDownload: (videoId: string) => void;
 };
 
-const VideoList: React.FC<VideoListProps> = ({ videos, onPlay, onDownload }) => {
+const VideoList: React.FC<VideoListProps> = ({
+  videos,
+  onPlay,
+  onDownload,
+}) => {
+  if (!videos || videos.length === 0) {
+    return <Text>No videos available.</Text>;
+  }
+
   return (
     <FlatList
       data={videos}
-      keyExtractor={item => item.id}
+      keyExtractor={(item) => item.id}
       renderItem={({ item }) => (
         <VideoCard
-          title={item.snippet.title}
+          title={item.snippet.title || "untitled"}
           thumbnail={item.snippet.thumbnails.medium.url}
           videoUrl={`https://www.youtube.com/watch?v=${item.id}`}
           onDownload={() => onDownload(item.id)}

@@ -1,5 +1,5 @@
 import React from "react";
-import Video from "react-native-video";
+import { WebView } from "react-native-webview";
 import { View, StyleSheet, Dimensions } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 
@@ -12,9 +12,18 @@ type VideoPlayProps = {
 const videoPlayer: React.FC<VideoPlayProps> = ({ route }) => {
   const { videoUrl } = route.params;
 
+  const videoId = videoUrl.split("v=")[1]?.split("&")[0];
+
   return (
     <View style={styles.container}>
-      <Video source={{ uri: videoUrl }} controls={true} resizeMode="contain" style={styles.video} />
+      <WebView
+        source={{
+          uri: `https://www.youtube.com/embed/${videoId}`,
+        }}
+        style={styles.webview}
+        javaScriptEnabled={true}
+        domStorageEnabled={true}
+      />
     </View>
   );
 };
@@ -22,12 +31,12 @@ const videoPlayer: React.FC<VideoPlayProps> = ({ route }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#000"
+    backgroundColor: "#000",
   },
-  video: {
+  webview: {
     width: "100%",
-    height: (width * 9) / 16
-  }
+    height: (width * 9) / 16,
+  },
 });
 
 export default videoPlayer;

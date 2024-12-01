@@ -1,6 +1,15 @@
 import React from "react";
-import { View, Text, Image, TouchableOpacity, StyleSheet, Dimensions } from "react-native";
-import { useNavigation } from "expo-router";
+import {
+  View,
+  Text,
+  Image,
+  TouchableOpacity,
+  StyleSheet,
+  Dimensions,
+} from "react-native";
+import { useNavigation } from "@react-navigation/native";
+import { RootStackParamList } from "@/types/navigation";
+import { StackNavigationProp } from "@react-navigation/stack";
 
 type VideoCardProps = {
   title: string;
@@ -9,13 +18,23 @@ type VideoCardProps = {
   videoUrl: string;
 };
 
+type VideoCardScreenNavigationProp = StackNavigationProp<
+  RootStackParamList,
+  "VideoPlayer"
+>;
+
 const { width } = Dimensions.get("window");
 
-const VideoCard: React.FC<VideoCardProps> = ({ title, thumbnail, onDownload, videoUrl }) => {
-  const navigation = useNavigation();
+const VideoCard: React.FC<VideoCardProps> = ({
+  title,
+  thumbnail,
+  onDownload,
+  videoUrl,
+}) => {
+  const navigation = useNavigation<VideoCardScreenNavigationProp>();
 
   const handlePlay = () => {
-    navigation.navigate("videoPlayer", { videoUrl });
+    navigation.navigate("VideoPlayer", { videoUrl });
   };
 
   return (
@@ -42,45 +61,45 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     overflow: "hidden",
     backgroundColor: "#fff",
-    elevation: 3
+    elevation: 3,
   },
   textButton: {
     textAlign: "center",
-    color: "#fff"
+    color: "#fff",
   },
   thumbnail: {
     height: width * 0.56,
-    width: "100%"
+    width: "100%",
   },
   playButton: {
     borderRadius: 5,
     borderColor: "#7d0b02",
     backgroundColor: "#7d0b02",
     padding: 10,
-    margin: 11
+    margin: 11,
   },
   actions: {
     flexDirection: "column",
     marginRight: 5,
     paddingHorizontal: 10,
-    paddingVertical: 5
+    paddingVertical: 5,
   },
   title: {
     fontWeight: "bold",
     marginVertical: 10,
-    fontSize: 15
+    fontSize: 15,
   },
   downloadButton: {
     padding: 10,
     margin: 10,
     borderRadius: 5,
     borderColor: "#7d0b02",
-    backgroundColor: "#7d0b02"
+    backgroundColor: "#7d0b02",
   },
   textdown: {
     textAlign: "center",
-    color: "#fff"
-  }
+    color: "#fff",
+  },
 });
 
 export default VideoCard;
