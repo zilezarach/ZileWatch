@@ -10,7 +10,7 @@ export const fetchPopularVids = async () => {
       params: {
         part: "snippet,contentDetails,statistics",
         chart: "mostPopular",
-        regionCode: "KE",
+        regionCode: "US",
         maxResults: 10,
         key: YOUTUBE_API // Pass API Key here
       }
@@ -18,14 +18,11 @@ export const fetchPopularVids = async () => {
 
     const videos = response.data.items.map(item => ({
       id: item.id,
-      snippet: {
-        title: item.snippet.title,
-        thumbnails: {
-          medium: {
-            url: item.snippet.thumbnails.medium.url
-          }
-        }
-      }
+      title: item.snippet?.title,
+      thumbnails: item.snippet?.thumbnails || {
+        medium: { url: "https://via.placeholder.com/150" }
+      },
+      channelTitle: item.snippet?.channelTitle
     }));
     return videos;
   } catch (error) {
@@ -45,18 +42,35 @@ export const fetchYouTubeSearchResults = async query => {
         maxResults: 10
       }
     });
-    const videos = response.data.items.map(item => ({
-      id: item.id.videoId,
-      title: item.snippet.title,
-      description: item.snippet.description,
-      thumbnails: {
-        medium: {
-          url: item.snippet.thumbnails.medium.url
-        }
-      },
-      channelTitle: item.snippet.channelTitle
-    }));
-    return videos;
+
+    // Check if the response contains items
+    if (!response.data.items) {
+      console.warn("No items found in YouTube API response");
+      return [];
+    }
+
+    // Map the results to the expected format
+    const videos = response.data.items.map(item => {
+      if (!item.id?.videoId || !item.snippet) {
+        console.warn("Skipping item due to missing videoId or snippet:", item);
+        return null;
+      }
+
+      return {
+        id: item.id.videoId,
+        title: item.snippet.title || "Untitled",
+        description: item.snippet.description || "No description available.",
+        thumbnails: {
+          medium: {
+            url: item.snippet.thumbnails?.medium?.url || "https://via.placeholder.com/150"
+          }
+        },
+        channelTitle: item.snippet.channelTitle || "Unknown Channel"
+      };
+    });
+
+    // Filter out null results from skipped items
+    return videos.filter(video => video !== null);
   } catch (error) {
     console.error("Error fetching YouTube search results:", error.response?.data || error.message);
     throw error;

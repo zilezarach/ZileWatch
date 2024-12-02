@@ -6,12 +6,12 @@ import VideoCard from "./videoCard";
 
 type Video = {
   id: string;
-  snippet: {
-    title: string;
-    thumbnails: {
-      medium: { url: string };
-    };
+  title: string;
+  thumbnails: {
+    medium: { url: string };
   };
+  description: string;
+  channelTitle: string;
 };
 
 type VideoListProps = {
@@ -20,27 +20,25 @@ type VideoListProps = {
   onDownload: (videoId: string) => void;
 };
 
-const VideoList: React.FC<VideoListProps> = ({
-  videos,
-  onPlay,
-  onDownload,
-}) => {
+const VideoList: React.FC<VideoListProps> = ({ videos, onPlay, onDownload }) => {
   if (!videos || videos.length === 0) {
     return <Text>No videos available.</Text>;
   }
-
   return (
     <FlatList
       data={videos}
-      keyExtractor={(item) => item.id}
-      renderItem={({ item }) => (
-        <VideoCard
-          title={item.snippet.title || "untitled"}
-          thumbnail={item.snippet.thumbnails.medium.url}
-          videoUrl={`https://www.youtube.com/watch?v=${item.id}`}
-          onDownload={() => onDownload(item.id)}
-        />
-      )}
+      keyExtractor={item => item.id}
+      renderItem={({ item }) => {
+        const thumbnail = item?.thumbnails?.medium?.url;
+        return (
+          <VideoCard
+            title={item.title || "untitled"}
+            thumbnail={thumbnail}
+            videoUrl={`https://www.youtube.com/watch?v=${item.id}`}
+            onDownload={() => onDownload(item.id)}
+          />
+        );
+      }}
     />
   );
 };
