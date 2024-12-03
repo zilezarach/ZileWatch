@@ -77,7 +77,7 @@ export default function Movies(): JSX.Element {
   const fetchTorrents = async (title: string): Promise<void> => {
     setLoading(true);
     try {
-      const res = await axios.get<Torrent[]>(`${BACKEND_URL}/torrents`, {
+      const res = await axios.get<Torrent[]>(`${BACKEND_URL}/torrent`, {
         params: { title }
       });
       setTorrents(res.data);
@@ -103,7 +103,7 @@ export default function Movies(): JSX.Element {
   };
 
   return (
-    <ScrollView style={[styles.container, isDarkMode && styles.darkMode]}>
+    <View style={[styles.container, isDarkMode && styles.darkMode]}>
       {/* Search Bar */}
       <TextInput
         style={styles.searchBar}
@@ -119,7 +119,7 @@ export default function Movies(): JSX.Element {
       {loading ? (
         <ActivityIndicator size="large" color="#FF5722" />
       ) : movies.length === 0 ? (
-        <Text style={styles.loadingText}>No movies found</Text>
+        <Text style={styles.loadingText}>Search To Get Started</Text>
       ) : (
         <FlatList
           data={movies}
@@ -146,7 +146,7 @@ export default function Movies(): JSX.Element {
           )}
         />
       )}
-    </ScrollView>
+    </View>
   );
 }
 
