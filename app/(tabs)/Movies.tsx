@@ -7,18 +7,17 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
-  ScrollView,
   ActivityIndicator,
   Alert,
   Dimensions,
-  Linking
+  Linking,
 } from "react-native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Constants
 const BACKEND_URL = "https://backendtorrent.onrender.com";
-const { width, height } = Dimensions.get("window");
+const { width } = Dimensions.get("window");
 
 // Type Definitions
 type Movie = {
@@ -38,7 +37,6 @@ type Torrent = {
 };
 
 export default function Movies(): JSX.Element {
-  // State Variables
   const [movies, setMovies] = useState<Movie[]>([]);
   const [searchTerm, setSearchTerm] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
@@ -54,36 +52,37 @@ export default function Movies(): JSX.Element {
 
     setLoading(true);
     try {
-      // Check for cached data first
-      const cachedMovies = await AsyncStorage.getItem(query);
-      if (cachedMovies) {
-        setMovies(JSON.parse(cachedMovies)); // Use cached data
-      } else {
-        const res = await axios.get<Movie>(`${BACKEND_URL}/movie-info`, {
-          params: { title: query }
-        });
-        setMovies([res.data]); // OMDb returns one movie
-        await AsyncStorage.setItem(query, JSON.stringify([res.data])); // Cache the data
+      const res = await axios.get(`${BACKEND_URL}/movie-info`, {
+        params: { title: query },
+      });
+      console.log("Movie API Response:", res.data); // Debugging
+      const movie = res.data;
+      if (!movie || !movie.title) {
+        // Use lowercase if backend uses lowercase
+        throw new Error("Invalid movie data received.");
       }
+      setMovies([movie]);
+      await AsyncStorage.setItem(query, JSON.stringify([movie])); // Cache the data
     } catch (error) {
-      console.error("Error fetching movies:", error);
-      Alert.alert("Error", "Failed to fetch movie data.");
-    } finally {
-      setLoading(false);
+      console.error("Error fetching movies:", error); // Log error
+      Alert.alert(
+        "Error",
+        "Failed to fetch movie data. Please try again later.",
+      );
     }
   };
 
-  // Fetch torrents for a specific movie
-  const fetchTorrents = async (title: string): Promise<void> => {
+  // Fetch torrents for a movie
+
+  const fetchTorrents = async (title: string) => {
     setLoading(true);
     try {
-      const res = await axios.get<Torrent[]>(`${BACKEND_URL}/torrent`, {
-        params: { title }
-      });
-      setTorrents(res.data);
+      const response = await axios.get(
+        `https://backendtorrent.onrender.com/torrent?title=${title}`,
+      );
+      setTorrents(response.data);
     } catch (error) {
       console.error("Error fetching torrents:", error);
-      Alert.alert("Error", "Failed to fetch torrents.");
     } finally {
       setLoading(false);
     }
@@ -91,15 +90,12 @@ export default function Movies(): JSX.Element {
 
   // Handle streaming the movie
   const playMovie = (magnetLink: string): void => {
-    Alert.alert("Stream", "Streaming the movie...", [
-      {
-        text: "OK",
-        onPress: () => {
-          console.log("Streaming movie from:", magnetLink);
-          Linking.openURL(magnetLink); // Open magnet link in a torrent client
-        }
-      }
-    ]);
+    Linking.openURL(magnetLink).catch(() =>
+      Alert.alert(
+        "Error",
+        "Unable to open the magnet link. Please ensure you have a torrent client installed.",
+      ),
+    );
   };
 
   return (
@@ -123,21 +119,36 @@ export default function Movies(): JSX.Element {
       ) : (
         <FlatList
           data={movies}
-          keyExtractor={item => item.imdbID}
+          keyExtractor={(item) => item.imdbID}
           renderItem={({ item }) => (
             <View style={styles.movieCard}>
-              <Image source={{ uri: item.Poster }} style={styles.movieImage} />
+              <Image
+                source={{
+                  uri: item.Poster || "https://via.placeholder.com/100x150",
+                }}
+                style={styles.movieImage}
+              />
               <View style={styles.movieDetails}>
-                <Text style={styles.movieTitle}>{item.Title}</Text>
-                <Text style={styles.movieDescription}>{item.Plot}</Text>
-                <Text style={styles.movieRating}>IMDb Rating: {item.imdbRating || "N/A"}</Text>
+                <Text style={styles.movieTitle}>{item.Title || "N/A"}</Text>
+                <Text style={styles.movieDescription}>
+                  {item.Plot || "No description available."}
+                </Text>
+                <Text style={styles.movieRating}>
+                  IMDb Rating: {item.imdbRating || "N/A"}
+                </Text>
                 <View style={styles.actionButtons}>
-                  <TouchableOpacity style={styles.button} onPress={() => fetchTorrents(item.Title)}>
+                  <TouchableOpacity
+                    style={styles.button}
+                    onPress={() => fetchTorrents(item.Title)}
+                  >
                     <Text style={styles.buttonText}>Get Torrents</Text>
                   </TouchableOpacity>
                 </View>
                 {torrents.length > 0 && (
-                  <TouchableOpacity style={styles.button} onPress={() => playMovie(torrents[0].magnet)}>
+                  <TouchableOpacity
+                    style={styles.button}
+                    onPress={() => playMovie(torrents[0].magnet)}
+                  >
                     <Text style={styles.buttonText}>Stream</Text>
                   </TouchableOpacity>
                 )}
@@ -154,67 +165,67 @@ export default function Movies(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 10
+    padding: 10,
   },
   darkMode: {
-    backgroundColor: "#121212"
+    backgroundColor: "#121212",
   },
   searchBar: {
     backgroundColor: "#1E1E1E",
     borderRadius: 10,
     padding: 10,
     color: "#FFF",
-    marginBottom: 20
+    marginBottom: 20,
   },
   sectionTitle: {
     color: "#FFF",
     fontSize: 18,
     fontWeight: "bold",
-    marginVertical: 10
+    marginVertical: 10,
   },
   movieCard: {
     flexDirection: "row",
-    marginBottom: 20
+    marginBottom: 20,
   },
   movieImage: {
     width: 100,
     height: 150,
-    borderRadius: 10
+    borderRadius: 10,
   },
   movieDetails: {
     flex: 1,
-    marginLeft: 10
+    marginLeft: 10,
   },
   movieTitle: {
     color: "#FFF",
     fontSize: 16,
-    fontWeight: "bold"
+    fontWeight: "bold",
   },
   movieDescription: {
     color: "#BBB",
     fontSize: 14,
-    marginVertical: 5
+    marginVertical: 5,
   },
   movieRating: {
     color: "#FFD700",
     fontSize: 14,
-    marginVertical: 5
+    marginVertical: 5,
   },
   actionButtons: {
     flexDirection: "row",
-    marginTop: 10
+    marginTop: 10,
   },
   button: {
     backgroundColor: "#FF5722",
     borderRadius: 10,
     padding: 10,
-    marginRight: 10
+    marginRight: 10,
   },
   buttonText: {
-    color: "#FFF"
+    color: "#FFF",
   },
   loadingText: {
     color: "#FFF",
-    textAlign: "center"
-  }
+    textAlign: "center",
+  },
 });
