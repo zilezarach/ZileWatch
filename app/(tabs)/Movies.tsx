@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import {
   View,
   Text,
@@ -44,47 +44,60 @@ export default function Movies(): JSX.Element {
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
 
   // Fetch movies from API
-  const fetchMovies = async (query: string): Promise<void> => {
-    if (!query.trim()) {
-      Alert.alert("Error", "Please enter a valid search term.");
-      return;
-    }
-
-    setLoading(true);
+  const fetchMovies = async (query: string) => {
     try {
-      const res = await axios.get(`${BACKEND_URL}/movie-info`, {
-        params: { title: query },
-      });
-      console.log("Movie API Response:", res.data); // Debugging
-      const movie = res.data;
-      if (!movie || !movie.title) {
-        // Use lowercase if backend uses lowercase
-        throw new Error("Invalid movie data received.");
+      setLoading(true); // Start loading
+      const cachedMovies = await AsyncStorage.getItem(query);
+      if (cachedMovies) {
+        setMovies(JSON.parse(cachedMovies)); // Use cached data
+      } else {
+        const res = await axios.get(`${BACKEND_URL}/movie-info`, {
+          params: { title: query },
+        });
+
+        // Validate response structure
+        if (!res.data || !res.data.title) {
+          throw new Error("Invalid movie data received.");
+        }
+
+        // Normalize the data
+        const movie: Movie = {
+          Title: res.data.title || "N/A",
+          Year: res.data.year || "N/A",
+          Genre: res.data.genre || "N/A",
+          Plot: res.data.plot || "No description available.",
+          Poster: res.data.poster || "https://via.placeholder.com/100x150",
+          imdbID: res.data.imdbID || query, // Use query if ID is missing
+          imdbRating: res.data.imdbRating || "N/A",
+        };
+
+        setMovies([movie]);
+        await AsyncStorage.setItem(query, JSON.stringify([movie])); // Cache the data
       }
-      setMovies([movie]);
-      await AsyncStorage.setItem(query, JSON.stringify([movie])); // Cache the data
     } catch (error) {
-      console.error("Error fetching movies:", error); // Log error
+      console.error("Error fetching movies:", error);
       Alert.alert(
         "Error",
         "Failed to fetch movie data. Please try again later.",
       );
+    } finally {
+      setLoading(false); // Ensure loading is stopped
     }
   };
 
   // Fetch torrents for a movie
-
   const fetchTorrents = async (title: string) => {
-    setLoading(true);
     try {
-      const response = await axios.get(
-        `https://backendtorrent.onrender.com/torrent?title=${title}`,
-      );
-      setTorrents(response.data);
+      setLoading(true); // Start loading
+      const response = await axios.get(`${BACKEND_URL}/torrent`, {
+        params: { title },
+      });
+      setTorrents(response.data || []);
     } catch (error) {
       console.error("Error fetching torrents:", error);
+      Alert.alert("Error", "Failed to fetch torrent data. Please try again.");
     } finally {
-      setLoading(false);
+      setLoading(false); // Stop loading
     }
   };
 
@@ -115,7 +128,7 @@ export default function Movies(): JSX.Element {
       {loading ? (
         <ActivityIndicator size="large" color="#FF5722" />
       ) : movies.length === 0 ? (
-        <Text style={styles.loadingText}>Search To Get Started</Text>
+        <Text style={styles.loadingText}>Search to get started</Text>
       ) : (
         <FlatList
           data={movies}
@@ -146,7 +159,7 @@ export default function Movies(): JSX.Element {
                 </View>
                 {torrents.length > 0 && (
                   <TouchableOpacity
-                    style={styles.button}
+                    style={styles.buttonStream}
                     onPress={() => playMovie(torrents[0].magnet)}
                   >
                     <Text style={styles.buttonText}>Stream</Text>
@@ -227,5 +240,11 @@ const styles = StyleSheet.create({
   loadingText: {
     color: "#FFF",
     textAlign: "center",
+  },
+  buttonStream: {
+    padding: 10,
+    marginTop: 5,
+    borderRadius: 10,
+    backgroundColor: "#117000",
   },
 });
