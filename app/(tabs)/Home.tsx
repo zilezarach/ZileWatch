@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Text, View, TextInput, TouchableOpacity, Image, FlatList, Button, StyleSheet } from "react-native";
+import { Text, View, TextInput, TouchableOpacity, Image, FlatList, Button, StyleSheet, Switch } from "react-native";
 import { fetchPopularVids, fetchYouTubeSearchResults } from "@/utils/apiService";
 import VideoList from "@/components/videoList";
 import ModalPick from "@/components/DownloadPrompt";
@@ -10,7 +10,7 @@ export default function Home({ navigation }: any) {
   const [loading, setLoading] = useState(false);
   const [isModalVisable, setModalVisable] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState("");
-
+  const [isDarkMode, setisDarkMode] = useState<boolean>(true);
   const handleSearch = async () => {
     if (!searchQuery) return;
     setLoading(true);
@@ -47,7 +47,11 @@ export default function Home({ navigation }: any) {
   };
 
   return (
-    <View style={{ flex: 1, padding: 10 }}>
+    <View style={[styles.contain, isDarkMode && styles.darkMode]}>
+      <View style={styles.toggleContainer}>
+        <Text style={styles.toggleLabel}></Text>
+        <Switch value={isDarkMode} onValueChange={setisDarkMode} />
+      </View>
       <View style={styles.container}>
         <TextInput
           style={styles.Input}
@@ -69,7 +73,10 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 10
   },
-
+  contain: {
+    flex: 1,
+    padding: 10
+  },
   container: {
     flexDirection: "row",
     alignItems: "center",
@@ -87,5 +94,18 @@ const styles = StyleSheet.create({
   },
   buttonText: {
     fontSize: 16
+  },
+  darkMode: {
+    backgroundColor: "#121212"
+  },
+  toggleContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10
+  },
+  toggleLabel: {
+    fontSize: 16,
+    color: "#FFF"
   }
 });
