@@ -1,6 +1,20 @@
 import React, { useState, useEffect } from "react";
-import { Text, View, TextInput, TouchableOpacity, Image, FlatList, Button, StyleSheet, Switch } from "react-native";
-import { fetchPopularVids, fetchYouTubeSearchResults } from "@/utils/apiService";
+import {
+  Text,
+  View,
+  TextInput,
+  TouchableOpacity,
+  Image,
+  FlatList,
+  Button,
+  StyleSheet,
+  Switch,
+  Alert,
+} from "react-native";
+import {
+  fetchPopularVids,
+  fetchYouTubeSearchResults,
+} from "@/utils/apiService";
 import VideoList from "@/components/videoList";
 import ModalPick from "@/components/DownloadPrompt";
 
@@ -41,15 +55,47 @@ export default function Home({ navigation }: any) {
     setModalVisable(true);
   };
 
-  const handleSelectOption = (option: "audio" | "video") => {
-    console.log("Downloading ${option} for video ID: ${selectedVideo}");
-    setModalVisable(false);
+  const handleSelectOption = async (option: "audio" | "video") => {
+    if (!selectedVideo) {
+      console.log("No video selected for download.");
+      return;
+    }
+
+    console.log(`Downloading ${option} for video ID: ${selectedVideo}`);
+
+    try {
+      const response = await fetch(
+        "https://backendtorrent.onrender.com/downloader",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: selectedVideo, format: option }),
+        },
+      );
+
+      const data = await response.json();
+      if (response.ok) {
+        console.log("Download started:", data);
+        Alert.alert("Success", `Download started for ${option}`);
+      } else {
+        console.error("Download error:", data.error);
+        Alert.alert("Error", data.error || "Failed to initiate download.");
+      }
+    } catch (error) {
+      console.error("Download failed:", error);
+      Alert.alert("Error", "An error occurred while initiating the download.");
+    } finally {
+      setModalVisable(false); // Close the modal after request
+    }
   };
 
   return (
     <View style={[styles.contain, isDarkMode && styles.darkMode]}>
       <View style={styles.toggleContainer}>
-        <Text style={styles.toggleLabel}></Text>
+        <Image
+          source={require("../../assets/images/Original.png")}
+          style={{ width: 100, height: 100 }}
+        />
         <Switch value={isDarkMode} onValueChange={setisDarkMode} />
       </View>
       <View style={styles.container}>
@@ -63,19 +109,27 @@ export default function Home({ navigation }: any) {
           <Text style={styles.buttonText}>🔍</Text>
         </TouchableOpacity>
       </View>
-      <VideoList videos={videos} onPlay={videoUrl => console.log("Play Video", videoUrl)} onDownload={handleDownload} />
-      <ModalPick visable={isModalVisable} onClose={() => setModalVisable(false)} onSelect={handleSelectOption} />
+      <VideoList
+        videos={videos}
+        onPlay={(videoUrl) => console.log("Play Video", videoUrl)}
+        onDownload={handleDownload}
+      />
+      <ModalPick
+        visable={isModalVisable}
+        onClose={() => setModalVisable(false)}
+        onSelect={handleSelectOption}
+      />
     </View>
   );
 }
 const styles = StyleSheet.create({
   Input: {
     flex: 1,
-    padding: 10
+    padding: 10,
   },
   contain: {
     flex: 1,
-    padding: 10
+    padding: 10,
   },
   container: {
     flexDirection: "row",
@@ -85,27 +139,27 @@ const styles = StyleSheet.create({
     borderColor: "#7d0b02",
 
     borderRadius: 4,
-    overflow: "hidden"
+    overflow: "hidden",
   },
   button: {
     backgroundColor: "#7d0b02",
     borderRadius: 5,
-    padding: 10
+    padding: 10,
   },
   buttonText: {
-    fontSize: 16
+    fontSize: 16,
   },
   darkMode: {
-    backgroundColor: "#121212"
+    backgroundColor: "#121212",
   },
   toggleContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10
+    marginBottom: 10,
   },
   toggleLabel: {
     fontSize: 16,
-    color: "#FFF"
-  }
+    color: "#FFF",
+  },
 });
