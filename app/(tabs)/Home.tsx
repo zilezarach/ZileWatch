@@ -54,18 +54,15 @@ export default function Home({ navigation }: any) {
     setSelectedVideo(videoId);
     setModalVisable(true);
   };
-
   const handleSelectOption = async (option: "audio" | "video") => {
     if (!selectedVideo) {
-      console.log("No video selected for download.");
+      Alert.alert("Error", "No video selected for download.");
       return;
     }
 
-    console.log(`Downloading ${option} for video ID: ${selectedVideo}`);
-
     try {
       const response = await fetch(
-        "https://backendtorrent.onrender.com/downloader",
+        "http://192.168.100.32:PORT/downloadvideos",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -76,19 +73,21 @@ export default function Home({ navigation }: any) {
       const data = await response.json();
       if (response.ok) {
         console.log("Download started:", data);
-        Alert.alert("Success", `Download started for ${option}`);
+        Alert.alert("Success", `Download started for ${option}.`);
       } else {
-        console.error("Download error:", data.error);
-        Alert.alert("Error", data.error || "Failed to initiate download.");
+        console.error("Backend Error:", data.error);
+        Alert.alert(
+          "Error",
+          data.error || "Failed to initiate download. Please try again.",
+        );
       }
     } catch (error) {
-      console.error("Download failed:", error);
+      console.error("Download Error:", error);
       Alert.alert("Error", "An error occurred while initiating the download.");
     } finally {
-      setModalVisable(false); // Close the modal after request
+      setModalVisable(false);
     }
   };
-
   return (
     <View style={[styles.contain, isDarkMode && styles.darkMode]}>
       <View style={styles.toggleContainer}>
