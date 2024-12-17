@@ -6,7 +6,13 @@ import VideoPlayer from "./VideoPlayer";
 import { Image, View, StyleSheet } from "react-native";
 import VideoList from "@/components/videoList";
 
-const Stack = createNativeStackNavigator();
+const Stack = createNativeStackNavigator<RootStackParamList>();
+
+export type RootStackParamList = {
+  Home: undefined;
+  VideoPlayer: { videoUrl: string };
+  VideoList: undefined;
+};
 
 const AppNavigator = () => {
   return (
@@ -18,9 +24,12 @@ const AppNavigator = () => {
           options={{
             headerTitle: () => (
               <View style={styles.headerContainer}>
-                <Image source={require("../../assets/images/HomeLogo.png")} style={{ width: 100, height: 50 }} />
+                <Image
+                  source={require("../../assets/images/HomeLogo.png")}
+                  style={{ width: 100, height: 50 }}
+                />
               </View>
-            )
+            ),
           }}
         />
         <Stack.Screen
@@ -29,9 +38,12 @@ const AppNavigator = () => {
           options={{
             headerTitle: () => (
               <View style={styles.headerContainer}>
-                <Image source={require("../../assets/images/Original.png")} style={{ width: 92, height: 50 }} />
+                <Image
+                  source={require("../../assets/images/Original.png")}
+                  style={{ width: 92, height: 50 }}
+                />
               </View>
-            )
+            ),
           }}
         />
         <Stack.Screen name="VideoList" component={VideoList} />
@@ -45,8 +57,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "center"
-  }
+    justifyContent: "center",
+  },
 });
 
 export default AppNavigator;

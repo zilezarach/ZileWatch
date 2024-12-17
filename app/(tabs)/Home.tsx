@@ -25,6 +25,7 @@ export default function Home({ navigation }: any) {
   const [isModalVisable, setModalVisable] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState("");
   const [isDarkMode, setisDarkMode] = useState<boolean>(true);
+
   const handleSearch = async () => {
     if (!searchQuery) return;
     setLoading(true);
@@ -62,7 +63,7 @@ export default function Home({ navigation }: any) {
 
     try {
       const response = await fetch(
-        "http://192.168.100.32:PORT/downloadvideos",
+        "http://192.168.100.32:5000/downloadvideos",
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },

@@ -36,7 +36,6 @@ const VideoCard: React.FC<VideoCardProps> = ({
   const handlePlay = () => {
     navigation.navigate("VideoPlayer", { videoUrl });
   };
-
   return (
     <View style={styles.card}>
       <Image source={{ uri: thumbnail }} style={styles.thumbnail} />
