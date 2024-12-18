@@ -102,6 +102,7 @@ export default function Home({ navigation }: any) {
         <TextInput
           style={styles.Input}
           placeholder="Search Youtube...Paste Link"
+          placeholderTextColor="#7d0b02"
           value={searchQuery}
           onChangeText={setSearchQuery}
         />
