@@ -157,6 +157,7 @@ export default function Movies(): JSX.Element {
       setLoading(false); // Stop loading
     }
   };
+  //Handle Torrent Download
 
   // Handle streaming the movie
   const playMovie = (magnetLink: string) => {
@@ -186,7 +187,6 @@ export default function Movies(): JSX.Element {
   useEffect(() => {
     fetchPopularMovies();
   }, []);
-
   return (
     <View style={[styles.container, isDarkMode && styles.darkMode]}>
       {/* Toggle Dark Mode */}
@@ -213,10 +213,7 @@ export default function Movies(): JSX.Element {
         <ActivityIndicator size="large" color="#FFF" />
       ) : (
         <FlatList
-          data={movies.filter(
-            (movie) =>
-              movie.category === "Popular" || movie.category === "Search",
-          )}
+          data={movies}
           keyExtractor={(item) => item.imdbID}
           renderItem={({ item }) => (
             <View style={styles.movieCard}>
@@ -249,6 +246,25 @@ export default function Movies(): JSX.Element {
         />
       )}
       {streamUrl && renderStream()}
+      <FlatList
+        data={torrents}
+        keyExtractor={(item, index) => index.toString()}
+        renderItem={({ item }) => (
+          <View style={styles.torrentCard}>
+            <Text style={styles.torrentName}>{item.name}</Text>
+            <Text style={styles.torrentSize}>Size: {item.size}</Text>
+            <TouchableOpacity
+              style={styles.buttonStream}
+              onPress={() => playMovie(item.magnet)}
+            >
+              <Text>Stream</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.buttonDownload}>
+              <Text>Download</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+      />
     </View>
   );
 }
@@ -261,6 +277,36 @@ const styles = StyleSheet.create({
   },
   darkMode: {
     backgroundColor: "#121212",
+  },
+  torrentCard: {
+    backgroundColor: "#1E1E1E",
+    borderRadius: 10,
+    padding: 10,
+    marginBottom: 6,
+    marginTop: 6,
+  },
+  buttonStream: {
+    backgroundColor: "#7d0b02",
+    padding: 10,
+    marginTop: 5,
+    marginBottom: 5,
+  },
+  buttonDownload: {
+    backgroundColor: "#540007",
+    padding: 6,
+    marginTop: 5,
+    marginBottom: 5,
+    borderRadius: 10,
+  },
+  torrentName: {
+    color: "#FFF",
+    fontWeight: "bold",
+    fontSize: 15,
+  },
+  torrentSize: {
+    color: "#BBB",
+    fontSize: 14,
+    marginBottom: 8,
   },
   toggleContainer: {
     flexDirection: "row",
