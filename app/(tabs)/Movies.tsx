@@ -14,7 +14,13 @@ import {
 } from "react-native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import Video from "react-native-video";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useNavigation } from "@react-navigation/native";
+import { RootStackParamList } from "@/types/navigation";
+
+//type definations
+
+type NavigationProp = NativeStackNavigationProp<RootStackParamList, "Movies">;
 
 // Constants
 const BACKEND_URL = "https://backendtorrent.onrender.com";
@@ -53,8 +59,8 @@ export default function Movies(): JSX.Element {
   const [loading, setLoading] = useState<boolean>(false);
   const [torrents, setTorrents] = useState<Torrent[]>([]);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
-  const [streamUrl, setStreamUrl] = useState<string>("");
   const [isSearching, setIsSearching] = useState<boolean>(false);
+  const navigation = useNavigation<NavigationProp>();
 
   //UseEffect ensure UI is Loaded
   useEffect(() => {
@@ -160,33 +166,19 @@ export default function Movies(): JSX.Element {
   //Handle Torrent Download
 
   // Handle streaming the movie
-  const playMovie = (magnetLink: string) => {
+  const handleStream = (magnetLink: string, videoTitle: string) => {
     if (!magnetLink) {
-      Alert.alert("Error", "Invalid magnet link.");
+      Alert.alert("Error", "Invalid Link");
       return;
     }
-    const encodedLink = encodeURIComponent(magnetLink);
-    setStreamUrl(`http://localhost:5000/stream?magnet=${encodedLink}`);
+    navigation.navigate("Stream", { magnetLink, videoTitle });
   };
 
-  // Render Stream Video
-  const renderStream = () => (
-    <View style={styles.videoContainer}>
-      <Video
-        source={{ uri: streamUrl }}
-        style={styles.videoPlayer}
-        controls
-        resizeMode="contain"
-      />
-      <TouchableOpacity style={styles.button} onPress={() => setStreamUrl("")}>
-        <Text style={styles.buttonText}>Close Stream</Text>
-      </TouchableOpacity>
-    </View>
-  );
-
+  //collect the popular movies
   useEffect(() => {
     fetchPopularMovies();
   }, []);
+
   return (
     <View style={[styles.container, isDarkMode && styles.darkMode]}>
       {/* Toggle Dark Mode */}
@@ -245,7 +237,6 @@ export default function Movies(): JSX.Element {
           }
         />
       )}
-      {streamUrl && renderStream()}
       <FlatList
         data={torrents}
         keyExtractor={(item, index) => index.toString()}
@@ -254,8 +245,8 @@ export default function Movies(): JSX.Element {
             <Text style={styles.torrentName}>{item.name}</Text>
             <Text style={styles.torrentSize}>Size: {item.size}</Text>
             <TouchableOpacity
-              style={styles.buttonStream}
-              onPress={() => playMovie(item.magnet)}
+              style={styles.buttonStreamer}
+              onPress={() => handleStream(item.name, item.magnet)}
             >
               <Text>Stream</Text>
             </TouchableOpacity>
@@ -285,7 +276,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     marginTop: 6,
   },
-  buttonStream: {
+  buttonStreamer: {
     backgroundColor: "#7d0b02",
     padding: 10,
     marginTop: 5,
