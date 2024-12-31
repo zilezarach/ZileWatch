@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View,
   StyleSheet,
@@ -6,22 +6,19 @@ import {
   Text,
   Dimensions,
 } from "react-native";
-import Video from "react-native-video";
+import Video, { VideoRef } from "react-native-video";
 import axios from "axios";
-import { RouteProp } from "@react-navigation/native";
-import { RootStackParamList } from "./index";
+import { useRoute, RouteProp } from "@react-navigation/native";
+import { RootStackParamList } from "@/types/navigation";
 
 const { width } = Dimensions.get("window");
 
-type VideoPlayerProps = {
-  route: RouteProp<RootStackParamList, "VideoPlayer">;
-};
-
-const VideoPlayer: React.FC<VideoPlayerProps> = ({ route }) => {
+const VideoPlayer = () => {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-
+  const route = useRoute<RouteProp<RootStackParamList, "VideoPlayer">>();
+  const videoRef = useRef<VideoRef>(null);
   const videoUrl = route.params.videoUrl;
 
   let videoId = null;
@@ -73,6 +70,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ route }) => {
         source={{ uri: streamUrl }} // Direct video stream URL
         style={styles.video}
         controls={true}
+        ref={videoRef}
         resizeMode="contain"
         paused={false}
       />

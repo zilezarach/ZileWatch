@@ -5,18 +5,11 @@ import Home from "./Home";
 import VideoPlayer from "./VideoPlayer";
 import { Image, View, StyleSheet } from "react-native";
 import VideoList from "@/components/videoList";
-import Stream from "./Stream";
 import Movies from "./Movies";
+import StreamVideo from "./Stream";
+import { RootStackParamList } from "@/types/navigation";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
-
-export type RootStackParamList = {
-  Home: undefined;
-  VideoPlayer: { videoUrl: string };
-  Stream: { magnetLink: string; videoTitle: string };
-  VideoList: undefined;
-  Movies: undefined;
-};
 
 const AppNavigator = () => {
   return (
@@ -49,7 +42,7 @@ const AppNavigator = () => {
           ),
         }}
       />
-      <Stack.Screen name="Stream" component={Stream} />
+      <Stack.Screen name="Stream" component={StreamVideo} />
       <Stack.Screen name="Movies" component={Movies} />
       <Stack.Screen name="VideoList" component={VideoList} />
     </Stack.Navigator>

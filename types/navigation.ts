@@ -3,4 +3,5 @@ export type RootStackParamList = {
   VideoPlayer: { videoUrl: string };
   Stream: { magnetLink: string; videoTitle: string };
   Movies: undefined;
+  VideoList: undefined;
 };

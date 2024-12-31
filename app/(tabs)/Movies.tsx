@@ -246,7 +246,7 @@ export default function Movies(): JSX.Element {
             <Text style={styles.torrentSize}>Size: {item.size}</Text>
             <TouchableOpacity
               style={styles.buttonStreamer}
-              onPress={() => handleStream(item.name, item.magnet)}
+              onPress={() => handleStream(item.magnet, item.name)}
             >
               <Text>Stream</Text>
             </TouchableOpacity>
@@ -277,9 +277,10 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
   buttonStreamer: {
-    backgroundColor: "#7d0b02",
+    backgroundColor: "#3bfc18",
     padding: 10,
     marginTop: 5,
+    borderRadius: 10,
     marginBottom: 5,
   },
   buttonDownload: {

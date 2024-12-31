@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   TouchableOpacity,
   View,
@@ -7,21 +7,19 @@ import {
   Alert,
   ActivityIndicator,
 } from "react-native";
-import Video from "react-native-video";
-import { RouteProp } from "@react-navigation/native";
+import Video, { VideoRef } from "react-native-video";
+import { useRoute, RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 
-type VideoStreamProps = {
-  route: RouteProp<RootStackParamList, "Stream">;
-};
-
-const StreamVideo: React.FC<VideoStreamProps> = ({ route }) => {
+const StreamVideo = () => {
+  const route = useRoute<RouteProp<RootStackParamList, "Stream">>();
   const [isLoading, setLoading] = useState(true);
   const [isPlaying, setPlaying] = useState(true); // Start playing by default
   const { magnetLink, videoTitle } = route.params;
   const encodedMagnetLink = encodeURIComponent(magnetLink);
+  console.log("Route params:", route.params);
   const streamUrl = `http://localhost:5000/stream?magnet=${encodedMagnetLink}`;
-
+  //  const videoRef = useRef<VideoRef>();
   return (
     <View style={styles.container}>
       {/* Video Title */}
@@ -43,14 +41,6 @@ const StreamVideo: React.FC<VideoStreamProps> = ({ route }) => {
           Alert.alert("Error", "Unable to Stream");
         }}
       />
-
-      {/* Play/Pause Button */}
-      <TouchableOpacity
-        style={styles.button}
-        onPress={() => setPlaying(!isPlaying)}
-      >
-        <Text style={styles.buttonText}>{isPlaying ? "Pause" : "Play"}</Text>
-      </TouchableOpacity>
     </View>
   );
 };
