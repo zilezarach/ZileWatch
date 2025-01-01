@@ -6,7 +6,7 @@ import {
   TouchableOpacity,
   Image,
   FlatList,
-  Button,
+  Modal,
   StyleSheet,
   Switch,
   Alert,
@@ -17,23 +17,71 @@ import {
 } from "@/utils/apiService";
 import VideoList from "@/components/videoList";
 import ModalPick from "@/components/DownloadPrompt";
+import axios from "axios";
+
+//Types
+type Video = {
+  Title: string;
+  Plot: string;
+  Formats: string[];
+  Poster: string;
+};
 
 export default function Home({ navigation }: any) {
   const [videos, setVideos] = useState([]);
+  const [downloadVids, setDownloadVids] = useState<Video[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [isModalVisable, setModalVisable] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState("");
   const [isDarkMode, setisDarkMode] = useState<boolean>(true);
+  const [isVisible, setVisible] = useState(false);
 
+  //handle search function
   const handleSearch = async () => {
     if (!searchQuery) return;
+
     setLoading(true);
+    const isURL =
+      searchQuery.startsWith("http://") || searchQuery.startsWith("https://");
+
+    if (isURL) {
+      await fetchByUrl(searchQuery); // Fetch video details for direct URL
+    } else {
+      try {
+        const results = await fetchYouTubeSearchResults(searchQuery); // Search for YouTube videos
+        setVideos(results || []);
+      } catch (error) {
+        console.error("Error Fetching Videos", error);
+      }
+    }
+    setLoading(false);
+  };
+
+  //Fetch Social Media
+  const fetchByUrl = async (url: string) => {
     try {
-      const results = await fetchYouTubeSearchResults(searchQuery);
-      setVideos(results || []);
+      setLoading(true);
+      const res = await axios.get("http://localhost:5000/download-videos", {
+        params: { url },
+      });
+      console.log("Response:", res.data);
+      const formatsArray = Array.isArray(res.data.formats)
+        ? res.data.formats
+        : typeof res.data.formats === "string"
+          ? res.data.formats.split(",").map((format: string) => format.trim())
+          : Object.keys(res.data.formats);
+
+      const socialDownload: Video = {
+        Title: res.data.title,
+        Plot: "Download",
+        Poster: res.data.thumbnail,
+        Formats: formatsArray,
+      };
+      setDownloadVids([socialDownload]);
     } catch (error) {
-      console.log("Error Fetching Videos", error);
+      console.error("Error Fetching Videos", error);
+      Alert.alert("Error", "Unable to Fetch Data from Url");
     } finally {
       setLoading(false);
     }
@@ -105,6 +153,7 @@ export default function Home({ navigation }: any) {
           placeholderTextColor="#7d0b02"
           value={searchQuery}
           onChangeText={setSearchQuery}
+          onSubmitEditing={handleSearch}
         />
         <TouchableOpacity style={styles.button} onPress={handleSearch}>
           <Text style={styles.buttonText}>🔍</Text>
@@ -120,6 +169,63 @@ export default function Home({ navigation }: any) {
         onClose={() => setModalVisable(false)}
         onSelect={handleSelectOption}
       />
+      <TouchableOpacity
+        style={styles.toggleButton}
+        onPress={() => setVisible(!isVisible)}
+      >
+        <Text style={styles.toggleButtonText}>
+          {isVisible ? "Hide List" : "Show List"}
+        </Text>
+      </TouchableOpacity>
+      <Modal
+        visible={isVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          {/* Close Button */}
+          <TouchableOpacity
+            style={styles.button}
+            onPress={() => setVisible(false)}
+          >
+            <Text style={styles.buttonText}>Close</Text>
+          </TouchableOpacity>
+
+          {/* FlatList */}
+          <FlatList
+            data={downloadVids}
+            keyExtractor={(item, index) => index.toString()}
+            renderItem={({ item }) => (
+              <View style={styles.listItem}>
+                {/* Thumbnail */}
+                <Image source={{ uri: item.Poster }} style={styles.thumbnail} />
+                {/* Title */}
+                <Text style={styles.listTitle}>{item.Title}</Text>
+                {/* Formats */}
+                {Array.isArray(item.Formats) ? (
+                  item.Formats.map((format, index) => (
+                    <TouchableOpacity
+                      key={index}
+                      style={styles.button}
+                      onPress={() =>
+                        console.log(`Selected Format: ${format.url}`)
+                      }
+                    >
+                      <Text style={styles.listTitle}>
+                        Download {format.quality} ({format.size})
+                      </Text>
+                    </TouchableOpacity>
+                  ))
+                ) : (
+                  <Text style={styles.noFormatsText}>No formats available</Text>
+                )}
+              </View>
+            )}
+            contentContainerStyle={styles.listContainer}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -128,9 +234,52 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 10,
   },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.8)", // Semi-transparent background
+    justifyContent: "center",
+    alignItems: "center",
+    paddingTop: 40,
+  },
+  noFormatsText: {
+    backgroundColor: "#7d0b02",
+  },
+  toggleButton: {
+    backgroundColor: "#7d0b02",
+    padding: 10,
+    borderRadius: 5,
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  toggleButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  thumbnail: {
+    height: 200,
+    width: 200,
+    borderRadius: 10,
+    marginBottom: 10,
+  },
   contain: {
     flex: 1,
     padding: 10,
+    borderWidth: 1,
+  },
+  listContainer: {
+    padding: 15,
+  },
+  listItem: {
+    backgroundColor: "#f9f9f9",
+    borderRadius: 10,
+    padding: 10,
+    marginVertical: 10,
+    alignItems: "center",
+  },
+  listTitle: {
+    marginTop: 5,
+    marginBottom: 5,
   },
   container: {
     flexDirection: "row",
@@ -146,6 +295,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#7d0b02",
     borderRadius: 5,
     padding: 10,
+    marginBottom: 5,
+    marginTop: 5,
   },
   buttonText: {
     fontSize: 16,
