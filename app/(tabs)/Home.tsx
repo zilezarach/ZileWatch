@@ -149,7 +149,7 @@ export default function Home({ navigation }: any) {
       <View style={styles.container}>
         <TextInput
           style={styles.Input}
-          placeholder="Search Youtube...Paste Link"
+          placeholder="Search Youtube...or Paste Link"
           placeholderTextColor="#7d0b02"
           value={searchQuery}
           onChangeText={setSearchQuery}
@@ -174,7 +174,7 @@ export default function Home({ navigation }: any) {
         onPress={() => setVisible(!isVisible)}
       >
         <Text style={styles.toggleButtonText}>
-          {isVisible ? "Hide List" : "Show List"}
+          {isVisible ? "Hide List" : "Show Paste Link"}
         </Text>
       </TouchableOpacity>
       <Modal

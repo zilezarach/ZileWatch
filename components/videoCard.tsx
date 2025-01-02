@@ -59,7 +59,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderRadius: 10,
     overflow: "hidden",
-    backgroundColor: "#fff",
+    backgroundColor: "#181818",
     elevation: 3,
   },
   textButton: {
@@ -87,6 +87,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     marginVertical: 10,
     fontSize: 15,
+    color: "white",
   },
   downloadButton: {
     padding: 10,

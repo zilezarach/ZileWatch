@@ -1,6 +1,6 @@
 import React from "react";
 
-import { FlatList, Text } from "react-native";
+import { FlatList, Text, StyleSheet } from "react-native";
 
 import VideoCard from "./videoCard";
 
@@ -19,15 +19,18 @@ type VideoListProps = {
   onPlay: (videoUrl: string) => void;
   onDownload: (videoId: string) => void;
 };
-
-const VideoList: React.FC<VideoListProps> = ({ videos, onPlay, onDownload }) => {
+const VideoList: React.FC<VideoListProps> = ({
+  videos,
+  onPlay,
+  onDownload,
+}) => {
   if (!videos || videos.length === 0) {
     return <Text>No videos available.</Text>;
   }
   return (
     <FlatList
       data={videos}
-      keyExtractor={item => item.id}
+      keyExtractor={(item) => item.id}
       renderItem={({ item }) => {
         const thumbnail = item?.thumbnails?.medium?.url;
         return (

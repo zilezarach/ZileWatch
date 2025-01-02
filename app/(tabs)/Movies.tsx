@@ -11,6 +11,7 @@ import {
   Alert,
   Dimensions,
   Switch,
+  Modal,
 } from "react-native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
