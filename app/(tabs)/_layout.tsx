@@ -2,24 +2,49 @@ import { Tabs } from "expo-router";
 import { MaterialIcons, FontAwesome5 } from "@expo/vector-icons";
 import React, { createContext, useContext, useState } from "react";
 
-//Type definations
-type DownloadContextType = {
-  activeDownloads: number;
-  setActiveDownloads: React.Dispatch<React.SetStateAction<number>>;
-  completeDownloads: string[];
-  setCompleteDownloads: React.Dispatch<React.SetStateAction<string[]>>;
-};
-//create download const
+// Create Download Context with Proper Default Values
 const DownloadContext = createContext<DownloadContextType>({
-  activeDownloads: 0,
-  setActiveDownloads: () => {},
+  activeDownloads: {},
+  setActiveDownloads: () => {
+    // Default no-op function
+    console.warn("setActiveDownloads is not initialized!");
+  },
   completeDownloads: [],
-  setCompleteDownloads: () => {},
+  setCompleteDownloads: () => {
+    // Default no-op function
+    console.warn("setCompleteDownloads is not initialized!");
+  },
 });
 
+//type definations
+type ActiveDownload = {
+  title: string;
+  progress: number; // Progress in percentage
+};
+
+type CompletedDownload = {
+  id: string;
+  title: string;
+};
+
+type DownloadContextType = {
+  activeDownloads: Record<string, ActiveDownload>;
+  setActiveDownloads: React.Dispatch<
+    React.SetStateAction<Record<string, ActiveDownload>>
+  >;
+  completeDownloads: CompletedDownload[];
+  setCompleteDownloads: React.Dispatch<
+    React.SetStateAction<CompletedDownload[]>
+  >;
+};
+
 export default function Layout() {
-  const [activeDownloads, setActiveDownloads] = useState(0);
-  const [completeDownloads, setCompleteDownloads] = useState<string[]>([]);
+  const [activeDownloads, setActiveDownloads] = useState<
+    Record<string, ActiveDownload>
+  >({});
+  const [completeDownloads, setCompleteDownloads] = useState<
+    CompletedDownload[]
+  >([]);
 
   return (
     <DownloadContext.Provider
@@ -84,7 +109,10 @@ export default function Layout() {
                 color={focused ? "#7d0b02" : color}
               />
             ),
-            tabBarBadge: activeDownloads > 0 ? activeDownloads : undefined,
+            tabBarBadge:
+              Object.keys(activeDownloads).length > 0
+                ? Object.keys(activeDownloads).length
+                : undefined,
           }}
         />
         <Tabs.Screen name="index" options={{ href: null }} />

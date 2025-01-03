@@ -29,68 +29,6 @@ export default function DownloadsScreen() {
 
   const [videoLink, setVideoLink] = useState<string>("");
 
-  const startDownload = async () => {
-    if (!videoLink.trim()) {
-      Alert.alert("Error", "Please enter a valid video link.");
-      return;
-    }
-
-    try {
-      setActiveDownloads((prev) => prev + 1);
-
-      // Step 1: Initiate download via backend
-      const response = await axios.post("http://localhost:5000/download", {
-        url: videoLink,
-      });
-
-      const { title, downloadId } = response.data; // Assumes your backend returns `title` and `downloadId`.
-
-      const newDownload = {
-        title,
-        progress: 0,
-        isComplete: false,
-      };
-      setDownloads((prev) => [...prev, newDownload]);
-      setVideoLink(""); // Clear input field
-
-      // Step 2: Poll for progress updates
-      const interval = setInterval(async () => {
-        try {
-          const progressResponse = await axios.get(
-            `http://localhost:5000/download-progress`,
-            {
-              params: { downloadId },
-            },
-          );
-
-          const { progress, isComplete, path } = progressResponse.data;
-
-          setDownloads((prev) =>
-            prev.map((d) =>
-              d.title === title ? { ...d, progress, isComplete, path } : d,
-            ),
-          );
-
-          if (isComplete) {
-            clearInterval(interval);
-            setActiveDownloads((prev) => prev - 1);
-            setCompleteDownloads((prev) => [...prev, title]);
-            Alert.alert("Download Complete", `${title} has been downloaded.`);
-          }
-        } catch (error) {
-          console.error("Error fetching progress:", error);
-          clearInterval(interval);
-        }
-      }, 1000); // Poll every second
-    } catch (error) {
-      console.error("Error starting download:", error);
-      Alert.alert(
-        "Download Error",
-        "Unable to start the download. Please try again.",
-      );
-      setActiveDownloads((prev) => Math.max(prev - 1, 0));
-    }
-  };
   return (
     <View style={[styles.container, isDarkMode && styles.darkMode]}>
       <Switch value={isDarkMode} onValueChange={setIsDarkMode} />

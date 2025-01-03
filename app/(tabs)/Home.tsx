@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useContext } from "react";
 import {
   Text,
   View,
@@ -18,6 +18,7 @@ import {
 import VideoList from "@/components/videoList";
 import ModalPick from "@/components/DownloadPrompt";
 import axios from "axios";
+import { DownloadContext } from "./_layout";
 
 //Types
 type Video = {
@@ -25,6 +26,26 @@ type Video = {
   Plot: string;
   Formats: string[];
   Poster: string;
+};
+type ActiveDownload = {
+  title: string;
+  progress: number; // Progress in percentage
+};
+
+type CompletedDownload = {
+  id: string;
+  title: string;
+};
+
+type DownloadContextType = {
+  activeDownloads: Record<string, ActiveDownload>;
+  setActiveDownloads: React.Dispatch<
+    React.SetStateAction<Record<string, ActiveDownload>>
+  >;
+  completeDownloads: CompletedDownload[];
+  setCompleteDownloads: React.Dispatch<
+    React.SetStateAction<CompletedDownload[]>
+  >;
 };
 
 export default function Home({ navigation }: any) {
@@ -36,6 +57,8 @@ export default function Home({ navigation }: any) {
   const [selectedVideo, setSelectedVideo] = useState("");
   const [isDarkMode, setisDarkMode] = useState<boolean>(true);
   const [isVisible, setVisible] = useState(false);
+  const { setActiveDownloads, setCompleteDownloads } =
+    useContext(DownloadContext);
 
   //handle search function
   const handleSearch = async () => {
@@ -109,34 +132,72 @@ export default function Home({ navigation }: any) {
       return;
     }
 
+    const downloadId = `${Date.now()}-${selectedVideo}`; // Unique ID for tracking
+
     try {
-      const response = await fetch(
-        "http://192.168.100.32:5000/downloadvideos",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ url: selectedVideo, format: option }),
+      // Add to active downloads
+      setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
+        ...prev,
+        [downloadId]: { title: `Downloading ${option}`, progress: 0 },
+      }));
+
+      const response = await axios({
+        method: "post",
+        url: "http://localhost:5000/downloadvideos",
+        data: { url: selectedVideo, format: option },
+        responseType: "blob",
+        onDownloadProgress: (progressEvent) => {
+          const total = progressEvent.total || 1; // Ensure non-zero total
+          const progress = Math.round((progressEvent.loaded / total) * 100);
+
+          setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
+            ...prev,
+            [downloadId]: { ...prev[downloadId], progress },
+          }));
         },
+      });
+
+      // Create a blob for the downloaded file
+      const blob = new Blob([response.data]);
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `${selectedVideo}.${option}`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+
+      // Update completed downloads and remove from active downloads
+      setCompleteDownloads((prev) => [
+        ...prev,
+        { id: downloadId, title: `${option.toUpperCase()} Download Complete` },
+      ]);
+      setActiveDownloads((prev: Record<string, ActiveDownload>) => {
+        const { [downloadId]: _, ...rest } = prev; // Remove completed download
+        return rest;
+      });
+
+      Alert.alert("Success", `${option.toUpperCase()} download complete.`);
+    } catch (error: any) {
+      console.error("Download Error:", error);
+
+      // Show error message
+      Alert.alert(
+        "Error",
+        error.response?.data?.message ||
+          "Failed to download. Please try again.",
       );
 
-      const data = await response.json();
-      if (response.ok) {
-        console.log("Download started:", data);
-        Alert.alert("Success", `Download started for ${option}.`);
-      } else {
-        console.error("Backend Error:", data.error);
-        Alert.alert(
-          "Error",
-          data.error || "Failed to initiate download. Please try again.",
-        );
-      }
-    } catch (error) {
-      console.error("Download Error:", error);
-      Alert.alert("Error", "An error occurred while initiating the download.");
+      // Remove incomplete download from active list
+      setActiveDownloads((prev: Record<string, ActiveDownload>) => {
+        const { [downloadId]: _, ...rest } = prev;
+        return rest;
+      });
     } finally {
       setModalVisable(false);
     }
   };
+
   return (
     <View style={[styles.contain, isDarkMode && styles.darkMode]}>
       <View style={styles.toggleContainer}>
