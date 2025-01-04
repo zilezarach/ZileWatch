@@ -19,6 +19,8 @@ import VideoList from "@/components/videoList";
 import ModalPick from "@/components/DownloadPrompt";
 import axios from "axios";
 import { DownloadContext } from "./_layout";
+import * as FileSystem from "expo-file-system";
+//import Share from "react-native-share";
 
 //Types
 type Video = {
@@ -126,6 +128,8 @@ export default function Home({ navigation }: any) {
     setSelectedVideo(videoId);
     setModalVisable(true);
   };
+
+  //handle Download Videos From YouTube
   const handleSelectOption = async (option: "audio" | "video") => {
     if (!selectedVideo) {
       Alert.alert("Error", "No video selected for download.");
@@ -143,7 +147,7 @@ export default function Home({ navigation }: any) {
 
       const response = await axios({
         method: "post",
-        url: "http://localhost:5000/downloadvideos",
+        url: "http://10.0.2.2:5000/downloadvideos", // Your server's endpoint
         data: { url: selectedVideo, format: option },
         responseType: "blob",
         onDownloadProgress: (progressEvent) => {
@@ -157,15 +161,25 @@ export default function Home({ navigation }: any) {
         },
       });
 
-      // Create a blob for the downloaded file
-      const blob = new Blob([response.data]);
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `${selectedVideo}.${option}`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      // Define the download folder path (you can change this to a custom folder if needed)
+      const downloadDir = FileSystem.documentDirectory; // This is app-specific and accessible only to your app
+      const fileUri = `${downloadDir}${selectedVideo}.${option}`;
+
+      // Check if the directory exists, if not, create it (if you want a custom folder like 'Downloads', create it manually)
+      const directoryUri = `${FileSystem.documentDirectory}Downloads/`;
+      const fileExists = await FileSystem.getInfoAsync(directoryUri);
+
+      if (!fileExists.exists) {
+        // Create the folder if it doesn't exist
+        await FileSystem.makeDirectoryAsync(directoryUri, {
+          intermediates: true,
+        });
+      }
+
+      // Save file locally as base64 string
+      await FileSystem.writeAsStringAsync(fileUri, response.data, {
+        encoding: FileSystem.EncodingType.Base64, // Convert blob to Base64
+      });
 
       // Update completed downloads and remove from active downloads
       setCompleteDownloads((prev) => [
