@@ -5,10 +5,11 @@ import {
   ActivityIndicator,
   Text,
   Dimensions,
+  TouchableOpacity,
 } from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import axios from "axios";
-import { useRoute, RouteProp } from "@react-navigation/native";
+import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 
 const { width } = Dimensions.get("window");
@@ -20,6 +21,12 @@ const VideoPlayer = () => {
   const route = useRoute<RouteProp<RootStackParamList, "VideoPlayer">>();
   const videoRef = useRef<VideoRef>(null);
   const videoUrl = route.params.videoUrl;
+  const navigation = useNavigation();
+
+  //Close the VideoPlayer
+  const handleClose = () => {
+    navigation.goBack();
+  };
 
   let videoId = null;
   if (videoUrl.includes("v=")) {
@@ -66,6 +73,11 @@ const VideoPlayer = () => {
 
   return (
     <View style={styles.container}>
+      {/*Close Player */}
+      <TouchableOpacity style={styles.buttonClose} onPress={handleClose}>
+        <Text>X</Text>
+      </TouchableOpacity>
+
       <Video
         source={{ uri: streamUrl }} // Direct video stream URL
         style={styles.video}
@@ -109,6 +121,22 @@ const styles = StyleSheet.create({
     color: "red",
     fontSize: 16,
     fontWeight: "bold",
+  },
+  buttonClose: {
+    position: "absolute",
+    top: 20,
+    left: 20,
+    backgroundColor: "#7d0b02",
+    justifyContent: "center",
+    alignItems: "center",
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+  },
+  closeText: {
+    color: "#fff",
+    fontWeight: "bold",
+    fontSize: 10,
   },
 });
 

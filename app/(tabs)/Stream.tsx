@@ -8,7 +8,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import Video, { VideoRef } from "react-native-video";
-import { useRoute, RouteProp } from "@react-navigation/native";
+import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 
 const StreamVideo = () => {
@@ -16,12 +16,23 @@ const StreamVideo = () => {
   const [isLoading, setLoading] = useState(true);
   const [isPlaying, setPlaying] = useState(true); // Start playing by default
   const { magnetLink, videoTitle } = route.params;
+  const navigation = useNavigation();
   const encodedMagnetLink = encodeURIComponent(magnetLink);
   console.log("Route params:", route.params);
   const streamUrl = `http://localhost:5000/stream?magnet=${encodedMagnetLink}`;
   //  const videoRef = useRef<VideoRef>();
+
+  //Close the video Player
+  const handleClose = () => {
+    navigation.goBack();
+  };
+
   return (
     <View style={styles.container}>
+      {/* Close Button */}
+      <TouchableOpacity style={styles.buttonClose} onPress={handleClose}>
+        <Text style={styles.closeText}>X</Text>
+      </TouchableOpacity>
       {/* Video Title */}
       <Text style={styles.title}>{videoTitle}</Text>
 
@@ -72,6 +83,23 @@ const styles = StyleSheet.create({
   buttonText: {
     color: "#fff",
     fontSize: 16,
+  },
+  buttonClose: {
+    position: "absolute",
+    top: 20,
+    left: 20,
+    backgroundColor: "#7d0b02",
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 1,
+  },
+  closeText: {
+    fontSize: 10,
+    fontWeight: "bold",
+    color: "#fff",
   },
 });
 

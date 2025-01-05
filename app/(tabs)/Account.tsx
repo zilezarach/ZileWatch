@@ -42,7 +42,7 @@ export default function DownloadsScreen() {
           placeholderTextColor="#7d0b02"
           onChangeText={setVideoLink}
         />
-        <TouchableOpacity style={styles.button} onPress={startDownload}>
+        <TouchableOpacity style={styles.button}>
           <Text>🔍</Text>
         </TouchableOpacity>
       </View>
@@ -74,7 +74,9 @@ export default function DownloadsScreen() {
       <FlatList
         data={completeDownloads}
         keyExtractor={(item, index) => index.toString()}
-        renderItem={({ item }) => <Text style={styles.itemTitle}>{item}</Text>}
+        renderItem={({ item }) => (
+          <Text style={styles.itemTitle}>{item.title}</Text>
+        )}
         ListEmptyComponent={
           <Text style={styles.noDownloads}>No completed downloads</Text>
         }
