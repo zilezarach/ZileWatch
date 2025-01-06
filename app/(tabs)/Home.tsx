@@ -129,7 +129,7 @@ export default function Home({ navigation }: any) {
     setModalVisable(true);
   };
 
-  //handle Download Videos From YouTube
+  //handle Download Videos From Youtube
   const handleSelectOption = async (option: "audio" | "video") => {
     if (!selectedVideo) {
       Alert.alert("Error", "No video selected for download.");
@@ -149,7 +149,7 @@ export default function Home({ navigation }: any) {
         method: "post",
         url: "http://10.0.2.2:5000/downloadvideos", // Your server's endpoint
         data: { url: selectedVideo, format: option },
-        responseType: "blob",
+        responseType: "arraybuffer", // Use arraybuffer for binary data
         onDownloadProgress: (progressEvent) => {
           const total = progressEvent.total || 1; // Ensure non-zero total
           const progress = Math.round((progressEvent.loaded / total) * 100);
@@ -161,24 +161,28 @@ export default function Home({ navigation }: any) {
         },
       });
 
-      // Define the download folder path (you can change this to a custom folder if needed)
-      const downloadDir = FileSystem.documentDirectory; // This is app-specific and accessible only to your app
-      const fileUri = `${downloadDir}${selectedVideo}.${option}`;
+      // Define the download folder path
+      const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
 
-      // Check if the directory exists, if not, create it (if you want a custom folder like 'Downloads', create it manually)
-      const directoryUri = `${FileSystem.documentDirectory}Downloads/`;
-      const fileExists = await FileSystem.getInfoAsync(directoryUri);
+      // Check if the directory exists, if not, create it
+      const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
 
-      if (!fileExists.exists) {
+      if (!directoryInfo.exists) {
         // Create the folder if it doesn't exist
-        await FileSystem.makeDirectoryAsync(directoryUri, {
+        await FileSystem.makeDirectoryAsync(downloadDir, {
           intermediates: true,
         });
       }
 
-      // Save file locally as base64 string
-      await FileSystem.writeAsStringAsync(fileUri, response.data, {
-        encoding: FileSystem.EncodingType.Base64, // Convert blob to Base64
+      // Define the output file path
+      const fileUri = `${downloadDir}${selectedVideo.split("/").pop()}.${option}`;
+
+      // Convert ArrayBuffer to base64
+      const base64Data = arrayBufferToBase64(response.data);
+
+      // Write the file to the filesystem
+      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+        encoding: FileSystem.EncodingType.Base64,
       });
 
       // Update completed downloads and remove from active downloads
@@ -211,7 +215,16 @@ export default function Home({ navigation }: any) {
       setModalVisable(false);
     }
   };
-
+  // Helper function to convert ArrayBuffer to base64
+  const arrayBufferToBase64 = (buffer: ArrayBuffer) => {
+    let binary = "";
+    const bytes = new Uint8Array(buffer);
+    const length = bytes.byteLength;
+    for (let i = 0; i < length; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    return window.btoa(binary); // Use browser's btoa method or implement your own
+  };
   return (
     <View style={[styles.contain, isDarkMode && styles.darkMode]}>
       <View style={styles.toggleContainer}>
