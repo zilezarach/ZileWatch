@@ -19,7 +19,7 @@ const DownloadContext = createContext<DownloadContextType>({
 //type definations
 type ActiveDownload = {
   title: string;
-  progress: number; // Progress in percentage
+  progress: number;
 };
 
 type CompletedDownload = {

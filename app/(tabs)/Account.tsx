@@ -13,6 +13,13 @@ import { DownloadContext } from "./_layout";
 import * as Progress from "react-native-progress";
 import axios from "axios";
 
+//type defination
+type Video = {
+  Title: string;
+  Plot: string;
+  Formats: string[];
+  Poster: string;
+};
 export default function DownloadsScreen() {
   const {
     activeDownloads,
@@ -24,11 +31,72 @@ export default function DownloadsScreen() {
   const [downloads, setDownloads] = useState<
     { title: string; progress: number; isComplete: boolean }[]
   >([]);
-
+  const [searchQuery, setSearchQuery] = useState("");
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
-
   const [videoLink, setVideoLink] = useState<string>("");
+  const [downloadsVids, setDownloadVids] = useState<Video[]>();
+  const [loading, setLoading] = useState(true);
 
+  useEffect(() => {
+    const downloadsArray = Object.values(activeDownloads).map((download) => ({
+      title: download.title,
+      progress: download.progress,
+      isComplete: download.progress >= 1, // Mark as complete if progress is 100%
+    }));
+    setDownloads(downloadsArray);
+  }, [activeDownloads]);
+
+  const handleLinks = async () => {
+    if (!searchQuery) return;
+    const isURL =
+      searchQuery.startsWith("http://") || searchQuery.startsWith("https://");
+    if (!isURL) {
+      await fetchLinks(searchQuery);
+    }
+    setLoading(false);
+  };
+  const fetchLinks = async (url: string) => {
+    try {
+      setLoading(true);
+      const res = await axios.get("http://localhost:5000/download-videos", {
+        params: { url },
+      });
+      const formatsArray = Array.isArray(res.data.formats)
+        ? res.data.formats
+        : Object.keys(res.data.formats);
+
+      const newDownload = {
+        title: res.data.title,
+        progress: 0,
+        isComplete: false,
+      };
+      setDownloads((prev) => [...prev, newDownload]);
+
+      // Simulate progress updates (replace with real logic)
+      let progress = 0;
+      const interval = setInterval(() => {
+        if (progress >= 1) {
+          clearInterval(interval);
+          newDownload.isComplete = true;
+          setDownloads((prev) =>
+            prev.map((d) => (d.title === newDownload.title ? newDownload : d)),
+          );
+        } else {
+          progress += 0.1;
+          setDownloads((prev) =>
+            prev.map((d) =>
+              d.title === newDownload.title ? { ...d, progress } : d,
+            ),
+          );
+        }
+      }, 1000);
+    } catch (error) {
+      console.error("Error Fetching Videos", error);
+      Alert.alert("Error", "Unable to Fetch Data from Url");
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <View style={[styles.container, isDarkMode && styles.darkMode]}>
       <Switch value={isDarkMode} onValueChange={setIsDarkMode} />
@@ -42,7 +110,7 @@ export default function DownloadsScreen() {
           placeholderTextColor="#7d0b02"
           onChangeText={setVideoLink}
         />
-        <TouchableOpacity style={styles.button}>
+        <TouchableOpacity style={styles.button} onPress={handleLinks}>
           <Text>🔍</Text>
         </TouchableOpacity>
       </View>
@@ -55,7 +123,9 @@ export default function DownloadsScreen() {
             <Text style={styles.itemTitle}>
               {item.title} - {item.isComplete ? "Complete" : "Downloading.."}
             </Text>
-            {item.isComplete && (
+            {item.isComplete ? (
+              <Text>Download Complete</Text>
+            ) : (
               <Progress.Bar
                 progress={item.progress}
                 width={null}

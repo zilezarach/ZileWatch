@@ -135,7 +135,7 @@ export default function Home({ navigation }: any) {
       Alert.alert("Error", "No video selected for download.");
       return;
     }
-
+    setModalVisable(false);
     const downloadId = `${Date.now()}-${selectedVideo}`; // Unique ID for tracking
 
     try {

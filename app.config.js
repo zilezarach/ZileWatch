@@ -11,19 +11,19 @@ export default {
     userInterfaceStyle: "automatic",
     newArchEnabled: true,
     ios: {
-      supportsTablet: true
+      supportsTablet: true,
     },
     android: {
       package: "com.zile.zileWatch",
       adaptiveIcon: {
         foregroundImage: "./assets/images/adaptive-icon.png",
-        backgroundColor: "#ffffff"
-      }
+        backgroundColor: "#ffffff",
+      },
     },
     web: {
       bundler: "metro",
       output: "static",
-      favicon: "./assets/images/favicon.png"
+      favicon: "./assets/images/favicon.png",
     },
     plugins: [
       "expo-router",
@@ -33,15 +33,16 @@ export default {
           image: "./assets/images/splash-icon.png",
           imageWidth: 200,
           resizeMode: "contain",
-          backgroundColor: "#ffffff"
-        }
-      ]
+          backgroundColor: "#ffffff",
+        },
+      ],
+      "react-native-video",
     ],
     experiments: {
-      typedRoutes: true
+      typedRoutes: true,
     },
     extra: {
-      youtubeApiKey: process.env.YOUTUBE_API_KEY
-    }
-  }
+      youtubeApiKey: process.env.YOUTUBE_API_KEY,
+    },
+  },
 };
