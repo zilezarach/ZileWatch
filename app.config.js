@@ -2,16 +2,22 @@ import "dotenv/config";
 
 export default {
   expo: {
-    name: "app",
-    slug: "app",
+    name: "ZileWatch",
+    slug: "ZileWatch",
     version: "1.0.0",
     orientation: "portrait",
-    icon: "./assets/images/icon.png",
+    icon: "./assets/images/Original.png",
     scheme: "myapp",
     userInterfaceStyle: "automatic",
+    splash: {
+      image: "./assets/images/splash.png",
+      resizeMode: "contain",
+      backgroundColor: "#ffffff",
+    },
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
+      bundleIdentifier: "com.zile.zileWatch",
     },
     android: {
       package: "com.zile.zileWatch",
@@ -25,19 +31,7 @@ export default {
       output: "static",
       favicon: "./assets/images/favicon.png",
     },
-    plugins: [
-      "expo-router",
-      [
-        "expo-splash-screen",
-        {
-          image: "./assets/images/splash-icon.png",
-          imageWidth: 200,
-          resizeMode: "contain",
-          backgroundColor: "#ffffff",
-        },
-      ],
-      "react-native-video",
-    ],
+    plugins: ["expo-router", "react-native-video"],
     experiments: {
       typedRoutes: true,
     },
