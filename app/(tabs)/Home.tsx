@@ -87,7 +87,7 @@ export default function Home({ navigation }: any) {
   const fetchByUrl = async (url: string) => {
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:5000/download-videos", {
+      const res = await axios.get("http://10.0.2.2:5000/download-videos", {
         params: { url },
       });
       console.log("Response:", res.data);

@@ -19,7 +19,7 @@ const StreamVideo = () => {
   const navigation = useNavigation();
   const encodedMagnetLink = encodeURIComponent(magnetLink);
   console.log("Route params:", route.params);
-  const streamUrl = `http://localhost:5000/stream?magnet=${encodedMagnetLink}`;
+  const streamUrl = `http://10.0.2.2:5000/stream?magnet=${encodedMagnetLink}`;
   //  const videoRef = useRef<VideoRef>();
 
   //Close the video Player
@@ -61,7 +61,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#fff",
+    backgroundColor: "#000",
   },
   video: {
     width: "100%",
@@ -69,7 +69,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
   },
   title: {
-    fontSize: 18,
+    fontSize: 15,
     color: "#7d0b02",
     marginBottom: 10,
     textAlign: "center", // Aligns text to the center

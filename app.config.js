@@ -10,9 +10,9 @@ export default {
     scheme: "myapp",
     userInterfaceStyle: "automatic",
     splash: {
-      image: "./assets/images/splash.png",
-      resizeMode: "contain",
-      backgroundColor: "#ffffff",
+      image: "./assets/images/Original.png",
+      resizeMode: "cover",
+      backgroundColor: "#000000",
     },
     newArchEnabled: true,
     ios: {

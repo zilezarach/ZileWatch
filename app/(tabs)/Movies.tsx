@@ -76,7 +76,7 @@ export default function Movies(): JSX.Element {
       if (cachedMovies) {
         setMovies(JSON.parse(cachedMovies));
       } else {
-        const res = await axios.get(`http://localhost:5000/movie-info`, {
+        const res = await axios.get(`http://10.0.2.2:5000/movie-info`, {
           params: { title: query },
         });
         console.log("API RESPONSE:", res.data);
@@ -136,7 +136,7 @@ export default function Movies(): JSX.Element {
   const fetchTorrents = async (movieTitle: string) => {
     try {
       setLoading(true); // Start loading
-      const res = await axios.get(`http://localhost:5000/torrent`, {
+      const res = await axios.get(`http://10.0.2.2:5000/torrent`, {
         params: { title: movieTitle },
       });
 
