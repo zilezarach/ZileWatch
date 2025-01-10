@@ -58,7 +58,7 @@ export default function DownloadsScreen() {
   const fetchLinks = async (url: string) => {
     try {
       setLoading(true);
-      const res = await axios.get("http://localhost:5000/download-videos", {
+      const res = await axios.get("http://10.0.2.2:5000/download-videos", {
         params: { url },
       });
       const formatsArray = Array.isArray(res.data.formats)

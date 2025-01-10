@@ -59,6 +59,7 @@ export default function Home({ navigation }: any) {
   const [selectedVideo, setSelectedVideo] = useState("");
   const [isDarkMode, setisDarkMode] = useState<boolean>(true);
   const [isVisible, setVisible] = useState(false);
+
   const { setActiveDownloads, setCompleteDownloads } =
     useContext(DownloadContext);
 
@@ -82,7 +83,6 @@ export default function Home({ navigation }: any) {
     }
     setLoading(false);
   };
-
   //Fetch Social Media
   const fetchByUrl = async (url: string) => {
     try {
@@ -225,6 +225,20 @@ export default function Home({ navigation }: any) {
     }
     return window.btoa(binary); // Use browser's btoa method or implement your own
   };
+  //handle links then downloaded
+  const handleLinks = async (url: string) => {
+    setLoading(true);
+    try {
+      const response = await axios.post("http:10.0.2.2:5000/downloadvideos", {
+        url,
+      });
+    } catch (error) {
+      console.log("Error Downloads Videos", error);
+      Alert.alert("Error", "Unable to Download Videos");
+    } finally {
+      setLoading(false);
+    }
+  };
   return (
     <View style={[styles.contain, isDarkMode && styles.darkMode]}>
       <View style={styles.toggleContainer}>
@@ -296,13 +310,9 @@ export default function Home({ navigation }: any) {
                     <TouchableOpacity
                       key={index}
                       style={styles.button}
-                      onPress={() =>
-                        console.log(`Selected Format: ${format.url}`)
-                      }
+                      onPress={() => handleLinks(format)}
                     >
-                      <Text style={styles.listTitle}>
-                        Download {format.quality} ({format.size})
-                      </Text>
+                      <Text style={styles.listTitle}>Download {format}</Text>
                     </TouchableOpacity>
                   ))
                 ) : (

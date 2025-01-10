@@ -11,6 +11,7 @@ import {
   Alert,
   Dimensions,
   Switch,
+  Modal,
 } from "react-native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -60,6 +61,7 @@ export default function Movies(): JSX.Element {
   const [torrents, setTorrents] = useState<Torrent[]>([]);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [isSearching, setIsSearching] = useState<boolean>(false);
+  const [isVisiable, setVisiable] = useState(false);
   const navigation = useNavigation<NavigationProp>();
 
   //UseEffect ensure UI is Loaded
@@ -152,6 +154,7 @@ export default function Movies(): JSX.Element {
             "No valid torrents available for this movie.",
           );
         }
+        setVisiable(true);
       } else {
         throw new Error("Invalid torrents data format.");
       }
@@ -206,7 +209,7 @@ export default function Movies(): JSX.Element {
       ) : (
         <FlatList
           data={movies}
-          keyExtractor={(item) => item.imdbID}
+          keyExtractor={(item) => item.imdbID + item.Title}
           renderItem={({ item }) => (
             <View style={styles.movieCard}>
               <Image source={{ uri: item.Poster }} style={styles.movieImage} />
@@ -237,25 +240,40 @@ export default function Movies(): JSX.Element {
           }
         />
       )}
-      <FlatList
-        data={torrents}
-        keyExtractor={(item, index) => index.toString()}
-        renderItem={({ item }) => (
-          <View style={styles.torrentCard}>
-            <Text style={styles.torrentName}>{item.name}</Text>
-            <Text style={styles.torrentSize}>Size: {item.size}</Text>
-            <TouchableOpacity
-              style={styles.buttonStreamer}
-              onPress={() => handleStream(item.magnet, item.name)}
-            >
-              <Text>Stream</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.buttonDownload}>
-              <Text>Download</Text>
-            </TouchableOpacity>
-          </View>
-        )}
-      />
+      <Modal
+        visible={isVisiable}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setVisiable(false)}
+      >
+        <View style={styles.Modalcontain}>
+          <TouchableOpacity
+            style={styles.buttonModal}
+            onPress={() => setVisiable(false)}
+          >
+            <Text style={styles.modalText}>X</Text>
+          </TouchableOpacity>
+          <FlatList
+            data={torrents}
+            keyExtractor={(item) => item.magnet}
+            renderItem={({ item }) => (
+              <View style={styles.torrentCard}>
+                <Text style={styles.torrentName}>{item.name}</Text>
+                <Text style={styles.torrentSize}>Size: {item.size}</Text>
+                <TouchableOpacity
+                  style={styles.buttonStreamer}
+                  onPress={() => handleStream(item.magnet, item.name)}
+                >
+                  <Text>Stream</Text>
+                </TouchableOpacity>
+                <TouchableOpacity style={styles.buttonDownload}>
+                  <Text>Download</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          />
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -265,6 +283,22 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     padding: 10,
+  },
+  modalText: {
+    color: "#fff",
+  },
+  buttonModal: {
+    backgroundColor: "#7d0b02",
+    borderRadius: 10,
+    padding: 10,
+    marginTop: 5,
+    marginBottom: 5,
+  },
+  Modalcontain: {
+    backgroundColor: "rgba(0, 0, 0, 0.8)", // Semi-transparent background
+    justifyContent: "center",
+    alignItems: "center",
+    paddingTop: 40,
   },
   darkMode: {
     backgroundColor: "#121212",
