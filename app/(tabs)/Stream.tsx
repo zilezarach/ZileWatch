@@ -10,6 +10,7 @@ import {
 import Video, { VideoRef } from "react-native-video";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
+import Constants from "expo-constants";
 
 const StreamVideo = () => {
   const route = useRoute<RouteProp<RootStackParamList, "Stream">>();
@@ -17,10 +18,10 @@ const StreamVideo = () => {
   const [isPlaying, setPlaying] = useState(true); // Start playing by default
   const { magnetLink, videoTitle } = route.params;
   const navigation = useNavigation();
+  const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
   const encodedMagnetLink = encodeURIComponent(magnetLink);
   console.log("Route params:", route.params);
-  const streamUrl = `http://10.0.2.2:5000/stream?magnet=${encodedMagnetLink}`;
-  //  const videoRef = useRef<VideoRef>();
+  const streamUrl = `${DOWNLOADER_API}/stream-torrents?magnet=${encodedMagnetLink}`;
 
   //Close the video Player
   const handleClose = () => {

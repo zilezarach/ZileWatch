@@ -11,7 +11,7 @@ import Video, { VideoRef } from "react-native-video";
 import axios from "axios";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
-
+import Constants from "expo-constants";
 const { width } = Dimensions.get("window");
 
 const VideoPlayer = () => {
@@ -22,6 +22,7 @@ const VideoPlayer = () => {
   const videoRef = useRef<VideoRef>(null);
   const videoUrl = route.params.videoUrl;
   const navigation = useNavigation();
+  const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 
   //Close the VideoPlayer
   const handleClose = () => {
@@ -37,12 +38,9 @@ const VideoPlayer = () => {
   useEffect(() => {
     const fetchStreamUrl = async () => {
       try {
-        const response = await axios.get(
-          "http://192.168.100.32:5000/streamvideos",
-          {
-            params: { url: videoId },
-          },
-        );
+        const response = await axios.get(`${DOWNLOADER_API}/stream-videos`, {
+          params: { url: videoId },
+        });
         setStreamUrl(response.data.streamUrl);
       } catch (err) {
         setError("Error fetching stream URL");

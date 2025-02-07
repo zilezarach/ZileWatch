@@ -37,6 +37,8 @@ export default {
     },
     extra: {
       youtubeApiKey: process.env.YOUTUBE_API_KEY,
+      API_Backend: process.env.API_KEY,
+      TMBD_API: process.TMBD_KEY,
     },
   },
 };

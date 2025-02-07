@@ -1,8 +1,18 @@
 import React, { useEffect, useState, useContext } from "react";
-import { View, TextInput, Text, StyleSheet, FlatList, Alert, TouchableOpacity, Switch } from "react-native";
+import {
+  View,
+  TextInput,
+  Text,
+  StyleSheet,
+  FlatList,
+  Alert,
+  TouchableOpacity,
+  Switch,
+} from "react-native";
 import { DownloadContext } from "./_layout";
 import * as Progress from "react-native-progress";
 import axios from "axios";
+import Constants from "expo-constants";
 
 // Type definition for Video (if needed)
 type Video = {
@@ -13,28 +23,36 @@ type Video = {
 };
 
 export default function DownloadsScreen() {
-  const { activeDownloads, setActiveDownloads, completeDownloads, setCompleteDownloads } = useContext(DownloadContext);
+  const {
+    activeDownloads,
+    setActiveDownloads,
+    completeDownloads,
+    setCompleteDownloads,
+  } = useContext(DownloadContext);
 
-  const [downloads, setDownloads] = useState<{ title: string; progress: number; isComplete: boolean }[]>([]);
+  const [downloads, setDownloads] = useState<
+    { title: string; progress: number; isComplete: boolean }[]
+  >([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [videoLink, setVideoLink] = useState<string>("");
   const [downloadsVids, setDownloadVids] = useState<Video[]>();
   const [loading, setLoading] = useState(true);
-
+  const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
   // Update local downloads state from the shared activeDownloads context.
   useEffect(() => {
-    const downloadsArray = Object.values(activeDownloads).map(download => ({
+    const downloadsArray = Object.values(activeDownloads).map((download) => ({
       title: download.title,
       progress: download.progress, // progress is a fraction (0 to 1)
-      isComplete: download.progress === 1
+      isComplete: download.progress === 1,
     }));
     setDownloads(downloadsArray);
   }, [activeDownloads]);
 
   const handleLinks = async () => {
     if (!searchQuery) return;
-    const isURL = searchQuery.startsWith("http://") || searchQuery.startsWith("https://");
+    const isURL =
+      searchQuery.startsWith("http://") || searchQuery.startsWith("https://");
     if (!isURL) {
       await fetchLinks(searchQuery);
     }
@@ -44,18 +62,20 @@ export default function DownloadsScreen() {
   const fetchLinks = async (url: string) => {
     try {
       setLoading(true);
-      const res = await axios.get("http://10.0.2.2:5000/download-videos", {
-        params: { url }
+      const res = await axios.get(`${DOWNLOADER_API}/download-videos`, {
+        params: { url },
       });
-      const formatsArray = Array.isArray(res.data.formats) ? res.data.formats : Object.keys(res.data.formats);
+      const formatsArray = Array.isArray(res.data.formats)
+        ? res.data.formats
+        : Object.keys(res.data.formats);
 
       // Create a new download entry (this example simulates the download)
       const newDownload = {
         title: res.data.title,
         progress: 0,
-        isComplete: false
+        isComplete: false,
       };
-      setDownloads(prev => [...prev, newDownload]);
+      setDownloads((prev) => [...prev, newDownload]);
 
       // Simulate progress updates for demonstration purposes.
       let progress = 0;
@@ -63,10 +83,16 @@ export default function DownloadsScreen() {
         if (progress >= 1) {
           clearInterval(interval);
           newDownload.isComplete = true;
-          setDownloads(prev => prev.map(d => (d.title === newDownload.title ? newDownload : d)));
+          setDownloads((prev) =>
+            prev.map((d) => (d.title === newDownload.title ? newDownload : d))
+          );
         } else {
           progress += 0.1;
-          setDownloads(prev => prev.map(d => (d.title === newDownload.title ? { ...d, progress } : d)));
+          setDownloads((prev) =>
+            prev.map((d) =>
+              d.title === newDownload.title ? { ...d, progress } : d
+            )
+          );
         }
       }, 1000);
     } catch (error) {
@@ -104,18 +130,30 @@ export default function DownloadsScreen() {
             {item.isComplete ? (
               <Text>Download Complete</Text>
             ) : (
-              <Progress.Bar progress={item.progress} width={null} height={10} color="#7d0b02" borderRadius={5} />
+              <Progress.Bar
+                progress={item.progress}
+                width={null}
+                height={10}
+                color="#7d0b02"
+                borderRadius={5}
+              />
             )}
           </View>
         )}
-        ListEmptyComponent={<Text style={styles.noDownloads}>No Active Downloads</Text>}
+        ListEmptyComponent={
+          <Text style={styles.noDownloads}>No Active Downloads</Text>
+        }
       />
       <Text style={styles.subtitle}>Complete Downloads</Text>
       <FlatList
         data={completeDownloads}
         keyExtractor={(item, index) => index.toString()}
-        renderItem={({ item }) => <Text style={styles.itemTitle}>{item.title}</Text>}
-        ListEmptyComponent={<Text style={styles.noDownloads}>No completed downloads</Text>}
+        renderItem={({ item }) => (
+          <Text style={styles.itemTitle}>{item.title}</Text>
+        )}
+        ListEmptyComponent={
+          <Text style={styles.noDownloads}>No completed downloads</Text>
+        }
       />
     </View>
   );
@@ -127,13 +165,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     marginBottom: 10,
-    color: "#7d0b02"
+    color: "#7d0b02",
   },
   subtitle: {
     fontSize: 16,
     marginTop: 20,
     fontWeight: "bold",
-    color: "#7d0b02"
+    color: "#7d0b02",
   },
   itemTitle: { fontSize: 16, marginBottom: 5 },
   noDownloads: { fontSize: 14, fontStyle: "italic", color: "#999" },
@@ -143,18 +181,18 @@ const styles = StyleSheet.create({
     borderColor: "#7d0b02",
     borderRadius: 5,
     padding: 10,
-    marginRight: 10
+    marginRight: 10,
   },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20
+    marginBottom: 20,
   },
   button: {
     backgroundColor: "#7d0b02",
     borderRadius: 5,
-    padding: 10
+    padding: 10,
   },
   download: { marginBottom: 10 },
-  darkMode: { backgroundColor: "#121212" }
+  darkMode: { backgroundColor: "#121212" },
 });
