@@ -37,11 +37,11 @@ export default {
     },
     extra: {
       youtubeApiKey: process.env.YOUTUBE_API_KEY,
-      API_Backend: process.env.API_KEY,
+      API_Backend: process.env.API_KEY || "https://api.0xzile.sbs",
       TMBD_API: process.TMBD_KEY,
       eas: {
-         projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4"
-       },
+        projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4",
+      },
     },
   },
 };
