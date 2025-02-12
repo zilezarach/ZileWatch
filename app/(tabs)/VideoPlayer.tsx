@@ -12,6 +12,8 @@ import axios from "axios";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import Constants from "expo-constants";
+import * as ScreenOrientation from "expo-screen-orientation";
+import { Ionicons } from "@expo/vector-icons";
 const { width } = Dimensions.get("window");
 
 const VideoPlayer = () => {
@@ -23,12 +25,19 @@ const VideoPlayer = () => {
   const videoUrl = route.params.videoUrl;
   const navigation = useNavigation();
   const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
+  const [isMiniPlayer, setMiniplayer] = useState(false);
 
   //Close the VideoPlayer
   const handleClose = () => {
+    if (videoRef.current && videoRef.current.dismissFullscreenPlayer) {
+      videoRef.current.dismissFullscreenPlayer();
+    }
     navigation.goBack();
   };
-
+  //MiniPlayer
+  const toggleMiniplayer = () => {
+    setMiniplayer((prev) => !prev);
+  };
   let videoId = null;
   if (videoUrl.includes("v=")) {
     videoId = videoUrl.split("v=")[1]?.split("&")[0];
@@ -50,8 +59,26 @@ const VideoPlayer = () => {
     };
 
     fetchStreamUrl();
-  }, [videoId]);
+  }, [videoId, DOWNLOADER_API]);
+  useEffect(() => {
+    const subscription = ScreenOrientation.addOrientationChangeListener(
+      (evt) => {
+        const orientation = evt.orientationInfo.orientation;
+        if (
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+        ) {
+          if (videoRef.current?.presentFullscreenPlayer) {
+            videoRef.current.presentFullscreenPlayer();
+          }
+        }
+      }
+    );
 
+    return () => {
+      ScreenOrientation.removeOrientationChangeListener(subscription);
+    };
+  }, []);
   if (loading) {
     return (
       <View style={styles.loaderContainer}>
@@ -72,18 +99,34 @@ const VideoPlayer = () => {
   return (
     <View style={styles.container}>
       {/*Close Player */}
-      <TouchableOpacity style={styles.buttonClose} onPress={handleClose}>
-        <Text>X</Text>
-      </TouchableOpacity>
-
+      {isMiniPlayer && (
+        <View style={styles.header}>
+          <View style={styles.headerButtons}>
+            <TouchableOpacity style={styles.button} onPress={toggleMiniplayer}>
+              <Text>MiniPlay</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.buttonClose} onPress={handleClose}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
       <Video
         source={{ uri: streamUrl }} // Direct video stream URL
-        style={styles.video}
+        style={isMiniPlayer ? styles.miniplayerVid : styles.video}
         controls={true}
         ref={videoRef}
         resizeMode="contain"
         paused={false}
+        onLoad={() => setLoading(false)}
       />
+      {isMiniPlayer && (
+        <View style={styles.miniplayerOver}>
+          <TouchableOpacity style={styles.button}>
+            <Ionicons name="close" size={24} color="#fff" />
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 };
@@ -93,6 +136,48 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000",
     justifyContent: "center",
+  },
+  miniplayerVid: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    width: 160,
+    height: 90,
+    backgroundColor: "#000",
+    borderWidth: 1,
+    borderColor: "#7d0b02",
+    zIndex: 2,
+  },
+  header: {
+    position: "absolute",
+    top: 20,
+    left: 0,
+    right: 0,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    zIndex: 2,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingVertical: 5,
+  },
+  headerButtons: {
+    flexDirection: "row",
+  },
+  button: {
+    backgroundColor: "7d0b02",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    marginLeft: 10,
+  },
+  miniplayerOver: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: 160,
+    zIndex: 3,
   },
   video: {
     width: "100%",

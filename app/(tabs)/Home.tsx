@@ -127,6 +127,12 @@ export default function Home({ navigation }: any) {
     }
     setModalVisable(false);
     const downloadId = `${Date.now()}-${selectedVideo}`; // Unique ID for tracking
+    const formatMapping: Record<string, string> = {
+      video: "best",
+      audio: "bestaudio",
+    };
+
+    const selectedFormat = formatMapping[option];
 
     try {
       // Add to active downloads
@@ -138,7 +144,7 @@ export default function Home({ navigation }: any) {
       const response = await axios({
         method: "post",
         url: `${DOWNLOADER_API}/download-videos`, // Your server's endpoint
-        data: { url: selectedVideo, format: option },
+        data: { url: selectedVideo, format: selectedFormat },
         responseType: "arraybuffer", // Use arraybuffer for binary data
         onDownloadProgress: (progressEvent) => {
           const total = progressEvent.total || 1; // Ensure non-zero total
@@ -164,10 +170,9 @@ export default function Home({ navigation }: any) {
         });
       }
 
+      const fileName = `${selectedVideo.split("/").pop()}.${option}`;
       // Define the output file path
-      const fileUri = `${downloadDir}${selectedVideo
-        .split("/")
-        .pop()}.${option}`;
+      const fileUri = `${downloadDir}${fileName}`;
 
       // Convert ArrayBuffer to base64
       const base64Data = Buffer.from(response.data).toString("base64");

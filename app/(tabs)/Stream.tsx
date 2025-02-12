@@ -1,4 +1,4 @@
-import React, { useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   TouchableOpacity,
   View,
@@ -11,6 +11,8 @@ import Video, { VideoRef } from "react-native-video";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import Constants from "expo-constants";
+import * as ScreenOrientation from "expo-screen-orientation";
+import { Ionicons } from "@expo/vector-icons";
 
 const StreamVideo = () => {
   const route = useRoute<RouteProp<RootStackParamList, "Stream">>();
@@ -18,32 +20,75 @@ const StreamVideo = () => {
   const [isPlaying, setPlaying] = useState(true); // Start playing by default
   const { magnetLink, videoTitle } = route.params;
   const navigation = useNavigation();
+  const videoRef = useRef<VideoRef>(null);
   const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
   const encodedMagnetLink = encodeURIComponent(magnetLink);
   console.log("Route params:", route.params);
   const streamUrl = `${DOWNLOADER_API}/stream-torrents?magnet=${encodedMagnetLink}`;
-
+  const [isMiniplayer, setMiniPlayer] = useState(false);
   //Close the video Player
   const handleClose = () => {
+    setPlaying(false);
     navigation.goBack();
   };
 
+  const toggleMiniplayer = () => {
+    setMiniPlayer((prev) => !prev);
+  };
+
+  useEffect(() => {
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    const subscription = ScreenOrientation.addOrientationChangeListener(
+      (evt) => {
+        const orientation = evt.orientationInfo.orientation;
+        if (
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+        ) {
+          if (videoRef.current?.presentFullscreenPlayer) {
+            videoRef.current.presentFullscreenPlayer();
+          }
+        }
+      }
+    );
+
+    return () => {
+      ScreenOrientation.removeOrientationChangeListener(subscription);
+    };
+  }, []);
+
+  if (isLoading) {
+    return (
+      <View style={styles.loaderContainer}>
+        <ActivityIndicator size="large" color="#7d0b02" />
+        <Text style={styles.loaderText}>Loading Video ...</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
-      {/* Close Button */}
-      <TouchableOpacity style={styles.buttonClose} onPress={handleClose}>
-        <Text style={styles.closeText}>X</Text>
-      </TouchableOpacity>
-      {/* Video Title */}
-      <Text style={styles.title}>{videoTitle}</Text>
-
-      {/* Loading Indicator */}
-      {isLoading && <ActivityIndicator size="large" color="#7d0b02" />}
-
+      {isMiniplayer && (
+        <View>
+          <Text style={styles.title}>{videoTitle}</Text>
+          <View>
+            <TouchableOpacity onPress={toggleMiniplayer}>
+              <Text style={styles.buttonText}>MiniPlayer</Text>
+            </TouchableOpacity>
+            {/* Close Button */}
+            <TouchableOpacity style={styles.buttonClose} onPress={handleClose}>
+              <Ionicons name="close" color="#fff" size={24} />
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
       {/* Video Player */}
       <Video
         source={{ uri: streamUrl }}
-        style={styles.video}
+        style={isMiniplayer ? styles.miniplayerVid : styles.video}
         controls
         resizeMode="contain"
         paused={!isPlaying}
@@ -53,6 +98,16 @@ const StreamVideo = () => {
           Alert.alert("Error", "Unable to Stream");
         }}
       />
+      {isMiniplayer && (
+        <View style={styles.miniPlayerOver}>
+          <TouchableOpacity style={styles.button} onPress={toggleMiniplayer}>
+            <Ionicons name="expand" color="#fff" size={24} />
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleClose}>
+            <Ionicons name="close" color="#fff" size={24} />
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 };
@@ -68,6 +123,34 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 300,
     backgroundColor: "#000",
+  },
+  miniPlayerOver: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    width: 160,
+  },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#000",
+  },
+  loaderText: {
+    color: "#fff",
+    marginTop: 10,
+  },
+  miniplayerVid: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    width: 160,
+    height: 90,
+    backgroundColor: "#000",
+    borderWidth: 1,
+    borderColor: "#7d0b02",
   },
   title: {
     fontSize: 15,
