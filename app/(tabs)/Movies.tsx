@@ -24,7 +24,7 @@ import Constants from "expo-constants";
 
 const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 const { width } = Dimensions.get("window");
-const MOVIE_API = Constants.expoConfig?.extra?.TMBD_API;
+const MOVIE_API = Constants.expoConfig?.extra?.TMBD_KEY;
 
 type Movie = {
   Title: string;
