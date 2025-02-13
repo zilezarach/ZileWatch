@@ -21,6 +21,7 @@ import { RootStackParamList } from "@/types/navigation";
 import * as FileSystem from "expo-file-system";
 import { Buffer } from "buffer";
 import Constants from "expo-constants";
+import { Ionicons } from "@expo/vector-icons";
 
 const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 const { width } = Dimensions.get("window");
@@ -73,7 +74,7 @@ export default function Movies(): JSX.Element {
       if (cachedMovies) {
         setMovies(JSON.parse(cachedMovies));
       } else {
-        const res = await axios.get(`${DOWNLOADER_API}/details/:id`, {
+        const res = await axios.get(`${DOWNLOADER_API}/search`, {
           params: { title: query },
         });
         console.log("API RESPONSE:", res.data);
@@ -98,9 +99,9 @@ export default function Movies(): JSX.Element {
       );
     } finally {
       setLoading(false);
+      setIsSearching(false);
     }
   };
-
   // Fetch popular movies from TMDB
   const fetchPopularMovies = async () => {
     try {
@@ -273,7 +274,7 @@ export default function Movies(): JSX.Element {
       <Modal
         visible={isVisible}
         animationType="slide"
-        transparent={true}
+        transparent
         onRequestClose={() => setVisible(false)}
       >
         <View style={styles.Modalcontain}>
@@ -281,7 +282,7 @@ export default function Movies(): JSX.Element {
             style={styles.buttonModal}
             onPress={() => setVisible(false)}
           >
-            <Text style={styles.modalText}>X</Text>
+            <Ionicons name="close" size={24} color="#fff"/>
           </TouchableOpacity>
           <FlatList
             data={torrents}

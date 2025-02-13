@@ -44,6 +44,7 @@ const StreamVideo = () => {
     const subscription = ScreenOrientation.addOrientationChangeListener(
       (evt) => {
         const orientation = evt.orientationInfo.orientation;
+        // When landscape, present fullscreen.
         if (
           orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
           orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
@@ -51,15 +52,21 @@ const StreamVideo = () => {
           if (videoRef.current?.presentFullscreenPlayer) {
             videoRef.current.presentFullscreenPlayer();
           }
+        } else if (
+          orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
+          orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
+        ) {
+          // Optionally, exit fullscreen when back in portrait.
+          if (videoRef.current?.dismissFullscreenPlayer) {
+            videoRef.current.dismissFullscreenPlayer();
+          }
         }
       }
     );
-
     return () => {
       ScreenOrientation.removeOrientationChangeListener(subscription);
     };
   }, []);
-
   if (isLoading) {
     return (
       <View style={styles.loaderContainer}>
@@ -115,8 +122,6 @@ const StreamVideo = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
     backgroundColor: "#000",
   },
   video: {
@@ -131,6 +136,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     width: 160,
+    zIndex: 3,
   },
   loaderContainer: {
     flex: 1,

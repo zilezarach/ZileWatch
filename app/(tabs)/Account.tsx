@@ -1,198 +1,154 @@
-import React, { useEffect, useState, useContext } from "react";
+import React, { useState, useEffect } from "react";
 import {
   View,
-  TextInput,
   Text,
-  StyleSheet,
   FlatList,
-  Alert,
   TouchableOpacity,
-  Switch,
+  StyleSheet,
+  Image,
+  Alert,
+  Linking,
 } from "react-native";
-import { DownloadContext } from "./_layout";
-import * as Progress from "react-native-progress";
-import axios from "axios";
-import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
-// Type definition for Video (if needed)
-type Video = {
-  Title: string;
-  Plot: string;
-  Formats: string[];
-  Poster: string;
+type DownloadRecord = {
+  id: string;
+  title: string;
+  fileUri: string;
+  type: string;
+  thumbnail?: string;
 };
 
 export default function DownloadsScreen() {
-  const {
-    activeDownloads,
-    setActiveDownloads,
-    completeDownloads,
-    setCompleteDownloads,
-  } = useContext(DownloadContext);
+  const [downloadRecords, setDownloadRecords] = useState<DownloadRecord[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  const [downloads, setDownloads] = useState<
-    { title: string; progress: number; isComplete: boolean }[]
-  >([]);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
-  const [videoLink, setVideoLink] = useState<string>("");
-  const [downloadsVids, setDownloadVids] = useState<Video[]>();
-  const [loading, setLoading] = useState(true);
-  const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
-  // Update local downloads state from the shared activeDownloads context.
-  useEffect(() => {
-    const downloadsArray = Object.values(activeDownloads).map((download) => ({
-      title: download.title,
-      progress: download.progress, // progress is a fraction (0 to 1)
-      isComplete: download.progress === 1,
-    }));
-    setDownloads(downloadsArray);
-  }, [activeDownloads]);
-
-  const handleLinks = async () => {
-    if (!searchQuery) return;
-    const isURL =
-      searchQuery.startsWith("http://") || searchQuery.startsWith("https://");
-    if (!isURL) {
-      await fetchLinks(searchQuery);
-    }
-    setLoading(false);
-  };
-
-  const fetchLinks = async (url: string) => {
+  // Function to load downloads from AsyncStorage
+  const loadDownloads = async () => {
     try {
-      setLoading(true);
-      const res = await axios.get(`${DOWNLOADER_API}/download-videos`, {
-        params: { url },
-      });
-      const formatsArray = Array.isArray(res.data.formats)
-        ? res.data.formats
-        : Object.keys(res.data.formats);
-
-      // Create a new download entry (this example simulates the download)
-      const newDownload = {
-        title: res.data.title,
-        progress: 0,
-        isComplete: false,
-      };
-      setDownloads((prev) => [...prev, newDownload]);
-
-      // Simulate progress updates for demonstration purposes.
-      let progress = 0;
-      const interval = setInterval(() => {
-        if (progress >= 1) {
-          clearInterval(interval);
-          newDownload.isComplete = true;
-          setDownloads((prev) =>
-            prev.map((d) => (d.title === newDownload.title ? newDownload : d))
-          );
-        } else {
-          progress += 0.1;
-          setDownloads((prev) =>
-            prev.map((d) =>
-              d.title === newDownload.title ? { ...d, progress } : d
-            )
-          );
-        }
-      }, 1000);
-    } catch (error) {
-      console.error("Error Fetching Videos", error);
-      Alert.alert("Error", "Unable to Fetch Data from Url");
+      const recordsStr = await AsyncStorage.getItem("downloadedFiles");
+      if (recordsStr) {
+        setDownloadRecords(JSON.parse(recordsStr));
+      } else {
+        setDownloadRecords([]);
+      }
+    } catch (err) {
+      console.error("Error loading downloads", err);
     } finally {
       setLoading(false);
     }
   };
 
-  return (
-    <View style={[styles.container, isDarkMode && styles.darkMode]}>
-      <Switch value={isDarkMode} onValueChange={setIsDarkMode} />
-      <Text style={styles.title}>Downloads</Text>
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          placeholder="Paste Link for Download"
-          value={videoLink}
-          placeholderTextColor="#7d0b02"
-          onChangeText={setVideoLink}
-        />
-        <TouchableOpacity style={styles.button} onPress={handleLinks}>
-          <Text>🔍</Text>
-        </TouchableOpacity>
+  useEffect(() => {
+    loadDownloads();
+  }, []);
+
+  const openFile = async (fileUri: string) => {
+    try {
+      const supported = await Linking.canOpenURL(fileUri);
+      if (supported) {
+        await Linking.openURL(fileUri);
+      } else {
+        Alert.alert("Error", "File format not supported on your device.");
+      }
+    } catch (error) {
+      console.error("Error opening file", error);
+      Alert.alert("Error", "Unable to open file.");
+    }
+  };
+
+  const renderItem = ({ item }: { item: DownloadRecord }) => (
+    <TouchableOpacity
+      style={styles.downloadItem}
+      onPress={() => openFile(item.fileUri)}
+    >
+      {item.thumbnail ? (
+        <Image source={{ uri: item.thumbnail }} style={styles.thumbnail} />
+      ) : (
+        <View style={[styles.thumbnail, styles.placeholderThumbnail]}>
+          <Text style={styles.placeholderText}>No Image</Text>
+        </View>
+      )}
+      <View style={styles.downloadInfo}>
+        <Text style={styles.downloadTitle}>{item.title}</Text>
+        <Text style={styles.downloadType}>{item.type.toUpperCase()}</Text>
       </View>
-      <FlatList
-        data={downloads}
-        keyExtractor={(item, index) => index.toString()}
-        renderItem={({ item }) => (
-          <View style={styles.download}>
-            <Text style={styles.itemTitle}>
-              {item.title} - {item.isComplete ? "Complete" : "Downloading..."}
-            </Text>
-            {item.isComplete ? (
-              <Text>Download Complete</Text>
-            ) : (
-              <Progress.Bar
-                progress={item.progress}
-                width={null}
-                height={10}
-                color="#7d0b02"
-                borderRadius={5}
-              />
-            )}
-          </View>
-        )}
-        ListEmptyComponent={
-          <Text style={styles.noDownloads}>No Active Downloads</Text>
-        }
-      />
-      <Text style={styles.subtitle}>Complete Downloads</Text>
-      <FlatList
-        data={completeDownloads}
-        keyExtractor={(item, index) => index.toString()}
-        renderItem={({ item }) => (
-          <Text style={styles.itemTitle}>{item.title}</Text>
-        )}
-        ListEmptyComponent={
-          <Text style={styles.noDownloads}>No completed downloads</Text>
-        }
-      />
+    </TouchableOpacity>
+  );
+
+  return (
+    <View style={styles.container}>
+      <Text style={styles.title}>My Downloads</Text>
+      {loading ? (
+        <Text style={styles.loadingText}>Loading downloads...</Text>
+      ) : (
+        <FlatList
+          data={downloadRecords}
+          keyExtractor={(item) => item.id}
+          renderItem={renderItem}
+          ListEmptyComponent={
+            <Text style={styles.noDownloads}>No downloads found.</Text>
+          }
+        />
+      )}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20, backgroundColor: "#f5f5f5" },
+  container: {
+    flex: 1,
+    padding: 20,
+    backgroundColor: "#f5f5f5",
+  },
   title: {
     fontSize: 18,
     fontWeight: "bold",
     marginBottom: 10,
     color: "#7d0b02",
   },
-  subtitle: {
-    fontSize: 16,
-    marginTop: 20,
-    fontWeight: "bold",
-    color: "#7d0b02",
+  loadingText: {
+    textAlign: "center",
+    color: "#555",
   },
-  itemTitle: { fontSize: 16, marginBottom: 5 },
-  noDownloads: { fontSize: 14, fontStyle: "italic", color: "#999" },
-  input: {
-    flex: 1,
-    borderWidth: 1,
-    borderColor: "#7d0b02",
-    borderRadius: 5,
-    padding: 10,
-    marginRight: 10,
-  },
-  inputContainer: {
+  downloadItem: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 20,
-  },
-  button: {
-    backgroundColor: "#7d0b02",
-    borderRadius: 5,
+    backgroundColor: "#1E1E1E",
     padding: 10,
+    borderRadius: 10,
+    marginBottom: 10,
   },
-  download: { marginBottom: 10 },
-  darkMode: { backgroundColor: "#121212" },
+  thumbnail: {
+    width: 60,
+    height: 60,
+    borderRadius: 5,
+    marginRight: 10,
+  },
+  placeholderThumbnail: {
+    backgroundColor: "#ccc",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  placeholderText: {
+    fontSize: 10,
+    color: "#333",
+  },
+  downloadInfo: {
+    flex: 1,
+  },
+  downloadTitle: {
+    fontSize: 16,
+    fontWeight: "bold",
+    color: "#fff",
+  },
+  downloadType: {
+    fontSize: 14,
+    color: "#bbb",
+  },
+  noDownloads: {
+    textAlign: "center",
+    color: "#999",
+    fontStyle: "italic",
+  },
 });

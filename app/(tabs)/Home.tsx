@@ -22,7 +22,7 @@ import { DownloadContext } from "./_layout";
 import * as FileSystem from "expo-file-system";
 import { Buffer } from "buffer";
 import Constants from "expo-constants";
-
+import AsyncStorage from "@react-native-async-storage/async-storage";
 //Types
 type Video = {
   Title: string;
@@ -84,8 +84,8 @@ export default function Home({ navigation }: any) {
       const formatsArray = Array.isArray(res.data.formats)
         ? res.data.formats
         : typeof res.data.formats === "string"
-        ? res.data.formats.split(",").map((format: string) => format.trim())
-        : Object.keys(res.data.formats);
+        ? res.data.formats.split(",\n").map((line: string) => line.trim())
+        : res.data.formats;
 
       const socialDownload: Video = {
         Title: res.data.title,
@@ -120,6 +120,7 @@ export default function Home({ navigation }: any) {
   };
 
   //handle Download Videos From Youtube
+
   const handleSelectOption = async (option: "audio" | "video") => {
     if (!selectedVideo) {
       Alert.alert("Error", "No video selected for download.");
@@ -127,29 +128,33 @@ export default function Home({ navigation }: any) {
     }
     setModalVisable(false);
     const downloadId = `${Date.now()}-${selectedVideo}`; // Unique ID for tracking
+
+    // Map user selection to valid yt-dlp format specifiers.
     const formatMapping: Record<string, string> = {
-      video: "best",
-      audio: "bestaudio",
+      video: "best", // "best" downloads a merged file; you can use "bestvideo" if you prefer video-only.
+      audio: "bestaudio", // Use bestaudio for audio-only.
     };
 
     const selectedFormat = formatMapping[option];
 
     try {
-      // Add to active downloads
+      // Add to active downloads (in your DownloadContext)
       setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
         ...prev,
-        [downloadId]: { title: `Downloading ${option}`, progress: 0 },
+        [downloadId]: {
+          title: `Downloading ${option.toUpperCase()}`,
+          progress: 0,
+        },
       }));
 
       const response = await axios({
         method: "post",
-        url: `${DOWNLOADER_API}/download-videos`, // Your server's endpoint
+        url: `${DOWNLOADER_API}/download-videos`, // Your backend endpoint for downloading.
         data: { url: selectedVideo, format: selectedFormat },
-        responseType: "arraybuffer", // Use arraybuffer for binary data
+        responseType: "arraybuffer", // Download binary data.
         onDownloadProgress: (progressEvent) => {
-          const total = progressEvent.total || 1; // Ensure non-zero total
+          const total = progressEvent.total || 1; // Prevent division by zero.
           const progress = Math.round((progressEvent.loaded / total) * 100);
-
           setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
             ...prev,
             [downloadId]: { ...prev[downloadId], progress },
@@ -157,52 +162,75 @@ export default function Home({ navigation }: any) {
         },
       });
 
-      // Define the download folder path
+      // Define the persistent download directory.
       const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
 
-      // Check if the directory exists, if not, create it
+      // Ensure the Downloads folder exists.
       const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
-
       if (!directoryInfo.exists) {
-        // Create the folder if it doesn't exist
         await FileSystem.makeDirectoryAsync(downloadDir, {
           intermediates: true,
         });
       }
 
-      const fileName = `${selectedVideo.split("/").pop()}.${option}`;
-      // Define the output file path
+      // Create a file name. Here we use the last part of the URL (or any other logic you prefer).
+      const rawName =
+        selectedVideo.split("/").pop() || `${option.toUpperCase()}_download`;
+      // Optionally, you could sanitize the file name.
+      const fileName = `${rawName}.${option === "audio" ? "m4a" : "mp4"}`;
       const fileUri = `${downloadDir}${fileName}`;
 
-      // Convert ArrayBuffer to base64
+      // Convert the ArrayBuffer from axios to Base64.
       const base64Data = Buffer.from(response.data).toString("base64");
 
-      // Write the file to the filesystem
+      // Write the file to the filesystem.
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
-      // Update completed downloads and remove from active downloads
+      // Create a persistent download record.
+      const newDownloadRecord = {
+        id: downloadId,
+        title: rawName, // You can adjust this to a prettier title if available.
+        fileUri,
+        type: option, // "audio" or "video"
+        // Optionally, include a thumbnail URL if available (you might get it from your backend or movie metadata).
+        thumbnail: "",
+        downloadedAt: Date.now(),
+      };
+
+      // Retrieve existing records from AsyncStorage.
+      const existingRecordsStr = await AsyncStorage.getItem("downloadedFiles");
+      const existingRecords = existingRecordsStr
+        ? JSON.parse(existingRecordsStr)
+        : [];
+      // Add the new record.
+      existingRecords.push(newDownloadRecord);
+      // Save back to AsyncStorage.
+      await AsyncStorage.setItem(
+        "downloadedFiles",
+        JSON.stringify(existingRecords)
+      );
+
+      // Update completed downloads in your context.
       setCompleteDownloads((prev) => [
         ...prev,
         { id: downloadId, title: `${option.toUpperCase()} Download Complete` },
       ]);
+      // Remove the active download from context.
       setActiveDownloads((prev: Record<string, ActiveDownload>) => {
-        const { [downloadId]: _, ...rest } = prev; // Remove completed download
+        const { [downloadId]: _, ...rest } = prev;
         return rest;
       });
 
       Alert.alert("Success", `${option.toUpperCase()} download complete.`);
     } catch (error: any) {
       console.error("Download Error:", error);
-
-      // Show error message
       Alert.alert(
         "Error",
         error.response?.data?.message || "Failed to download. Please try again."
       );
-
-      // Remove incomplete download from active list
+      // Remove incomplete download from active list.
       setActiveDownloads((prev: Record<string, ActiveDownload>) => {
         const { [downloadId]: _, ...rest } = prev;
         return rest;
@@ -211,7 +239,6 @@ export default function Home({ navigation }: any) {
       setModalVisable(false);
     }
   };
-
   //handle links then downloaded
   const handleLinks = async (url: string) => {
     setLoading(true);

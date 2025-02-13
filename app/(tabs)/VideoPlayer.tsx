@@ -60,10 +60,12 @@ const VideoPlayer = () => {
 
     fetchStreamUrl();
   }, [videoId, DOWNLOADER_API]);
+
   useEffect(() => {
     const subscription = ScreenOrientation.addOrientationChangeListener(
       (evt) => {
         const orientation = evt.orientationInfo.orientation;
+        // When landscape, present fullscreen.
         if (
           orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
           orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
@@ -71,14 +73,22 @@ const VideoPlayer = () => {
           if (videoRef.current?.presentFullscreenPlayer) {
             videoRef.current.presentFullscreenPlayer();
           }
+        } else if (
+          orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
+          orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
+        ) {
+          // Optionally, exit fullscreen when back in portrait.
+          if (videoRef.current?.dismissFullscreenPlayer) {
+            videoRef.current.dismissFullscreenPlayer();
+          }
         }
       }
     );
-
     return () => {
       ScreenOrientation.removeOrientationChangeListener(subscription);
     };
   }, []);
+
   if (loading) {
     return (
       <View style={styles.loaderContainer}>
@@ -135,7 +145,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
-    justifyContent: "center",
+  
   },
   miniplayerVid: {
     position: "absolute",
