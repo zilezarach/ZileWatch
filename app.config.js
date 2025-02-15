@@ -31,7 +31,14 @@ export default {
       output: "static",
       favicon: "./assets/images/favicon.png"
     },
-    plugins: ["expo-router", "react-native-video", "expo-screen-orientation"],
+    plugins: [
+      "expo-router",
+      "react-native-video",
+      "expo-screen-orientation",
+      {
+        initialOrientation: "DEFAULT"
+      }
+    ],
     experiments: {
       typedRoutes: true
     },
