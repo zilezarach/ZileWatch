@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -6,10 +6,12 @@ import {
   TouchableOpacity,
   StyleSheet,
   Image,
+  ActivityIndicator,
   Alert,
-  Linking,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useFocusEffect } from "@react-navigation/native";
+import * as Sharing from "expo-sharing";
 
 type DownloadRecord = {
   id: string;
@@ -23,7 +25,6 @@ export default function DownloadsScreen() {
   const [downloadRecords, setDownloadRecords] = useState<DownloadRecord[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Function to load downloads from AsyncStorage
   const loadDownloads = async () => {
     try {
       const recordsStr = await AsyncStorage.getItem("downloadedFiles");
@@ -39,17 +40,19 @@ export default function DownloadsScreen() {
     }
   };
 
-  useEffect(() => {
-    loadDownloads();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      setLoading(true);
+      loadDownloads();
+    }, [])
+  );
 
   const openFile = async (fileUri: string) => {
     try {
-      const supported = await Linking.canOpenURL(fileUri);
-      if (supported) {
-        await Linking.openURL(fileUri);
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(fileUri);
       } else {
-        Alert.alert("Error", "File format not supported on your device.");
+        Alert.alert("Error", "Sharing is not available on this device.");
       }
     } catch (error) {
       console.error("Error opening file", error);
@@ -80,7 +83,7 @@ export default function DownloadsScreen() {
     <View style={styles.container}>
       <Text style={styles.title}>My Downloads</Text>
       {loading ? (
-        <Text style={styles.loadingText}>Loading downloads...</Text>
+        <ActivityIndicator size="large" color="#555" />
       ) : (
         <FlatList
           data={downloadRecords}
@@ -102,14 +105,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
   },
   title: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "bold",
-    marginBottom: 10,
+    marginBottom: 15,
     color: "#7d0b02",
-  },
-  loadingText: {
-    textAlign: "center",
-    color: "#555",
   },
   downloadItem: {
     flexDirection: "row",

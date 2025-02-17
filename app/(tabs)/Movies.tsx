@@ -25,8 +25,10 @@ import { Ionicons } from "@expo/vector-icons";
 
 const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 const { width } = Dimensions.get("window");
-const MOVIE_API = Constants.expoConfig?.extra?.TMBD_KEY;
+// Use your TMDB API key from expo config
+const MOVIE_API = Constants.expoConfig?.extra?.TMBD_KEY; // If using TMBD_KEY, otherwise rename accordingly
 
+// Define type for Movie/Series object
 type Movie = {
   Title: string;
   Year: string;
@@ -62,34 +64,41 @@ export default function Movies(): JSX.Element {
   const [torrents, setTorrents] = useState<Torrent[]>([]);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [isSearching, setIsSearching] = useState<boolean>(false);
-  const [isVisible, setVisible] = useState(false);
+  const [isVisible, setVisible] = useState<boolean>(false);
+  // Add a state for content type: "movie" or "series"
+  const [contentType, setContentType] = useState<"movie" | "series">("movie");
   const navigation = useNavigation<NavigationProp>();
 
-  // Fetch movies by search query
+  // Fetch movies/series by search query.
+  // If contentType is "movie", it calls the movie endpoint; if "series", it passes type="series".
   const fetchMovies = async (query: string) => {
     try {
       setIsSearching(true);
       setLoading(true);
-      const cachedMovies = await AsyncStorage.getItem(query);
+      const cacheKey = query + "_" + contentType;
+      const cachedMovies = await AsyncStorage.getItem(cacheKey);
       if (cachedMovies) {
         setMovies(JSON.parse(cachedMovies));
       } else {
+        // Call the backend /search endpoint with type parameter.
         const res = await axios.get(`${DOWNLOADER_API}/search`, {
-          params: { title: query },
+          params: { title: query, type: contentType },
         });
         console.log("API RESPONSE:", res.data);
+        // Assume backend returns an object: { success: true, data: { ...metadata, torrents: [...] } }
+        const data = res.data.data;
         const movie: Movie = {
-          Title: res.data.title || "N/A",
-          Year: res.data.year || "N/A",
-          Genre: res.data.genre || "N/A",
-          Plot: res.data.plot || "No description available.",
-          Poster: res.data.poster || "https://via.placeholder.com/100x150",
-          imdbID: res.data.imdbID || query,
-          imdbRating: res.data.imdbRating || "N/A",
-          category: "Search",
+          Title: data.title || "N/A",
+          Year: data.release_date ? data.release_date.split("-")[0] : "N/A",
+          Genre: data.genre || "N/A",
+          Plot: data.overview || "No description available.",
+          Poster: data.poster_path || "https://via.placeholder.com/100x150",
+          imdbID: data.id ? data.id.toString() : query,
+          imdbRating: data.imdbRating || "N/A",
+          category: contentType === "series" ? "Series" : "Movie",
         };
         setMovies([movie]);
-        await AsyncStorage.setItem(query, JSON.stringify([movie]));
+        await AsyncStorage.setItem(cacheKey, JSON.stringify([movie]));
       }
     } catch (error) {
       console.error("Error fetching movies:", error);
@@ -102,50 +111,57 @@ export default function Movies(): JSX.Element {
       setIsSearching(false);
     }
   };
-  // Fetch popular movies from TMDB
-  const fetchPopularMovies = async () => {
+
+  // Fetch popular movies or popular series from TMDB based on contentType.
+  const fetchPopularContent = async () => {
     try {
-      const res = await axios.get(
-        "https://api.themoviedb.org/3/movie/popular",
-        {
-          params: { api_key: MOVIE_API, language: "en-US", page: 1 },
-        }
-      );
+      setLoading(true);
+      let url = "";
+      if (contentType === "series") {
+        url = "https://api.themoviedb.org/3/tv/popular";
+      } else {
+        url = "https://api.themoviedb.org/3/movie/popular";
+      }
+      const res = await axios.get(url, {
+        params: { api_key: MOVIE_API, language: "en-US", page: 1 },
+      });
       const popularMovies = res.data.results.map((movie: TMDBMovie) => ({
-        Title: movie.title,
-        Year: movie.release_date.split("-")[0],
+        Title: contentType === "series" ? movie.title : movie.title,
+        Year: movie.release_date ? movie.release_date.split("-")[0] : "N/A",
         Genre: "N/A",
         Plot: movie.overview || "No description available.",
         Poster: `https://image.tmdb.org/t/p/w500${movie.poster_path}`,
         imdbID: movie.id.toString(),
         imdbRating: "N/A",
-        category: "Popular",
+        category: contentType === "series" ? "Series" : "Movie",
       }));
       setMovies((prev) => [...prev, ...popularMovies]);
     } catch (error) {
-      console.log("Error Fetching Popular Movies", error);
-      Alert.alert("Error", "Fetching Popular Movies failed. Try again.");
+      console.log("Error Fetching Popular Content", error);
+      Alert.alert("Error", "Fetching Popular content failed. Try again.");
     } finally {
       setLoading(false);
     }
   };
 
-  // Fetch torrents for a selected movie
+  // Fetch torrents for a selected movie/series title.
   const fetchTorrents = async (movieTitle: string) => {
     try {
       setLoading(true);
       const res = await axios.get(`${DOWNLOADER_API}/search`, {
         params: { title: movieTitle },
       });
-      if (res.data && Array.isArray(res.data)) {
-        const validTorrents = res.data.filter(
+      // Expect the torrents to be inside res.data.data.torrents or similar.
+      // Adjust based on your backend response.
+      if (res.data && res.data.data && Array.isArray(res.data.data.torrents)) {
+        const validTorrents = res.data.data.torrents.filter(
           (torrent: Torrent) => torrent.magnet
         );
         setTorrents(validTorrents);
         if (validTorrents.length === 0) {
           Alert.alert(
             "No Torrents Found",
-            "No valid torrents available for this movie."
+            "No valid torrents available for this title."
           );
         }
         setVisible(true);
@@ -160,7 +176,7 @@ export default function Movies(): JSX.Element {
     }
   };
 
-  // Download torrent file and save it to device storage
+  // Download torrent file and save it to device storage.
   const handleDownload = async (magnetLink: string, videoTitle: string) => {
     if (!magnetLink) {
       Alert.alert("Error", "Invalid Link");
@@ -172,7 +188,6 @@ export default function Movies(): JSX.Element {
         params: { magnet: magnetLink },
         responseType: "arraybuffer",
         onDownloadProgress: (progressEvent) => {
-          // Optionally, update local progress state if you wish
           const total = progressEvent.total || 1;
           const fractionProgress = progressEvent.loaded / total;
           console.log(
@@ -180,7 +195,7 @@ export default function Movies(): JSX.Element {
           );
         },
       });
-      // Ensure download folder exists
+      // Ensure download folder exists.
       const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
       const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
       if (!directoryInfo.exists) {
@@ -202,7 +217,7 @@ export default function Movies(): JSX.Element {
     }
   };
 
-  // Stream movie by navigating to the Stream screen
+  // Stream movie/series by navigating to the Stream screen.
   const handleStream = (magnetLink: string, videoTitle: string) => {
     if (!magnetLink) {
       Alert.alert("Error", "Invalid Link");
@@ -212,29 +227,57 @@ export default function Movies(): JSX.Element {
   };
 
   useEffect(() => {
-    fetchPopularMovies();
-  }, []);
+    // When the component mounts or contentType changes, fetch popular content.
+    fetchPopularContent();
+  }, [contentType]);
 
   return (
     <View style={[styles.container, isDarkMode && styles.darkMode]}>
+      {/* Dark mode toggle */}
       <View style={styles.toggleContainer}>
         <Text style={styles.toggleLabel}>Dark Mode</Text>
         <Switch value={isDarkMode} onValueChange={setIsDarkMode} />
       </View>
+
+      {/* Content Type Toggle */}
+      <View style={styles.typeToggleContainer}>
+        <TouchableOpacity
+          style={[
+            styles.typeButton,
+            contentType === "movie" && styles.activeType,
+          ]}
+          onPress={() => setContentType("movie")}
+        >
+          <Text style={styles.typeButtonText}>Movies</Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.typeButton,
+            contentType === "series" && styles.activeType,
+          ]}
+          onPress={() => setContentType("series")}
+        >
+          <Text style={styles.typeButtonText}>Series</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Search Bar */}
       <TextInput
         style={styles.searchBar}
-        placeholder="Search for a movie..."
+        placeholder="Search for a title..."
         placeholderTextColor="#AAA"
         value={searchTerm}
         onChangeText={(text) => {
           setSearchTerm(text);
           if (!text.trim()) {
             setMovies([]);
-            fetchPopularMovies();
+            fetchPopularContent();
           }
         }}
         onSubmitEditing={() => fetchMovies(searchTerm)}
       />
+
+      {/* Movie/Series List */}
       {loading ? (
         <ActivityIndicator size="large" color="#FFF" />
       ) : (
@@ -266,11 +309,15 @@ export default function Movies(): JSX.Element {
           )}
           ListHeaderComponent={
             <Text style={styles.sectionTitle}>
-              {isSearching ? "Search Results" : "Popular Movies"}
+              {isSearching
+                ? "Search Results"
+                : "Popular " + (contentType === "series" ? "Series" : "Movies")}
             </Text>
           }
         />
       )}
+
+      {/* Torrent Modal */}
       <Modal
         visible={isVisible}
         animationType="slide"
@@ -282,7 +329,7 @@ export default function Movies(): JSX.Element {
             style={styles.buttonModal}
             onPress={() => setVisible(false)}
           >
-            <Ionicons name="close" size={24} color="#fff"/>
+            <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
           <FlatList
             data={torrents}
@@ -295,13 +342,13 @@ export default function Movies(): JSX.Element {
                   style={styles.buttonStreamer}
                   onPress={() => handleStream(item.magnet, item.name)}
                 >
-                  <Text>Stream</Text>
+                  <Text style={styles.buttonText}>Stream</Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.buttonDownload}
                   onPress={() => handleDownload(item.magnet, item.name)}
                 >
-                  <Text>Download</Text>
+                  <Text style={styles.buttonText}>Download</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -321,6 +368,21 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   toggleLabel: { fontSize: 16, color: "#FFF" },
+  typeToggleContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  typeButton: {
+    padding: 10,
+    backgroundColor: "#7d0b02",
+    borderRadius: 5,
+    marginHorizontal: 5,
+  },
+  activeType: {
+    backgroundColor: "#FF5722",
+  },
+  typeButtonText: { color: "#FFF", fontWeight: "bold" },
   searchBar: {
     backgroundColor: "#1E1E1E",
     borderRadius: 10,
@@ -367,7 +429,6 @@ const styles = StyleSheet.create({
     padding: 10,
     marginVertical: 5,
   },
-  modalText: { color: "#fff" },
   torrentCard: {
     backgroundColor: "#1E1E1E",
     borderRadius: 10,

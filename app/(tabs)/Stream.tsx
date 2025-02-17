@@ -13,28 +13,19 @@ import { RootStackParamList } from "@/types/navigation";
 import Constants from "expo-constants";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
+import { useMiniPlayer } from "../../context/MiniPlayerContext";
 
 const StreamVideo = () => {
   const route = useRoute<RouteProp<RootStackParamList, "Stream">>();
-  const [isLoading, setLoading] = useState(true);
-  const [isPlaying, setPlaying] = useState(true); // Start playing by default
   const { magnetLink, videoTitle } = route.params;
   const navigation = useNavigation();
   const videoRef = useRef<VideoRef>(null);
   const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
   const encodedMagnetLink = encodeURIComponent(magnetLink);
-  console.log("Route params:", route.params);
   const streamUrl = `${DOWNLOADER_API}/stream-torrents?magnet=${encodedMagnetLink}`;
-  const [isMiniplayer, setMiniPlayer] = useState(false);
-  //Close the video Player
-  const handleClose = () => {
-    setPlaying(false);
-    navigation.goBack();
-  };
-
-  const toggleMiniplayer = () => {
-    setMiniPlayer((prev) => !prev);
-  };
+  const [isLoading, setLoading] = useState(true);
+  const [isPlaying, setPlaying] = useState(true);
+  const { miniPlayer, setMiniPlayer } = useMiniPlayer();
 
   useEffect(() => {
     setLoading(false);
@@ -44,22 +35,16 @@ const StreamVideo = () => {
     const subscription = ScreenOrientation.addOrientationChangeListener(
       (evt) => {
         const orientation = evt.orientationInfo.orientation;
-        // When landscape, present fullscreen.
         if (
           orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
           orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
         ) {
-          if (videoRef.current?.presentFullscreenPlayer) {
-            videoRef.current.presentFullscreenPlayer();
-          }
+          videoRef.current?.presentFullscreenPlayer();
         } else if (
           orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
           orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
         ) {
-          // Optionally, exit fullscreen when back in portrait.
-          if (videoRef.current?.dismissFullscreenPlayer) {
-            videoRef.current.dismissFullscreenPlayer();
-          }
+          videoRef.current?.dismissFullscreenPlayer();
         }
       }
     );
@@ -67,51 +52,77 @@ const StreamVideo = () => {
       ScreenOrientation.removeOrientationChangeListener(subscription);
     };
   }, []);
+
+  const handleClose = () => {
+    setPlaying(false);
+    navigation.goBack();
+  };
+
+  const toggleMiniPlayer = () => {
+    if (!miniPlayer.visible) {
+      setMiniPlayer({ visible: true, videoUrl: streamUrl, title: videoTitle });
+    } else {
+      setMiniPlayer({ ...miniPlayer, visible: false });
+    }
+  };
+
+  // Placeholder for download logic.
+  const handleDownload = () => {
+    Alert.alert("Download", "Download functionality to be implemented.");
+  };
+
   if (isLoading) {
     return (
       <View style={styles.loaderContainer}>
         <ActivityIndicator size="large" color="#7d0b02" />
-        <Text style={styles.loaderText}>Loading Video ...</Text>
+        <Text style={styles.loaderText}>Loading Video...</Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      {isMiniplayer && (
-        <View>
-          <Text style={styles.title}>{videoTitle}</Text>
-          <View>
-            <TouchableOpacity onPress={toggleMiniplayer}>
-              <Text style={styles.buttonText}>MiniPlayer</Text>
-            </TouchableOpacity>
-            {/* Close Button */}
-            <TouchableOpacity style={styles.buttonClose} onPress={handleClose}>
-              <Ionicons name="close" color="#fff" size={24} />
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
-      {/* Video Player */}
+      {/* Header Controls */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={toggleMiniPlayer}
+          style={styles.headerButton}
+        >
+          <Ionicons
+            name={miniPlayer.visible ? "expand" : "contract"}
+            size={24}
+            color="#fff"
+          />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleDownload} style={styles.headerButton}>
+          <Ionicons name="download" size={24} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
+          <Ionicons name="close" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
       <Video
         source={{ uri: streamUrl }}
-        style={isMiniplayer ? styles.miniplayerVid : styles.video}
+        style={miniPlayer.visible ? styles.miniplayerVideo : styles.video}
         controls
         resizeMode="contain"
         paused={!isPlaying}
-        onLoad={() => setLoading(false)} // Hide loader when video is ready
+        ref={videoRef}
         onError={(error) => {
           console.error("Streaming Error", error);
-          Alert.alert("Error", "Unable to Stream");
+          Alert.alert("Error", "Unable to stream video.");
         }}
       />
-      {isMiniplayer && (
-        <View style={styles.miniPlayerOver}>
-          <TouchableOpacity style={styles.button} onPress={toggleMiniplayer}>
-            <Ionicons name="expand" color="#fff" size={24} />
+      {miniPlayer.visible && (
+        <View style={styles.miniPlayerOverlay}>
+          <TouchableOpacity
+            onPress={toggleMiniPlayer}
+            style={styles.headerButton}
+          >
+            <Ionicons name="expand" size={24} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity onPress={handleClose}>
-            <Ionicons name="close" color="#fff" size={24} />
+          <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
+            <Ionicons name="close" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
       )}
@@ -120,35 +131,13 @@ const StreamVideo = () => {
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  },
+  container: { flex: 1, backgroundColor: "#000" },
   video: {
     width: "100%",
     height: 300,
     backgroundColor: "#000",
   },
-  miniPlayerOver: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: 160,
-    zIndex: 3,
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#000",
-  },
-  loaderText: {
-    color: "#fff",
-    marginTop: 10,
-  },
-  miniplayerVid: {
+  miniplayerVideo: {
     position: "absolute",
     bottom: 20,
     right: 20,
@@ -157,39 +146,36 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
     borderWidth: 1,
     borderColor: "#7d0b02",
+    zIndex: 2,
   },
-  title: {
-    fontSize: 15,
-    color: "#7d0b02",
-    marginBottom: 10,
-    textAlign: "center", // Aligns text to the center
-  },
-  button: {
-    marginTop: 20,
-    padding: 10,
-    backgroundColor: "#7d0b02",
-    borderRadius: 5,
-  },
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-  },
-  buttonClose: {
-    position: "absolute",
-    top: 20,
-    left: 20,
-    backgroundColor: "#7d0b02",
-    borderRadius: 20,
-    width: 40,
-    height: 40,
+  loaderContainer: {
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    zIndex: 1,
+    backgroundColor: "#000",
   },
-  closeText: {
-    fontSize: 10,
-    fontWeight: "bold",
-    color: "#fff",
+  loaderText: { color: "#fff", marginTop: 10 },
+  header: {
+    position: "absolute",
+    top: 20,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
+    zIndex: 3,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingVertical: 5,
+  },
+  headerButton: { padding: 10 },
+  miniPlayerOverlay: {
+    position: "absolute",
+    bottom: 20,
+    right: 20,
+    flexDirection: "row",
+    justifyContent: "space-around",
+    width: 160,
+    zIndex: 4,
   },
 });
 

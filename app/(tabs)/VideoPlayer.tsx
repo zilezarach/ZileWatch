@@ -6,6 +6,7 @@ import {
   Text,
   Dimensions,
   TouchableOpacity,
+  Alert,
 } from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import axios from "axios";
@@ -14,41 +15,27 @@ import { RootStackParamList } from "@/types/navigation";
 import Constants from "expo-constants";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
+import { useMiniPlayer } from "../../context/MiniPlayerContext";
+
 const { width } = Dimensions.get("window");
 
 const VideoPlayer = () => {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const route = useRoute<RouteProp<RootStackParamList, "VideoPlayer">>();
-  const videoRef = useRef<VideoRef>(null);
-  const videoUrl = route.params.videoUrl;
-  const navigation = useNavigation();
-  const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
-  const [isMiniPlayer, setMiniplayer] = useState(false);
 
-  //Close the VideoPlayer
-  const handleClose = () => {
-    if (videoRef.current && videoRef.current.dismissFullscreenPlayer) {
-      videoRef.current.dismissFullscreenPlayer();
-    }
-    navigation.goBack();
-  };
-  //MiniPlayer
-  const toggleMiniplayer = () => {
-    setMiniplayer((prev) => !prev);
-  };
-  let videoId = null;
-  if (videoUrl.includes("v=")) {
-    videoId = videoUrl.split("v=")[1]?.split("&")[0];
-  } else if (videoUrl.includes("youtu.be")) {
-    videoId = videoUrl.split("youtu.be/")[1]?.split("?")[0];
-  }
+  const route = useRoute<RouteProp<RootStackParamList, "VideoPlayer">>();
+  const navigation = useNavigation();
+  const videoUrl = route.params.videoUrl.trim();
+  const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
+  const videoRef = useRef<VideoRef>(null);
+  const { miniPlayer, setMiniPlayer } = useMiniPlayer();
+
   useEffect(() => {
     const fetchStreamUrl = async () => {
       try {
         const response = await axios.get(`${DOWNLOADER_API}/stream-videos`, {
-          params: { url: videoId },
+          params: { url: videoUrl },
         });
         setStreamUrl(response.data.streamUrl);
       } catch (err) {
@@ -57,30 +44,23 @@ const VideoPlayer = () => {
         setLoading(false);
       }
     };
-
     fetchStreamUrl();
-  }, [videoId, DOWNLOADER_API]);
+  }, [videoUrl, DOWNLOADER_API]);
 
   useEffect(() => {
     const subscription = ScreenOrientation.addOrientationChangeListener(
       (evt) => {
         const orientation = evt.orientationInfo.orientation;
-        // When landscape, present fullscreen.
         if (
           orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
           orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
         ) {
-          if (videoRef.current?.presentFullscreenPlayer) {
-            videoRef.current.presentFullscreenPlayer();
-          }
+          videoRef.current?.presentFullscreenPlayer();
         } else if (
           orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
           orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
         ) {
-          // Optionally, exit fullscreen when back in portrait.
-          if (videoRef.current?.dismissFullscreenPlayer) {
-            videoRef.current.dismissFullscreenPlayer();
-          }
+          videoRef.current?.dismissFullscreenPlayer();
         }
       }
     );
@@ -88,6 +68,24 @@ const VideoPlayer = () => {
       ScreenOrientation.removeOrientationChangeListener(subscription);
     };
   }, []);
+
+  const handleClose = () => {
+    videoRef.current?.dismissFullscreenPlayer();
+    navigation.goBack();
+  };
+
+  const toggleMiniPlayer = () => {
+    // Update global mini player state.
+    if (!miniPlayer.visible && streamUrl) {
+      setMiniPlayer({
+        visible: true,
+        videoUrl: streamUrl,
+        title: "Now Playing", // Replace with dynamic title if available.
+      });
+    } else {
+      setMiniPlayer({ ...miniPlayer, visible: false });
+    }
+  };
 
   if (loading) {
     return (
@@ -108,90 +106,40 @@ const VideoPlayer = () => {
 
   return (
     <View style={styles.container}>
-      {/*Close Player */}
-      {isMiniPlayer && (
-        <View style={styles.header}>
-          <View style={styles.headerButtons}>
-            <TouchableOpacity style={styles.button} onPress={toggleMiniplayer}>
-              <Text>MiniPlay</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.buttonClose} onPress={handleClose}>
-              <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
-          </View>
-        </View>
-      )}
+      {/* Header Controls */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          onPress={toggleMiniPlayer}
+          style={styles.headerButton}
+        >
+          <Ionicons
+            name={miniPlayer.visible ? "expand" : "contract"}
+            size={24}
+            color="#fff"
+          />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
+          <Ionicons name="close" size={24} color="#fff" />
+        </TouchableOpacity>
+      </View>
       <Video
-        source={{ uri: streamUrl }} // Direct video stream URL
-        style={isMiniPlayer ? styles.miniplayerVid : styles.video}
-        controls={true}
-        ref={videoRef}
+        source={{ uri: streamUrl }}
+        style={styles.video}
+        controls
         resizeMode="contain"
         paused={false}
+        ref={videoRef}
         onLoad={() => setLoading(false)}
       />
-      {isMiniPlayer && (
-        <View style={styles.miniplayerOver}>
-          <TouchableOpacity style={styles.button}>
-            <Ionicons name="close" size={24} color="#fff" />
-          </TouchableOpacity>
-        </View>
-      )}
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#000",
-  
-  },
-  miniplayerVid: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-    width: 160,
-    height: 90,
-    backgroundColor: "#000",
-    borderWidth: 1,
-    borderColor: "#7d0b02",
-    zIndex: 2,
-  },
-  header: {
-    position: "absolute",
-    top: 20,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 10,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    zIndex: 2,
-    backgroundColor: "rgba(0,0,0,0.6)",
-    paddingVertical: 5,
-  },
-  headerButtons: {
-    flexDirection: "row",
-  },
-  button: {
-    backgroundColor: "7d0b02",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginLeft: 10,
-  },
-  miniplayerOver: {
-    position: "absolute",
-    bottom: 20,
-    right: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: 160,
-    zIndex: 3,
-  },
+  container: { flex: 1, backgroundColor: "#000" },
   video: {
     width: "100%",
-    height: (width * 9) / 16, // 16:9 Aspect Ratio
+    height: (width * 9) / 16,
     backgroundColor: "#000",
   },
   loaderContainer: {
@@ -200,37 +148,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#000",
   },
-  loaderText: {
-    color: "#FFF",
-    marginTop: 10,
-  },
+  loaderText: { color: "#FFF", marginTop: 10 },
   errorContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#000",
   },
-  errorText: {
-    color: "red",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  buttonClose: {
+  errorText: { color: "red", fontSize: 16, fontWeight: "bold" },
+  header: {
     position: "absolute",
     top: 20,
-    left: 20,
-    backgroundColor: "#7d0b02",
-    justifyContent: "center",
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    justifyContent: "space-around",
     alignItems: "center",
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    zIndex: 3,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingVertical: 5,
   },
-  closeText: {
-    color: "#fff",
-    fontWeight: "bold",
-    fontSize: 10,
-  },
+  headerButton: { padding: 10 },
 });
 
 export default VideoPlayer;
