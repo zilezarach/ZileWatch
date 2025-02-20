@@ -1,12 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  TouchableOpacity,
-  View,
-  Text,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-} from "react-native";
+import { TouchableOpacity, View, Text, StyleSheet, Alert, ActivityIndicator, Platform, Dimensions } from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
@@ -25,29 +18,52 @@ const StreamVideo = () => {
   const streamUrl = `${DOWNLOADER_API}/stream-torrents?magnet=${encodedMagnetLink}`;
   const [isLoading, setLoading] = useState(true);
   const [isPlaying, setPlaying] = useState(true);
+  const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const { miniPlayer, setMiniPlayer } = useMiniPlayer();
 
   useEffect(() => {
     setLoading(false);
   }, []);
 
+  //Loading the expo-screen-orientation
+
   useEffect(() => {
-    const subscription = ScreenOrientation.addOrientationChangeListener(
-      (evt) => {
-        const orientation = evt.orientationInfo.orientation;
-        if (
-          orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-        ) {
-          videoRef.current?.presentFullscreenPlayer();
-        } else if (
-          orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
-          orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
-        ) {
-          videoRef.current?.dismissFullscreenPlayer();
+    const checkOrientation = async () => {
+      const current = await ScreenOrientation.getOrientationAsync();
+      if (
+        current === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+        current === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+      ) {
+        setIsLandscape(true);
+      } else {
+        setIsLandscape(false);
+      }
+    };
+
+    checkOrientation();
+
+    const subscription = ScreenOrientation.addOrientationChangeListener(evt => {
+      const orientation = evt.orientationInfo.orientation;
+      if (
+        orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+        orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+      ) {
+        setIsLandscape(true);
+        // For iOS, trigger native fullscreen
+        if (Platform.OS === "ios" && videoRef.current?.presentFullscreenPlayer) {
+          videoRef.current.presentFullscreenPlayer();
+        }
+      } else if (
+        orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
+        orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
+      ) {
+        setIsLandscape(false);
+        if (Platform.OS === "ios" && videoRef.current?.dismissFullscreenPlayer) {
+          videoRef.current.dismissFullscreenPlayer();
         }
       }
-    );
+    });
+
     return () => {
       ScreenOrientation.removeOrientationChangeListener(subscription);
     };
@@ -79,20 +95,13 @@ const StreamVideo = () => {
       </View>
     );
   }
-
+  const videoStyle = Platform.OS === "android" && isLandscape ? [styles.video, styles.fullscreenVideo] : styles.video;
   return (
     <View style={styles.container}>
       {/* Header Controls */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={toggleMiniPlayer}
-          style={styles.headerButton}
-        >
-          <Ionicons
-            name={miniPlayer.visible ? "expand" : "contract"}
-            size={24}
-            color="#fff"
-          />
+        <TouchableOpacity onPress={toggleMiniPlayer} style={styles.headerButton}>
+          <Ionicons name={miniPlayer.visible ? "expand" : "contract"} size={24} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity onPress={handleDownload} style={styles.headerButton}>
           <Ionicons name="download" size={24} color="#fff" />
@@ -103,22 +112,19 @@ const StreamVideo = () => {
       </View>
       <Video
         source={{ uri: streamUrl }}
-        style={miniPlayer.visible ? styles.miniplayerVideo : styles.video}
+        style={videoStyle}
         controls
         resizeMode="contain"
         paused={!isPlaying}
         ref={videoRef}
-        onError={(error) => {
+        onError={error => {
           console.error("Streaming Error", error);
           Alert.alert("Error", "Unable to stream video.");
         }}
       />
       {miniPlayer.visible && (
         <View style={styles.miniPlayerOverlay}>
-          <TouchableOpacity
-            onPress={toggleMiniPlayer}
-            style={styles.headerButton}
-          >
+          <TouchableOpacity onPress={toggleMiniPlayer} style={styles.headerButton}>
             <Ionicons name="expand" size={24} color="#fff" />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
@@ -135,24 +141,20 @@ const styles = StyleSheet.create({
   video: {
     width: "100%",
     height: 300,
-    backgroundColor: "#000",
+    backgroundColor: "#000"
   },
-  miniplayerVideo: {
+  fullscreenVideo: {
     position: "absolute",
-    bottom: 20,
-    right: 20,
-    width: 160,
-    height: 90,
-    backgroundColor: "#000",
-    borderWidth: 1,
-    borderColor: "#7d0b02",
-    zIndex: 2,
+    top: 0,
+    left: 0,
+    width: Dimensions.get("window").width,
+    height: Dimensions.get("window").height
   },
   loaderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#000",
+    backgroundColor: "#000"
   },
   loaderText: { color: "#fff", marginTop: 10 },
   header: {
@@ -165,7 +167,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 3,
     backgroundColor: "rgba(0,0,0,0.6)",
-    paddingVertical: 5,
+    paddingVertical: 5
   },
   headerButton: { padding: 10 },
   miniPlayerOverlay: {
@@ -175,8 +177,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-around",
     width: 160,
-    zIndex: 4,
-  },
+    zIndex: 4
+  }
 });
 
 export default StreamVideo;
