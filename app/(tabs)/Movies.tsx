@@ -47,6 +47,8 @@ type TMDBMovie = {
   overview: string;
   poster_path: string;
   id: number;
+  first_air_date: string;
+  name: string;
 };
 
 type Torrent = {
@@ -113,6 +115,7 @@ export default function Movies(): JSX.Element {
   };
 
   // Fetch popular movies or popular series from TMDB based on contentType.
+
   const fetchPopularContent = async () => {
     try {
       setLoading(true);
@@ -125,17 +128,34 @@ export default function Movies(): JSX.Element {
       const res = await axios.get(url, {
         params: { api_key: MOVIE_API, language: "en-US", page: 1 },
       });
-      const popularMovies = res.data.results.map((movie: TMDBMovie) => ({
-        Title: contentType === "series" ? movie.title : movie.title,
-        Year: movie.release_date ? movie.release_date.split("-")[0] : "N/A",
-        Genre: "N/A",
-        Plot: movie.overview || "No description available.",
-        Poster: `https://image.tmdb.org/t/p/w500${movie.poster_path}`,
-        imdbID: movie.id.toString(),
-        imdbRating: "N/A",
-        category: contentType === "series" ? "Series" : "Movie",
-      }));
-      setMovies((prev) => [...prev, ...popularMovies]);
+      const popularContent = res.data.results.map((item: TMDBMovie) => {
+        if (contentType === "series") {
+          return {
+            Title: item.name, // Use name for series
+            Year: item.first_air_date
+              ? item.first_air_date.split("-")[0]
+              : "N/A",
+            Genre: "N/A",
+            Plot: item.overview || "No description available.",
+            Poster: `https://image.tmdb.org/t/p/w500${item.poster_path}`,
+            imdbID: item.id.toString(),
+            imdbRating: "N/A",
+            category: "Series",
+          };
+        } else {
+          return {
+            Title: item.title,
+            Year: item.release_date ? item.release_date.split("-")[0] : "N/A",
+            Genre: "N/A",
+            Plot: item.overview || "No description available.",
+            Poster: `https://image.tmdb.org/t/p/w500${item.poster_path}`,
+            imdbID: item.id.toString(),
+            imdbRating: "N/A",
+            category: "Movie",
+          };
+        }
+      });
+      setMovies((prev) => [...prev, ...popularContent]);
     } catch (error) {
       console.log("Error Fetching Popular Content", error);
       Alert.alert("Error", "Fetching Popular content failed. Try again.");
@@ -143,7 +163,6 @@ export default function Movies(): JSX.Element {
       setLoading(false);
     }
   };
-
   // Fetch torrents for a selected movie/series title.
   const fetchTorrents = async (movieTitle: string) => {
     try {
