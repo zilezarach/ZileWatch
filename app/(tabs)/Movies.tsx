@@ -116,7 +116,7 @@ export default function Movies(): JSX.Element {
 
   // Fetch popular movies or popular series from TMDB based on contentType.
 
-  const fetchPopularContent = async () => {
+  const fetchPopular = async () => {
     try {
       setLoading(true);
       let url = "";
@@ -247,7 +247,7 @@ export default function Movies(): JSX.Element {
 
   useEffect(() => {
     // When the component mounts or contentType changes, fetch popular content.
-    fetchPopularContent();
+    fetchPopular();
   }, [contentType]);
 
   return (
@@ -290,7 +290,7 @@ export default function Movies(): JSX.Element {
           setSearchTerm(text);
           if (!text.trim()) {
             setMovies([]);
-            fetchPopularContent();
+            fetchPopular();
           }
         }}
         onSubmitEditing={() => fetchMovies(searchTerm)}
