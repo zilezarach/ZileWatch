@@ -1,5 +1,15 @@
 import React, { useEffect, useRef, useState } from "react";
-import { View, StyleSheet, ActivityIndicator, Text, Dimensions, TouchableOpacity, Alert, Platform } from "react-native";
+import {
+  View,
+  StyleSheet,
+  ActivityIndicator,
+  Text,
+  Dimensions,
+  TouchableOpacity,
+  Alert,
+  Platform,
+  Modal
+} from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import axios from "axios";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
@@ -16,8 +26,10 @@ const VideoPlayer = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setLandscape] = useState<boolean>(false);
+  const [downloadModalVisable, setDownloadModalVisable] = useState(false);
   const route = useRoute<RouteProp<RootStackParamList, "VideoPlayer">>();
   const videoRef = useRef<VideoRef>(null);
+  const [isPaused, setPaused] = useState(false);
   const navigation = useNavigation();
   const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
   const videoUrl = route.params.videoUrl.trim();
@@ -90,6 +102,20 @@ const VideoPlayer = () => {
     navigation.goBack();
   };
 
+  const togglePlaypause = () => {
+    setPaused(prev => !prev);
+  };
+
+  const returnToFullScreen = () => {
+    if (videoRef.current?.presentFullscreenPlayer) {
+      videoRef.current.presentFullscreenPlayer();
+    }
+  };
+
+  const openModal = () => {
+    setDownloadModalVisable(true);
+  };
+
   const toggleMiniPlayer = () => {
     // When toggled, update the global mini player state.
     if (!miniPlayer.visible) {
@@ -128,6 +154,12 @@ const VideoPlayer = () => {
         <TouchableOpacity onPress={toggleMiniPlayer} style={styles.headerButton}>
           <Ionicons name="contract" size={24} color="#fff" />
         </TouchableOpacity>
+        <TouchableOpacity onPress={togglePlaypause} style={styles.headerButton}>
+          <Ionicons name={isPaused ? "play" : "pause"} size={24} color="#fff" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={returnToFullScreen} style={styles.headerButton}>
+          <Ionicons name="expand" size={24} color="#fff" />
+        </TouchableOpacity>
         <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
           <Ionicons name="close" size={24} color="#fff" />
         </TouchableOpacity>
@@ -142,6 +174,28 @@ const VideoPlayer = () => {
         ref={videoRef}
         onLoad={() => setLoading(false)}
       />
+
+      {/*Download Modal*/}
+      <Modal
+        visible={downloadModalVisable}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setDownloadModalVisable(false)}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Formats</Text>
+            <TouchableOpacity onPress={() => setDownloadModalVisable(false)}>
+              <Ionicons name="videocam" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setDownloadModalVisable(false)}>
+              <Ionicons name="musical-note" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setDownloadModalVisable(false)}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -152,6 +206,32 @@ const styles = StyleSheet.create({
     width: "100%",
     height: (width * 9) / 16,
     backgroundColor: "#000"
+  },
+  modalTitle: {
+    fontWeight: "bold",
+    fontSize: 10,
+    color: "#7d0b02",
+    marginBottom: 15
+  },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.8)",
+    padding: 20
+  },
+  modalContent: {
+    backgroundColor: "#1E1E1E",
+    borderRadius: 10,
+    padding: 20,
+    alignItems: "center"
+  },
+  optionModal: {
+    backgroundColor: "#7d0b02",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginVertical: 5,
+    width: "100%",
+    alignItems: "center"
   },
   fullscreenVid: {
     position: "absolute",
