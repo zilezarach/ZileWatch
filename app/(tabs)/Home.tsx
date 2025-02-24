@@ -122,7 +122,7 @@ export default function Home({ navigation }: any) {
   };
 
   //Save file to Gallery
-  const saveFileToGallery = async (fileUri: string) => {
+  const saveFileToGallery = async (fileUri: string): Promise<string> => {
     try {
       // Request permissions to access the media library
       const { status } = await MediaLibrary.requestPermissionsAsync();
@@ -182,7 +182,7 @@ export default function Home({ navigation }: any) {
         responseType: "arraybuffer", // binary data
         onDownloadProgress: progressEvent => {
           const total = progressEvent.total || 1;
-          const progress = progressEvent.loaded / total;
+          const progress = Math.round((progressEvent.loaded / total) * 100);
           setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
             ...prev,
             [downloadId]: { ...prev[downloadId], progress }
@@ -198,16 +198,17 @@ export default function Home({ navigation }: any) {
       }
 
       // Use the provided title for the filename (sanitize it for file system use)
+      const fileExtension = option === "audio" ? "m4a" : "mp4";
       const fileName = `${selectedVideo.title.replace(/\s+/g, "_")}.${option === "audio" ? "m4a" : "mp4"}`;
       const fileUri = `${downloadDir}${fileName}`;
 
       // Convert the response ArrayBuffer to Base64
       const base64Data = Buffer.from(response.data).toString("base64");
-
-      // Write the file to the filesystem
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
         encoding: FileSystem.EncodingType.Base64
       });
+
+      const asseturi = await saveFileToGallery(fileUri);
 
       // Create a persistent download record with metadata
       const newDownloadRecord = {
