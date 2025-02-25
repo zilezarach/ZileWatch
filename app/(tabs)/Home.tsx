@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useContext } from "react";
+import React, { useState, useEffect, useContext, useCallback } from "react";
 import {
   Text,
   View,
@@ -23,16 +23,17 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 
-//Types
+// Types
 type Video = {
   Title: string;
   Plot: string;
   Formats: string[];
   Poster: string;
 };
+
 type ActiveDownload = {
   title: string;
-  progress: number; // Progress in percentage
+  progress: number; // as fraction from 0 to 100
 };
 
 type CompletedDownload = {
@@ -40,34 +41,50 @@ type CompletedDownload = {
   title: string;
 };
 
+// Helper type for selected video metadata
+type SelectedVideo = {
+  url: string;
+  title: string;
+  poster: string;
+};
+
 export default function Home({ navigation }: any) {
-  const [videos, setVideos] = useState([]);
+  const [videos, setVideos] = useState<any[]>([]);
   const [downloadVids, setDownloadVids] = useState<Video[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
-  const [isModalVisable, setModalVisable] = useState(false);
-  const [selectedVideo, setSelectedVideo] = useState<{ url: string; title: string; poster: string }>({
-    url: "",
-    title: "",
-    poster: ""
-  });
-  const [isDarkMode, setisDarkMode] = useState<boolean>(true);
-  const [isVisible, setVisible] = useState(false);
+  const [isModalVisible, setModalVisible] = useState(false);
+  const [selectedVideo, setSelectedVideo] = useState<SelectedVideo>({ url: "", title: "", poster: "" });
+  const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
+  const [isVisible, setVisible] = useState(false); // for paste link modal
   const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
   const { setActiveDownloads, setCompleteDownloads } = useContext(DownloadContext);
 
-  //handle search function
+  // Helper: Persist a new download record in AsyncStorage and update state.
+  const addDownloadRecord = async (newRecord: any) => {
+    try {
+      const recordsStr = await AsyncStorage.getItem("downloadedFiles");
+      let existingRecords = recordsStr ? JSON.parse(recordsStr) : [];
+      // Prepend new record so that the newest appears first.
+      const updatedRecords = [newRecord, ...existingRecords];
+      await AsyncStorage.setItem("downloadedFiles", JSON.stringify(updatedRecords));
+      // Optionally update local state if you want immediate feedback.
+      // (If DownloadsScreen is separate, ensure it reloads on focus.)
+    } catch (error) {
+      console.error("Error saving download record:", error);
+    }
+  };
+
+  // Handle search (by URL or YouTube search)
   const handleSearch = async () => {
     if (!searchQuery) return;
-
     setLoading(true);
     const isURL = searchQuery.startsWith("http://") || searchQuery.startsWith("https://");
-
     if (isURL) {
-      await fetchByUrl(searchQuery); // Fetch video details for direct URL
+      await fetchByUrl(searchQuery);
     } else {
       try {
-        const results = await fetchYouTubeSearchResults(searchQuery); // Search for YouTube videos
+        const results = await fetchYouTubeSearchResults(searchQuery);
         setVideos(results || []);
       } catch (error) {
         console.error("Error Fetching Videos", error);
@@ -75,7 +92,8 @@ export default function Home({ navigation }: any) {
     }
     setLoading(false);
   };
-  //Fetch Social Media
+
+  // Fetch video details for a pasted URL
   const fetchByUrl = async (url: string) => {
     try {
       setLoading(true);
@@ -88,7 +106,6 @@ export default function Home({ navigation }: any) {
         : typeof res.data.formats === "string"
           ? res.data.formats.split(",\n").map((line: string) => line.trim())
           : res.data.formats;
-
       const socialDownload: Video = {
         Title: res.data.title,
         Plot: "Download",
@@ -104,6 +121,7 @@ export default function Home({ navigation }: any) {
     }
   };
 
+  // Load popular videos on mount
   useEffect(() => {
     const loadVideos = async () => {
       try {
@@ -116,25 +134,23 @@ export default function Home({ navigation }: any) {
     loadVideos();
   }, []);
 
+  // When a video is selected for download from VideoList, open the download modal.
   const handleDownload = (video: { url: string; title: string; poster: string }) => {
     setSelectedVideo(video);
-    setModalVisable(true);
+    setModalVisible(true);
   };
 
-  //Save file to Gallery
+  // Save file to the device gallery (for video files)
   const saveFileToGallery = async (fileUri: string): Promise<string> => {
     try {
-      // Request permissions to access the media library
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status !== "granted") {
         Alert.alert("Permission Denied", "Cannot save file without permission.");
         return fileUri;
       }
-      // Create an asset from the file
       const asset = await MediaLibrary.createAssetAsync(fileUri);
-      // Create or add the asset to an album named "Downloads"
       const album = await MediaLibrary.getAlbumAsync("Downloads");
-      if (album == null) {
+      if (!album) {
         await MediaLibrary.createAlbumAsync("Downloads", asset, false);
       } else {
         await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
@@ -147,39 +163,33 @@ export default function Home({ navigation }: any) {
     }
   };
 
-  //handle Download Videos From YouTube
-
+  // Download logic: called when user selects a download option from ModalPick.
   const handleSelectOption = async (option: "audio" | "video") => {
-    // Ensure selectedVideo contains metadata, e.g. { url, title, poster }
-    if (!selectedVideo || !selectedVideo.url) {
+    if (!selectedVideo.url) {
       Alert.alert("Error", "No video selected for download.");
       return;
     }
-    setModalVisable(false);
-
-    // Use a unique ID that you can use to track this download
+    setModalVisible(false);
     const downloadId = `${Date.now()}-${selectedVideo.url}`;
-
-    // Map user's selection to a valid yt-dlp format specifier
     const formatMapping: Record<string, string> = {
-      video: "best", // best returns merged video+audio
-      audio: "bestaudio" // audio-only
+      video: "best",
+      audio: "bestaudio"
     };
     const selectedFormat = formatMapping[option];
 
     try {
-      // Add to active downloads context for showing progress
+      // Add to active downloads context for progress (for visual updates)
       setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
         ...prev,
         [downloadId]: { title: selectedVideo.title, progress: 0 }
       }));
 
-      // Call your backend's download endpoint
+      // Call the backend download endpoint
       const response = await axios({
         method: "post",
         url: `${DOWNLOADER_API}/download-videos`,
         data: { url: selectedVideo.url, format: selectedFormat },
-        responseType: "arraybuffer", // binary data
+        responseType: "arraybuffer",
         onDownloadProgress: progressEvent => {
           const total = progressEvent.total || 1;
           const progress = Math.round((progressEvent.loaded / total) * 100);
@@ -190,46 +200,51 @@ export default function Home({ navigation }: any) {
         }
       });
 
-      // Define the persistent download directory
+      // Ensure download directory exists
       const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
       const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
       if (!directoryInfo.exists) {
         await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
       }
 
-      // Use the provided title for the filename (sanitize it for file system use)
+      // Use a sanitized file name based on the video title.
       const fileExtension = option === "audio" ? "m4a" : "mp4";
-      const fileName = `${selectedVideo.title.replace(/\s+/g, "_")}.${option === "audio" ? "m4a" : "mp4"}`;
+      const fileName = `${selectedVideo.title.replace(/\s+/g, "_")}.${fileExtension}`;
       const fileUri = `${downloadDir}${fileName}`;
 
-      // Convert the response ArrayBuffer to Base64
+      // Convert the downloaded ArrayBuffer to Base64 and write the file.
       const base64Data = Buffer.from(response.data).toString("base64");
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
         encoding: FileSystem.EncodingType.Base64
       });
 
-      const asseturi = await saveFileToGallery(fileUri);
+      // For video downloads, save the file to the Gallery.
+      let finalFileUri = fileUri;
+      if (option === "video") {
+        finalFileUri = await saveFileToGallery(fileUri);
+      }
 
-      // Create a persistent download record with metadata
+      // Create a new download record.
       const newDownloadRecord = {
         id: downloadId,
         title: selectedVideo.title,
-        fileUri,
+        Poster: selectedVideo.poster,
+        fileUri: finalFileUri, // Use the asset URI if available
         type: option, // "audio" or "video"
-        thumbnail: selectedVideo.poster, // The thumbnail URL
+        source: "direct",
         downloadedAt: Date.now()
       };
 
-      // Retrieve existing records from AsyncStorage
+      // Persist the new record.
       const existingRecordsStr = await AsyncStorage.getItem("downloadedFiles");
       const existingRecords = existingRecordsStr ? JSON.parse(existingRecordsStr) : [];
       existingRecords.push(newDownloadRecord);
       await AsyncStorage.setItem("downloadedFiles", JSON.stringify(existingRecords));
 
-      // Update the complete downloads context and remove from active downloads
+      // Update complete downloads context and remove from active downloads.
       setCompleteDownloads(prev => [...prev, { id: downloadId, title: `${option.toUpperCase()} Download Complete` }]);
       setActiveDownloads((prev: Record<string, ActiveDownload>) => {
-        const { [downloadId]: _, ...rest } = prev;
+        const { [downloadId]: removed, ...rest } = prev;
         return rest;
       });
 
@@ -237,22 +252,20 @@ export default function Home({ navigation }: any) {
     } catch (error: any) {
       console.error("Download Error:", error);
       Alert.alert("Error", error.response?.data?.message || "Failed to download. Please try again.");
-      // Remove incomplete download from active downloads context
       setActiveDownloads((prev: Record<string, ActiveDownload>) => {
-        const { [downloadId]: _, ...rest } = prev;
+        const { [downloadId]: removed, ...rest } = prev;
         return rest;
       });
     } finally {
-      setModalVisable(false);
+      setModalVisible(false);
     }
   };
-  //handle links then downloaded
+
+  // Optional: handleLinks for additional pasted link downloads.
   const handleLinks = async (url: string) => {
     setLoading(true);
     try {
-      await axios.post(`${DOWNLOADER_API}/download-videos`, {
-        url
-      });
+      await axios.post(`${DOWNLOADER_API}/download-videos`, { url });
     } catch (error) {
       console.log("Error Downloads Videos", error);
       Alert.alert("Error", "Unable to Download Videos");
@@ -260,11 +273,12 @@ export default function Home({ navigation }: any) {
       setLoading(false);
     }
   };
+
   return (
     <View style={[styles.contain, isDarkMode && styles.darkMode]}>
       <View style={styles.toggleContainer}>
         <Image source={require("../../assets/images/Original.png")} style={{ width: 100, height: 100 }} />
-        <Switch value={isDarkMode} onValueChange={setisDarkMode} />
+        <Switch value={isDarkMode} onValueChange={setIsDarkMode} />
       </View>
       <View style={styles.container}>
         <TextInput
@@ -280,28 +294,22 @@ export default function Home({ navigation }: any) {
         </TouchableOpacity>
       </View>
       <VideoList videos={videos} onPlay={videoUrl => console.log("Play Video", videoUrl)} onDownload={handleDownload} />
-      <ModalPick visable={isModalVisable} onClose={() => setModalVisable(false)} onSelect={handleSelectOption} />
+      <ModalPick visable={isModalVisible} onClose={() => setModalVisible(false)} onSelect={handleSelectOption} />
       <TouchableOpacity style={styles.toggleButton} onPress={() => setVisible(!isVisible)}>
         <Text style={styles.toggleButtonText}>{isVisible ? "Hide List" : "Show Paste Link"}</Text>
       </TouchableOpacity>
-      <Modal visible={isVisible} animationType="slide" transparent={true} onRequestClose={() => setVisible(false)}>
+      <Modal visible={isVisible} animationType="slide" transparent onRequestClose={() => setVisible(false)}>
         <View style={styles.modalContainer}>
-          {/* Close Button */}
           <TouchableOpacity style={styles.button} onPress={() => setVisible(false)}>
             <Text style={styles.buttonText}>Close</Text>
           </TouchableOpacity>
-
-          {/* FlatList */}
           <FlatList
             data={downloadVids}
             keyExtractor={(item, index) => index.toString()}
             renderItem={({ item }) => (
               <View style={styles.listItem}>
-                {/* Thumbnail */}
                 <Image source={{ uri: item.Poster }} style={styles.thumbnail} />
-                {/* Title */}
                 <Text style={styles.listTitle}>{item.Title}</Text>
-                {/* Formats */}
                 {Array.isArray(item.Formats) ? (
                   item.Formats.map((format, index) => (
                     <TouchableOpacity key={index} style={styles.button} onPress={() => handleLinks(format)}>
@@ -320,21 +328,45 @@ export default function Home({ navigation }: any) {
     </View>
   );
 }
+
 const styles = StyleSheet.create({
   Input: {
     flex: 1,
     padding: 10,
     color: "#7d0b02"
   },
-  modalContainer: {
+  contain: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.8)", // Semi-transparent background
-    justifyContent: "center",
-    alignItems: "center",
-    paddingTop: 40
+    padding: 10,
+    borderWidth: 1
   },
-  noFormatsText: {
-    backgroundColor: "#7d0b02"
+  container: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    margin: 15,
+    borderColor: "#7d0b02",
+    borderRadius: 4,
+    overflow: "hidden"
+  },
+  button: {
+    backgroundColor: "#7d0b02",
+    borderRadius: 5,
+    padding: 10,
+    marginVertical: 5,
+    marginTop: 5
+  },
+  buttonText: {
+    fontSize: 16
+  },
+  toggleContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10
+  },
+  darkMode: {
+    backgroundColor: "#121212"
   },
   toggleButton: {
     backgroundColor: "#7d0b02",
@@ -354,11 +386,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 10
   },
-  contain: {
-    flex: 1,
-    padding: 10,
-    borderWidth: 1
-  },
   listContainer: {
     padding: 15
   },
@@ -373,37 +400,14 @@ const styles = StyleSheet.create({
     marginTop: 5,
     marginBottom: 5
   },
-  container: {
-    flexDirection: "row",
+  noFormatsText: {
+    backgroundColor: "#7d0b02"
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "center",
     alignItems: "center",
-    borderWidth: 1,
-    margin: 15,
-    borderColor: "#7d0b02",
-
-    borderRadius: 4,
-    overflow: "hidden"
-  },
-  button: {
-    backgroundColor: "#7d0b02",
-    borderRadius: 5,
-    padding: 10,
-    marginBottom: 5,
-    marginTop: 5
-  },
-  buttonText: {
-    fontSize: 16
-  },
-  darkMode: {
-    backgroundColor: "#121212"
-  },
-  toggleContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 10
-  },
-  toggleLabel: {
-    fontSize: 16,
-    color: "#FFF"
+    paddingTop: 40
   }
 });
