@@ -219,7 +219,7 @@ export default function Home({ navigation }: any) {
       });
 
       // Ensure download directory exists
-      const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
+      const downloadDir = `${FileSystem.documentDirectory}ZileWatch/`;
       const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
       if (!directoryInfo.exists) {
         await FileSystem.makeDirectoryAsync(downloadDir, {
