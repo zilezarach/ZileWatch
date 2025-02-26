@@ -45,7 +45,6 @@ export default {
       "expo-screen-orientation",
       "expo-media-library",
       "expo-file-system",
-      "expo-linking",
     ],
     experiments: {
       typedRoutes: true,
