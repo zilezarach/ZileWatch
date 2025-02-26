@@ -24,7 +24,7 @@ import { Buffer } from "buffer";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as MediaLibrary from "expo-media-library";
-
+import * as Linking from "expo-linking";
 // Types
 type Video = {
   Title: string;
@@ -235,9 +235,11 @@ export default function Home({ navigation }: any) {
       )}.${fileExtension}`;
       const fileUri = `${downloadDir}${fileName}`;
 
-      // Convert the downloaded ArrayBuffer to Base64 and write the file.
-      const base64Data = Buffer.from(response.data).toString("base64");
-      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+      await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+
+      const uinit8Array = new Uint8Array(response.data);
+      const base64data = Buffer.from(uinit8Array).toString("base64");
+      await FileSystem.writeAsStringAsync(fileUri, base64data, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
@@ -279,7 +281,20 @@ export default function Home({ navigation }: any) {
         return rest;
       });
 
-      Alert.alert("Success", `${option.toUpperCase()} download complete.`);
+      Alert.alert("Success", `${option.toUpperCase()} download complete.`, [
+        { text: "OK" },
+        {
+          text: "Open File",
+          onPress: async () => {
+            try {
+              await Linking.openURL(finalFileUri); // Attempt to open the file
+            } catch (err) {
+              console.error("Error opening file:", err);
+              Alert.alert("Error", "Could not open the file.");
+            }
+          },
+        },
+      ]);
     } catch (error: any) {
       console.error("Download Error:", error);
       Alert.alert(
