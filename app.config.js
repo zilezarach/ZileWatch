@@ -14,7 +14,7 @@ export default {
       resizeMode: "cover",
       backgroundColor: "#000000",
     },
-    newArchEnabled: true,
+    newArchEnabled: false,
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.zile.zileWatch",
@@ -29,8 +29,8 @@ export default {
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "MEDIA_LIBRARY",
-        "ACCESS_MEDIA_LOCATION", // 🔹 New permission for Android 10+
-        "READ_MEDIA_VIDEO", // 🔹 Ensures videos appear in gallery
+        "ACCESS_MEDIA_LOCATION", // New permission for Android 10+
+        "READ_MEDIA_VIDEO",      // Ensures videos appear in gallery
         "READ_MEDIA_AUDIO",
       ],
     },
@@ -45,6 +45,15 @@ export default {
       "expo-screen-orientation",
       "expo-media-library",
       "expo-file-system",
+      [
+        "expo-build-properties",
+        {
+          android: {
+            kotlinVersion: "1.9.25",
+            suppressKotlinVersionCompatibilityCheck: true,
+          },
+        },
+      ],
     ],
     experiments: {
       typedRoutes: true,
@@ -59,3 +68,5 @@ export default {
     },
   },
 };
+
+
