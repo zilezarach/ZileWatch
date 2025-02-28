@@ -30,7 +30,7 @@ export default {
         "WRITE_EXTERNAL_STORAGE",
         "MEDIA_LIBRARY",
         "ACCESS_MEDIA_LOCATION", // New permission for Android 10+
-        "READ_MEDIA_VIDEO",      // Ensures videos appear in gallery
+        "READ_MEDIA_VIDEO", // Ensures videos appear in gallery
         "READ_MEDIA_AUDIO",
       ],
     },
@@ -68,5 +68,3 @@ export default {
     },
   },
 };
-
-

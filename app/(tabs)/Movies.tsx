@@ -16,7 +16,7 @@ import {
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, RouteProp } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import * as FileSystem from "expo-file-system";
 import { Buffer } from "buffer";
@@ -27,7 +27,7 @@ const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 const { width } = Dimensions.get("window");
 const MOVIE_API = Constants.expoConfig?.extra?.TMBD_KEY;
 
-type Movie = {
+interface BaseMedia {
   Title: string;
   Year: string;
   Genre: string;
@@ -37,7 +37,15 @@ type Movie = {
   imdbRating?: string;
   category?: string;
   hasTorrent?: boolean;
-};
+}
+
+interface Movie extends BaseMedia {
+  imdbID: string;
+}
+
+interface Series extends BaseMedia {
+  tv_id: number;
+}
 
 type TMDBMovie = {
   title: string;
@@ -55,7 +63,9 @@ type Torrent = {
   size: string;
 };
 
-type NavigationProp = NativeStackNavigationProp<RootStackParamList, "Movies">;
+type MediaItem = Movie | Series;
+
+type NavigationProp = RouteProp<RootStackParamList, "Movies">;
 
 export default function Movies(): JSX.Element {
   const [movies, setMovies] = useState<Movie[]>([]);
@@ -66,7 +76,10 @@ export default function Movies(): JSX.Element {
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [isVisible, setVisible] = useState<boolean>(false);
   const [contentType, setContentType] = useState<"movie" | "series">("movie");
-  const navigation = useNavigation<NavigationProp>();
+  const navigation =
+    useNavigation<
+      NativeStackNavigationProp<RootStackParamList, "SeriesDetail">
+    >();
 
   // Fetch movies/series by search query (with caching)
   const fetchMovies = async (query: string) => {
@@ -154,6 +167,9 @@ export default function Movies(): JSX.Element {
       setLoading(false);
     }
   };
+  useEffect(() => {
+    fetchPopular();
+  }, [contentType]);
 
   // Fetch torrents for a selected movie/series title.
   const fetchTorrents = async (movieTitle: string) => {
@@ -184,6 +200,41 @@ export default function Movies(): JSX.Element {
       setLoading(false);
     }
   };
+  // render series and movies
+  const renderItem = ({ item }: { item: any }) => (
+    <View style={styles.movieCard}>
+      <Image source={{ uri: item.Poster }} style={styles.movieImage} />
+      <View style={styles.movieDetails}>
+        <Text style={styles.movieTitle}>{item.Title}</Text>
+        <Text style={styles.movieDescription} numberOfLines={3}>
+          {item.Plot}
+        </Text>
+        <Text style={styles.movieRating}>IMDb Rating: {item.imdbRating}</Text>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => {
+            if (contentType === "series") {
+              // Navigate to the SeriesDetailScreen for series items.
+              navigation.navigate("SeriesDetail", {
+                tv_id: item.tv_id,
+                title: item.Title,
+              });
+            } else {
+              // For movies, proceed with torrent or other download/stream logic.
+              Alert.alert(
+                "Movie Selected",
+                "Implement movie torrent/stream logic here."
+              );
+            }
+          }}
+        >
+          <Text style={styles.buttonText}>
+            {contentType === "series" ? "View Seasons" : "Get Torrents"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   // Download torrent file and save it to device storage.
   const handleDownload = async (magnetLink: string, videoTitle: string) => {
@@ -237,29 +288,6 @@ export default function Movies(): JSX.Element {
   useEffect(() => {
     fetchPopular();
   }, [contentType]);
-
-  // Render each movie/series item.
-  const renderItem = ({ item }: { item: Movie }) => (
-    <View style={styles.movieCard}>
-      <Image source={{ uri: item.Poster }} style={styles.movieImage} />
-      <View style={styles.movieDetails}>
-        <Text style={styles.movieTitle}>{item.Title}</Text>
-        <Text style={styles.movieDescription} numberOfLines={3}>
-          {item.Plot}
-        </Text>
-        <Text style={styles.movieRating}>IMDb Rating: {item.imdbRating}</Text>
-        {item.hasTorrent && (
-          <Text style={styles.torrentAvailable}>Torrents Available</Text>
-        )}
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => fetchTorrents(item.Title)}
-        >
-          <Text style={styles.buttonText}>Get Torrents</Text>
-        </TouchableOpacity>
-      </View>
-    </View>
-  );
 
   return (
     <View style={[styles.container, isDarkMode && styles.darkMode]}>
