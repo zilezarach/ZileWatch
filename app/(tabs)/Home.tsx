@@ -25,6 +25,7 @@ import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as MediaLibrary from "expo-media-library";
 import * as Linking from "expo-linking";
+import * as Sharing from "expo-sharing";
 // Types
 type Video = {
   Title: string;
@@ -55,6 +56,7 @@ export default function Home({ navigation }: any) {
   const [downloadVids, setDownloadVids] = useState<Video[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
+  const [hasMediaPermission, setHasMediaPermission] = useState<boolean>(false);
   const [isModalVisible, setModalVisible] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState<SelectedVideo>({
     url: "",
@@ -84,7 +86,27 @@ export default function Home({ navigation }: any) {
       console.error("Error saving download record:", error);
     }
   };
-
+  //Loading the downloads when permission is made
+  useEffect(() => {
+    (async () => {
+      // Check if we already have permission
+      const existingStatus = await MediaLibrary.getPermissionsAsync();
+      if (existingStatus.status === "granted") {
+        setHasMediaPermission(true);
+      } else {
+        // Request permission
+        const { status } = await MediaLibrary.requestPermissionsAsync();
+        if (status === "granted") {
+          setHasMediaPermission(true);
+        } else {
+          Alert.alert(
+            "Permission Denied",
+            "Cannot save files to gallery without permission."
+          );
+        }
+      }
+    })();
+  }, []);
   // Handle search (by URL or YouTube search)
   const handleSearch = async () => {
     if (!searchQuery) return;
@@ -167,7 +189,7 @@ export default function Home({ navigation }: any) {
         return fileUri;
       }
       const asset = await MediaLibrary.createAssetAsync(fileUri);
-      const album = await MediaLibrary.getAlbumAsync("Downloads");
+      let album = await MediaLibrary.getAlbumAsync("Downloads");
       if (!album) {
         await MediaLibrary.createAlbumAsync("Downloads", asset, false);
       } else {
@@ -180,11 +202,38 @@ export default function Home({ navigation }: any) {
       return fileUri;
     }
   };
-
+  const openFile = async (fileUri: string) => {
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (!fileInfo.exists) {
+        Alert.alert("Error", "File not found.");
+        return;
+      }
+      // First attempt: use Linking
+      try {
+        await Linking.openURL(fileUri);
+      } catch (linkError) {
+        console.error("Linking failed, falling back to Sharing", linkError);
+        // Fallback: Use expo-sharing if available
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri);
+        } else {
+          Alert.alert("Error", "No application available to open this file.");
+        }
+      }
+    } catch (error) {
+      console.error("Error opening file", error);
+      Alert.alert("Error", "Unable to open file.");
+    }
+  };
   // Download logic: called when user selects a download option from ModalPick.
   const handleSelectOption = async (option: "audio" | "video") => {
     if (!selectedVideo.url) {
       Alert.alert("Error", "No video selected for download.");
+      return;
+    }
+    if (!hasMediaPermission && option === "video") {
+      Alert.alert("Permission Required", "Please grant Permissions First");
       return;
     }
     setModalVisible(false);
@@ -285,14 +334,7 @@ export default function Home({ navigation }: any) {
         { text: "OK" },
         {
           text: "Open File",
-          onPress: async () => {
-            try {
-              await Linking.openURL(finalFileUri); // Attempt to open the file
-            } catch (err) {
-              console.error("Error opening file:", err);
-              Alert.alert("Error", "Could not open the file.");
-            }
-          },
+          onPress: async () => openFile(finalFileUri),
         },
       ]);
     } catch (error: any) {

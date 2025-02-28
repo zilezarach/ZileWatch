@@ -11,6 +11,7 @@ import {
   RefreshControl,
   ToastAndroid,
   Switch,
+  Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useFocusEffect } from "@react-navigation/native";
@@ -70,23 +71,39 @@ export default function DownloadsScreen() {
   // Open the downloaded file
   const openFile = async (fileUri: string) => {
     try {
+      // Check if the file exists
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
       if (!fileInfo.exists) {
         Alert.alert("Error", "File does not exist. It may have been deleted.");
         return;
       }
-      const supported = await Linking.canOpenURL(fileUri);
+
+      // For Android, try to convert the file:// URI to a content:// URI
+      let uriToOpen = fileUri;
+      if (Platform.OS === "android") {
+        const contentUri = await FileSystem.getContentUriAsync(fileUri);
+        if (contentUri) {
+          uriToOpen = contentUri;
+        }
+      }
+
+      // Try to open the URI using Linking
+      const supported = await Linking.canOpenURL(uriToOpen);
       if (supported) {
-        await Linking.openURL(fileUri);
+        await Linking.openURL(uriToOpen);
       } else {
-        Alert.alert("Error", "No application available to open this file.");
+        // Fallback to sharing if no app can directly open the file
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(uriToOpen);
+        } else {
+          Alert.alert("Error", "No application available to open this file.");
+        }
       }
     } catch (error) {
       console.error("Error opening file:", error);
       Alert.alert("Error", "Unable to open file.");
     }
   };
-
   // Remove a download record and optionally delete the file
   const removeDownloadRecord = async (id: string, fileUri: string) => {
     Alert.alert(
