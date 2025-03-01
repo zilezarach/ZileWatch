@@ -16,7 +16,7 @@ import {
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { useNavigation, RouteProp } from "@react-navigation/native";
+import { useNavigation, RouteProp, useRoute } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import * as FileSystem from "expo-file-system";
 import { Buffer } from "buffer";
@@ -63,8 +63,6 @@ type Torrent = {
   size: string;
 };
 
-type MediaItem = Movie | Series;
-
 type NavigationProp = RouteProp<RootStackParamList, "Movies">;
 
 export default function Movies(): JSX.Element {
@@ -80,6 +78,11 @@ export default function Movies(): JSX.Element {
     useNavigation<
       NativeStackNavigationProp<RootStackParamList, "SeriesDetail">
     >();
+
+  const route = useRoute<NavigationProp>();
+
+  const { Title, Year, Genre, Plot, Poster, imdbRating, category } =
+    route.params;
 
   // Fetch movies/series by search query (with caching)
   const fetchMovies = async (query: string) => {
@@ -216,15 +219,11 @@ export default function Movies(): JSX.Element {
             if (contentType === "series") {
               // Navigate to the SeriesDetailScreen for series items.
               navigation.navigate("SeriesDetail", {
-                tv_id: item.tv_id,
+                tv_id: item.imdbID,
                 title: item.Title,
               });
             } else {
-              // For movies, proceed with torrent or other download/stream logic.
-              Alert.alert(
-                "Movie Selected",
-                "Implement movie torrent/stream logic here."
-              );
+              fetchTorrents(item.Title);
             }
           }}
         >
