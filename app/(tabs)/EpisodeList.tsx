@@ -19,12 +19,21 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 const TMDB_URL =
   Constants.expoConfig?.extra?.TMBD_URL || "https://api.themoviedb.org/3";
 const TMDB_API_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
+const BACKEND_URL = Constants.expoConfig?.extra?.API_Backend;
 
+interface Episode {
+  id: number;
+  name: string;
+  episode_number: number;
+  overview: string;
+  still_path: string | null;
+  magnetLink?: string | null; // Optional, added by enrichment
+}
 type EpisodeListRouteProp = RouteProp<RootStackParamList, "EpisodeList">;
 
 export default function EpisodeListScreen() {
   const route = useRoute<EpisodeListRouteProp>();
-  const { tv_id, season_number, seasonName } = route.params;
+  const { tv_id, season_number, seasonName, seriesTitle } = route.params;
   const [episodes, setEpisodes] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
@@ -37,8 +46,11 @@ export default function EpisodeListScreen() {
       setLoading(true);
       const cacheKey = `episodes_${tv_id}_season_${season_number}`;
       const cachedData = await AsyncStorage.getItem(cacheKey);
+      let episodeData = [];
+
+      // Fetch TMDB data
       if (cachedData) {
-        setEpisodes(JSON.parse(cachedData));
+        episodeData = JSON.parse(cachedData);
       } else {
         const response = await axios.get(
           `${TMDB_URL}/tv/${tv_id}/season/${season_number}`,
@@ -46,20 +58,41 @@ export default function EpisodeListScreen() {
             params: { api_key: TMDB_API_KEY, language: "en-US" },
           }
         );
-        setEpisodes(response.data.episodes);
-        await AsyncStorage.setItem(
-          cacheKey,
-          JSON.stringify(response.data.episodes)
-        );
+        episodeData = response.data.episodes;
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(episodeData));
       }
+
+      // Fetch magnet links from backend (assuming /torrent/search exists)
+      const enrichedEpisodes = await Promise.all(
+        episodeData.map(async (episode: Episode) => {
+          const query = `${seriesTitle} S${String(season_number).padStart(
+            2,
+            "0"
+          )}E${String(episode.episode_number).padStart(2, "0")}`;
+          try {
+            const torrentResponse = await axios.get(
+              `${BACKEND_URL}/torrent/search`,
+              {
+                params: { query },
+              }
+            );
+            return { ...episode, magnetLink: torrentResponse.data.magnetLink };
+          } catch (error) {
+            console.error(`Failed to fetch torrent for ${query}:`, error);
+            return { ...episode, magnetLink: null };
+          }
+        })
+      );
+
+      setEpisodes(enrichedEpisodes);
     } catch (error: any) {
-      Alert.alert("Error", "Failed to fetch episodes.");
+      Alert.alert("Error", "Failed to fetch episodes or torrents.");
       console.error("Episode fetch error:", error);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [tv_id, season_number]);
+  }, [tv_id, season_number, seriesTitle]);
 
   useEffect(() => {
     fetchSeasonEpisodes();
@@ -78,7 +111,7 @@ export default function EpisodeListScreen() {
     }
     navigation.navigate("Stream", {
       magnetLink: episode.videoUrl,
-      videoTitle: episode.name,
+      videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`,
     });
   };
 

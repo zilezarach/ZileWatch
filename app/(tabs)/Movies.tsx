@@ -25,7 +25,8 @@ import { Ionicons } from "@expo/vector-icons";
 
 const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 const { width } = Dimensions.get("window");
-const MOVIE_API = Constants.expoConfig?.extra?.TMBD_KEY;
+const TMDB_API_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
+const TMDB_API_URL = "https://api.themoviedb.org/3";
 
 interface BaseMedia {
   Title: string;
@@ -81,10 +82,8 @@ export default function Movies(): JSX.Element {
 
   const route = useRoute<NavigationProp>();
 
-  const { Title, Year, Genre, Plot, Poster, imdbRating, category } =
-    route.params;
-
   // Fetch movies/series by search query (with caching)
+
   const fetchMovies = async (query: string) => {
     try {
       setIsSearching(true);
@@ -94,111 +93,101 @@ export default function Movies(): JSX.Element {
       if (cachedMovies) {
         setMovies(JSON.parse(cachedMovies));
       } else {
-        const res = await axios.get(`${DOWNLOADER_API}/search`, {
-          params: { title: query, type: contentType },
+        const url =
+          contentType === "series"
+            ? `${TMDB_API_URL}/search/tv`
+            : `${TMDB_API_URL}/search/movie`;
+        const res = await axios.get(url, {
+          params: { api_key: TMDB_API_KEY, query, language: "en-US" },
         });
-        console.log("API RESPONSE:", res.data);
-        const data = res.data.data;
-        const movie: Movie = {
-          Title: data.title || "N/A",
-          Year: data.release_date ? data.release_date.split("-")[0] : "N/A",
-          Genre: data.genre || "N/A",
-          Plot: data.overview || "No description available.",
-          Poster: data.poster_path || "https://via.placeholder.com/100x150",
-          imdbID: data.id ? data.id.toString() : query,
-          imdbRating: data.imdbRating || "N/A",
+        const data = res.data.results.map((item: any) => ({
+          Title: contentType === "series" ? item.name : item.title,
+          Year:
+            (contentType === "series"
+              ? item.first_air_date
+              : item.release_date
+            )?.split("-")[0] || "N/A",
+          Genre: item.genres?.[0]?.name || "N/A",
+          Plot: item.overview || "No description available.",
+          Poster: item.poster_path
+            ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
+            : "https://via.placeholder.com/100x150",
+          imdbID: item.id.toString(),
+          imdbRating: item.vote_average?.toString() || "N/A",
           category: contentType === "series" ? "Series" : "Movie",
-        };
-        setMovies([movie]);
-        await AsyncStorage.setItem(cacheKey, JSON.stringify([movie]));
+        }));
+        setMovies(data);
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
       }
     } catch (error) {
-      console.error("Error fetching movies:", error);
-      Alert.alert(
-        "Error",
-        "Failed to fetch movie data. Please try again later."
-      );
+      console.error("Error fetching search results:", error);
+      Alert.alert("Error", "Failed to fetch search results.");
     } finally {
       setLoading(false);
       setIsSearching(false);
     }
   };
-
   // Fetch popular movies or series from TMDB based on contentType.
   const fetchPopular = async () => {
     try {
       setLoading(true);
-      let url =
+      const url =
         contentType === "series"
-          ? "https://api.themoviedb.org/3/tv/popular"
-          : "https://api.themoviedb.org/3/movie/popular";
+          ? `${TMDB_API_URL}/tv/popular`
+          : `${TMDB_API_URL}/movie/popular`;
       const res = await axios.get(url, {
-        params: { api_key: MOVIE_API, language: "en-US", page: 1 },
+        params: { api_key: TMDB_API_KEY, language: "en-US", page: 1 },
       });
-      const popularContent = res.data.results.map((item: TMDBMovie) => {
-        if (contentType === "series") {
-          return {
-            Title: item.name,
-            Year: item.first_air_date
-              ? item.first_air_date.split("-")[0]
-              : "N/A",
-            Genre: "N/A",
-            Plot: item.overview || "No description available.",
-            Poster: `https://image.tmdb.org/t/p/w500${item.poster_path}`,
-            imdbID: item.id.toString(),
-            imdbRating: "N/A",
-            category: "Series",
-          };
-        } else {
-          return {
-            Title: item.title,
-            Year: item.release_date ? item.release_date.split("-")[0] : "N/A",
-            Genre: "N/A",
-            Plot: item.overview || "No description available.",
-            Poster: `https://image.tmdb.org/t/p/w500${item.poster_path}`,
-            imdbID: item.id.toString(),
-            imdbRating: "N/A",
-            category: "Movie",
-          };
-        }
-      });
-      setMovies(popularContent);
+      const data = res.data.results.map((item: any) => ({
+        Title: contentType === "series" ? item.name : item.title,
+        Year:
+          (contentType === "series"
+            ? item.first_air_date
+            : item.release_date
+          )?.split("-")[0] || "N/A",
+        Genre: item.genres?.[0]?.name || "N/A",
+        Plot: item.overview || "No description available.",
+        Poster: item.poster_path
+          ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
+          : "https://via.placeholder.com/100x150",
+        imdbID: item.id.toString(),
+        imdbRating: item.vote_average?.toString() || "N/A",
+        category: contentType === "series" ? "Series" : "Movie",
+      }));
+      setMovies(data);
     } catch (error) {
-      console.log("Error Fetching Popular Content", error);
-      Alert.alert("Error", "Fetching popular content failed. Try again.");
+      console.error("Error fetching popular content:", error);
+      Alert.alert("Error", "Failed to fetch popular content.");
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => {
-    fetchPopular();
-  }, [contentType]);
-
   // Fetch torrents for a selected movie/series title.
-  const fetchTorrents = async (movieTitle: string) => {
+  const fetchTorrents = async (title: string) => {
     try {
       setLoading(true);
-      const res = await axios.get(`${DOWNLOADER_API}/search`, {
-        params: { title: movieTitle },
+      const res = await axios.get(`${DOWNLOADER_API}/torrent/search`, {
+        params: { query: title },
       });
-      if (res.data && res.data.data && Array.isArray(res.data.data.torrents)) {
-        const validTorrents = res.data.data.torrents.filter(
-          (torrent: Torrent) => torrent.magnet && torrent.magnet.trim() !== ""
-        );
-        setTorrents(validTorrents);
-        if (validTorrents.length === 0) {
-          Alert.alert(
-            "No Torrents Found",
-            "No valid torrents available for this title."
-          );
-        }
-        setVisible(true);
-      } else {
-        throw new Error("Invalid torrents data format.");
+      const magnetLink = res.data.magnetLink;
+      if (!magnetLink) {
+        throw new Error("No valid torrent found.");
       }
+
+      // Fetch file list to simulate torrent options
+      const fileRes = await axios.get(`${DOWNLOADER_API}/torrent/files`, {
+        params: { magnet: magnetLink },
+      });
+      const torrentData = fileRes.data.files.map((file: any) => ({
+        name: file.name,
+        magnet: magnetLink,
+        size: `${Math.round(file.length / 1024 / 1024)} MB`,
+      }));
+      setTorrents(torrentData);
+      setVisible(true);
     } catch (error) {
       console.error("Error fetching torrents:", error);
-      Alert.alert("Error Fetching Torrents");
+      Alert.alert("Error", "No torrents found for this title.");
     } finally {
       setLoading(false);
     }
@@ -219,7 +208,7 @@ export default function Movies(): JSX.Element {
             if (contentType === "series") {
               // Navigate to the SeriesDetailScreen for series items.
               navigation.navigate("SeriesDetail", {
-                tv_id: item.imdbID,
+                tv_id: parseInt(item.imdbID),
                 title: item.Title,
               });
             } else {
@@ -376,7 +365,7 @@ export default function Movies(): JSX.Element {
           </View>
           <FlatList
             data={torrents}
-            keyExtractor={(item, index) => item.magnet || index.toString()}
+            keyExtractor={(item, index) => item.magnet + index.toString()}
             renderItem={({ item }) => (
               <View style={styles.torrentCard}>
                 <Text style={styles.torrentName}>{item.name}</Text>

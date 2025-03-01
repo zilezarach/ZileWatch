@@ -121,6 +121,7 @@ export default function SeriesDetailScreen() {
                 tv_id,
                 season_number: item.season_number,
                 seasonName: item.name,
+                seriesTitle: seriesData.name,
               })
             }
           >

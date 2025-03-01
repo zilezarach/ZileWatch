@@ -17,18 +17,20 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
 import { useMiniPlayer } from "../../context/MiniPlayerContext";
 import axios from "axios";
+import * as FileSystem from "expo-file-system";
 
 const { width, height } = Dimensions.get("window");
+const DOWNLOADER_API =
+  Constants.expoConfig?.extra?.API_Backend || "http://your-backend-url:3000";
+
+type StreamRouteProp = RouteProp<RootStackParamList, "Stream">;
 
 const StreamVideo = () => {
-  const route = useRoute<RouteProp<RootStackParamList, "Stream">>();
-  // Expect route params: magnetLink and videoTitle
+  const route = useRoute<StreamRouteProp>();
   const { magnetLink, videoTitle } = route.params;
   const navigation = useNavigation();
   const videoRef = useRef<VideoRef>(null);
-  const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 
-  // Add quality state; default to "hd"
   const [quality, setQuality] = useState<"hd" | "sd">("hd");
   const [streamUrl, setStreamUrl] = useState<string>("");
   const [isLoading, setLoading] = useState<boolean>(true);
@@ -36,27 +38,53 @@ const StreamVideo = () => {
   const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<number>(0);
+  const [infoHash, setInfoHash] = useState<string | null>(null);
   const { miniPlayer, setMiniPlayer } = useMiniPlayer();
 
-  // Build the streaming URL including the quality parameter
-  const fetchStream = async () => {
+  const setupStream = async () => {
     try {
       setLoading(true);
-      // Here, we assume your backend stream endpoint accepts a "quality" query param.
-      // For "hd" we use a merged bestvideo+bestaudio; for "sd" we use a lower quality.
       const encodedMagnet = encodeURIComponent(magnetLink);
-      const url = `${DOWNLOADER_API}/stream-torrents?magnet=${encodedMagnet}&quality=${quality}`;
-      const response = await axios.get(url);
-      if (response.data && response.data.streamUrl) {
-        setStreamUrl(response.data.streamUrl);
-        setError(null);
-      } else {
-        throw new Error("Streaming URL not available");
+      const baseUrl = `${DOWNLOADER_API}/stream-torrents?magnet=${encodedMagnet}&quality=${quality}`;
+      setStreamUrl(baseUrl);
+
+      // Fetch file list for selection
+      const fileResponse = await axios.get(`${DOWNLOADER_API}/torrent/files`, {
+        params: { magnet: magnetLink },
+      });
+      const files = fileResponse.data.files;
+      setInfoHash(fileResponse.data.infoHash); // Store infoHash for progress tracking
+
+      if (files.length > 1) {
+        Alert.alert(
+          "Multiple Files Detected",
+          "Choose a file to stream:",
+          files.map((file: any) => ({
+            text: `${file.name} (${file.width}x${file.height}, ${Math.round(
+              file.bitrate / 1000
+            )} kbps)`,
+            onPress: () => {
+              setStreamUrl(
+                `${DOWNLOADER_API}/stream-torrents?magnet=${encodedMagnet}&fileIndex=${file.index}`
+              );
+            },
+          })),
+          { cancelable: true }
+        );
       }
+      setError(null);
     } catch (err: any) {
-      console.error("Streaming error:", err);
-      setError(err.message || "Streaming error");
-      Alert.alert("Error", err.message || "Unable to stream video.");
+      console.error("Stream setup error:", err);
+      setError(
+        err.response?.data?.error ||
+          err.message ||
+          "Unable to prepare streaming."
+      );
+      Alert.alert(
+        "Error",
+        err.response?.data?.error || "Unable to stream video."
+      );
     } finally {
       setLoading(false);
     }
@@ -67,11 +95,31 @@ const StreamVideo = () => {
       Alert.alert("Error", "Invalid video reference.");
       navigation.goBack();
     } else {
-      fetchStream();
+      setupStream();
     }
   }, [magnetLink, quality]);
 
-  // Orientation handling for fullscreen on iOS and adaptive layout on Android
+  // Progress tracking
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (infoHash) {
+      interval = setInterval(async () => {
+        try {
+          const response = await axios.get(
+            `${DOWNLOADER_API}/torrent/progress`,
+            {
+              params: { infoHash },
+            }
+          );
+          setProgress(response.data.progress * 100);
+        } catch (err) {
+          console.error("Progress fetch error:", err);
+        }
+      }, 5000); // Poll every 5 seconds
+    }
+    return () => clearInterval(interval);
+  }, [infoHash]);
+
   useEffect(() => {
     const checkOrientation = async () => {
       const current = await ScreenOrientation.getOrientationAsync();
@@ -86,38 +134,27 @@ const StreamVideo = () => {
     const subscription = ScreenOrientation.addOrientationChangeListener(
       (evt) => {
         const orientation = evt.orientationInfo.orientation;
-        if (
+        setIsLandscape(
           orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-        ) {
-          setIsLandscape(true);
+            orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+        );
+        if (Platform.OS === "ios" && videoRef.current) {
           if (
-            Platform.OS === "ios" &&
-            videoRef.current?.presentFullscreenPlayer
+            orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+            orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
           ) {
             videoRef.current.presentFullscreenPlayer();
-          }
-        } else if (
-          orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
-          orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
-        ) {
-          setIsLandscape(false);
-          if (
-            Platform.OS === "ios" &&
-            videoRef.current?.dismissFullscreenPlayer
-          ) {
+          } else {
             videoRef.current.dismissFullscreenPlayer();
           }
         }
       }
     );
 
-    return () => {
+    return () =>
       ScreenOrientation.removeOrientationChangeListener(subscription);
-    };
   }, []);
 
-  // Buffering indicator callback
   const handleBuffer = ({ isBuffering }: { isBuffering: boolean }) => {
     setIsBuffering(isBuffering);
   };
@@ -135,14 +172,27 @@ const StreamVideo = () => {
     }
   };
 
-  // Placeholder for download logic – implement as needed
-  const handleDownload = () => {
-    Alert.alert("Download", "Download functionality to be implemented.");
+  const handleDownload = async () => {
+    try {
+      setLoading(true);
+      const downloadUrl = `${DOWNLOADER_API}/api/download-torrents?magnet=${encodeURIComponent(
+        magnetLink
+      )}`;
+      const fileUri = `${FileSystem.documentDirectory}${videoTitle}.mp4`;
+      await FileSystem.downloadAsync(downloadUrl, fileUri);
+      Alert.alert("Download Complete", `Saved to ${fileUri}`);
+    } catch (error) {
+      console.error("Download error:", error);
+      Alert.alert("Error", "Failed to download video.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const toggleQuality = (selected: "hd" | "sd") => {
     if (quality !== selected) {
       setQuality(selected);
+      setupStream();
     }
   };
 
@@ -153,7 +203,6 @@ const StreamVideo = () => {
 
   return (
     <View style={styles.container}>
-      {/* Quality Selection Controls */}
       <View style={styles.qualityControls}>
         <TouchableOpacity
           onPress={() => toggleQuality("hd")}
@@ -175,11 +224,12 @@ const StreamVideo = () => {
         </TouchableOpacity>
       </View>
 
-      {/* Buffering Indicator */}
       {isBuffering && (
         <View style={styles.bufferContainer}>
           <ActivityIndicator size="large" color="#7d0b02" />
-          <Text style={styles.bufferText}>Buffering...</Text>
+          <Text style={styles.bufferText}>
+            Buffering... ({progress.toFixed(1)}% downloaded)
+          </Text>
         </View>
       )}
 
@@ -191,6 +241,9 @@ const StreamVideo = () => {
       ) : error ? (
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
+          <TouchableOpacity onPress={setupStream} style={styles.retryButton}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
         </View>
       ) : (
         <Video
@@ -201,14 +254,21 @@ const StreamVideo = () => {
           paused={!isPlaying}
           ref={videoRef}
           onError={(err) => {
-            console.error("Streaming Error", err);
-            Alert.alert("Error", "Unable to stream video.");
+            console.error("Video playback error:", err);
+            setError("Failed to play video.");
+            Alert.alert("Playback Error", "Unable to play the video.");
           }}
           onBuffer={handleBuffer}
+          onLoad={() => setLoading(false)}
+          bufferConfig={{
+            minBufferMs: 15000,
+            maxBufferMs: 50000,
+            bufferForPlaybackMs: 2500,
+            bufferForPlaybackAfterRebufferMs: 5000,
+          }}
         />
       )}
 
-      {/* Header Controls */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={toggleMiniPlayer}
@@ -228,7 +288,6 @@ const StreamVideo = () => {
         </TouchableOpacity>
       </View>
 
-      {/* MiniPlayer Overlay (if visible) */}
       {miniPlayer.visible && (
         <View style={styles.miniPlayerOverlay}>
           <TouchableOpacity
@@ -269,7 +328,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#000",
   },
-  errorText: { color: "red", fontSize: 16 },
+  errorText: { color: "red", fontSize: 16, marginBottom: 20 },
+  retryButton: { backgroundColor: "#7d0b02", padding: 10, borderRadius: 5 },
+  retryButtonText: { color: "#fff", fontSize: 16 },
   header: {
     position: "absolute",
     top: 20,
@@ -295,9 +356,7 @@ const styles = StyleSheet.create({
     marginHorizontal: 5,
     borderRadius: 5,
   },
-  activeQuality: {
-    backgroundColor: "#7d0b02",
-  },
+  activeQuality: { backgroundColor: "#7d0b02" },
   qualityButtonText: { color: "#fff", fontSize: 16 },
   bufferContainer: {
     position: "absolute",
