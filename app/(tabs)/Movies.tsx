@@ -208,7 +208,7 @@ export default function Movies(): JSX.Element {
             if (contentType === "series") {
               // Navigate to the SeriesDetailScreen for series items.
               navigation.navigate("SeriesDetail", {
-                tv_id: parseInt(item.imdbID),
+                tv_id: parseInt(item.imdbID, 10),
                 title: item.Title,
               });
             } else {
@@ -358,7 +358,7 @@ export default function Movies(): JSX.Element {
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.buttonModal}
-              onPress={() => fetchPopular()}
+              onPress={() => fetchTorrents(movies[0]?.Title || searchQuery)}
             >
               <Text style={styles.buttonText}>Retry Torrents</Text>
             </TouchableOpacity>
