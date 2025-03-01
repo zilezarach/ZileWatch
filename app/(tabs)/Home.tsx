@@ -10,6 +10,7 @@ import {
   StyleSheet,
   Switch,
   Alert,
+  Platform,
 } from "react-native";
 import {
   fetchPopularVids,
@@ -176,54 +177,106 @@ export default function Home({ navigation }: any) {
     setSelectedVideo(video);
     setModalVisible(true);
   };
+  // Helper function to determine the proper storage directory
+  const getStorageDirectory = async () => {
+    if (Platform.OS === "ios") {
+      return `${FileSystem.documentDirectory}ZileWatch/`;
+    } else {
+      // For Android, try to use external storage if available
+      // This is more reliable for file persistence and access
+      try {
+        const permissions =
+          await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+        if (permissions.granted) {
+          return permissions.directoryUri;
+        }
+      } catch (error) {
+        console.log("Could not access external storage directory", error);
+      }
+
+      // Fallback to app-specific storage
+      // For Android, consider cacheDirectory for media files which is more accessible
+      return `${FileSystem.cacheDirectory}ZileWatch/`;
+    }
+  };
 
   // Save file to the device gallery (for video files)
   const saveFileToGallery = async (fileUri: string): Promise<string> => {
     try {
-      const { status } = await MediaLibrary.requestPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission Denied",
-          "Cannot save file without permission."
-        );
-        return fileUri;
-      }
       const asset = await MediaLibrary.createAssetAsync(fileUri);
-      let album = await MediaLibrary.getAlbumAsync("Downloads");
-      if (!album) {
-        await MediaLibrary.createAlbumAsync("Downloads", asset, false);
+      const album = await MediaLibrary.getAlbumAsync("ZileWatch");
+
+      if (album === null) {
+        await MediaLibrary.createAlbumAsync("ZileWatch", asset, false);
       } else {
         await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
       }
+
+      // Return the asset URI which is more reliable for accessing later
       return asset.uri;
     } catch (error) {
-      console.error("Error saving file to gallery", error);
-      Alert.alert("Error", "Failed to save file to gallery.");
+      console.error("Error saving to gallery:", error);
+      // If there's an error, return the original URI as fallback
       return fileUri;
     }
   };
+  //Opening File
   const openFile = async (fileUri: string) => {
     try {
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
+
       if (!fileInfo.exists) {
-        Alert.alert("Error", "File not found.");
+        Alert.alert("Error", "File not found or may have been deleted.");
         return;
       }
-      // First attempt: use Linking
+
+      // Platform-specific handling
+      if (Platform.OS === "android") {
+        try {
+          // Try to get content URI first (needed for Android 10+ scoped storage)
+          const contentUri = await FileSystem.getContentUriAsync(fileUri);
+
+          // Try direct open with content URI
+          const canOpen = await Linking.canOpenURL(contentUri);
+          if (canOpen) {
+            await Linking.openURL(contentUri);
+            return;
+          }
+
+          // If can't open directly, try sharing
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(fileUri, {
+              UTI: "public.item", // for iOS
+              mimeType: fileUri.endsWith("mp4")
+                ? "video/mp4"
+                : "audio/mp4a-latm", // for Android
+            });
+            return;
+          }
+        } catch (error) {
+          console.error("Error opening with content URI", error);
+        }
+      } else if (Platform.OS === "ios") {
+        // iOS handling
+        try {
+          if (await Sharing.isAvailableAsync()) {
+            await Sharing.shareAsync(fileUri);
+            return;
+          }
+        } catch (error) {
+          console.error("Error sharing on iOS", error);
+        }
+      }
+
+      // Last resort: try direct linking
       try {
         await Linking.openURL(fileUri);
       } catch (linkError) {
-        console.error("Linking failed, falling back to Sharing", linkError);
-        // Fallback: Use expo-sharing if available
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(fileUri);
-        } else {
-          Alert.alert("Error", "No application available to open this file.");
-        }
+        Alert.alert("Error", "No application available to open this file.");
       }
     } catch (error) {
       console.error("Error opening file", error);
-      Alert.alert("Error", "Unable to open file.");
+      Alert.alert("Error", `Unable to open file`);
     }
   };
   // Download logic: called when user selects a download option from ModalPick.
@@ -232,10 +285,19 @@ export default function Home({ navigation }: any) {
       Alert.alert("Error", "No video selected for download.");
       return;
     }
-    if (!hasMediaPermission && option === "video") {
-      Alert.alert("Permission Required", "Please grant Permissions First");
-      return;
+
+    // Check permissions - both storage write and media library permissions
+    if (Platform.OS === "android") {
+      const storagePermission = await MediaLibrary.requestPermissionsAsync();
+      if (!storagePermission.granted) {
+        Alert.alert(
+          "Permission Required",
+          "Storage permission is needed to save files."
+        );
+        return;
+      }
     }
+
     setModalVisible(false);
     const downloadId = `${Date.now()}-${selectedVideo.url}`;
     const formatMapping: Record<string, string> = {
@@ -245,7 +307,7 @@ export default function Home({ navigation }: any) {
     const selectedFormat = formatMapping[option];
 
     try {
-      // Add to active downloads context for progress (for visual updates)
+      // Add to active downloads context
       setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
         ...prev,
         [downloadId]: { title: selectedVideo.title, progress: 0 },
@@ -267,8 +329,10 @@ export default function Home({ navigation }: any) {
         },
       });
 
-      // Ensure download directory exists
-      const downloadDir = `${FileSystem.documentDirectory}ZileWatch/`;
+      // Get appropriate storage directory
+      const downloadDir = await getStorageDirectory();
+
+      // Ensure directory exists
       const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
       if (!directoryInfo.exists) {
         await FileSystem.makeDirectoryAsync(downloadDir, {
@@ -276,40 +340,52 @@ export default function Home({ navigation }: any) {
         });
       }
 
-      // Use a sanitized file name based on the video title.
+      // Use a sanitized filename
       const fileExtension = option === "audio" ? "m4a" : "mp4";
-      const fileName = `${selectedVideo.title.replace(
-        /\s+/g,
-        "_"
-      )}.${fileExtension}`;
+      const sanitizedTitle = selectedVideo.title
+        .replace(/[^a-z0-9\s]/gi, "") // Remove special characters
+        .replace(/\s+/g, "_"); // Replace spaces with underscores
+
+      const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
       const fileUri = `${downloadDir}${fileName}`;
 
-      await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+      // Write the file
+      await FileSystem.writeAsStringAsync(
+        fileUri,
+        Buffer.from(response.data).toString("base64"),
+        {
+          encoding: FileSystem.EncodingType.Base64,
+        }
+      );
 
-      const uinit8Array = new Uint8Array(response.data);
-      const base64data = Buffer.from(uinit8Array).toString("base64");
-      await FileSystem.writeAsStringAsync(fileUri, base64data, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
+      console.log("File saved to:", fileUri);
 
-      // For video downloads, save the file to the Gallery.
+      // For video downloads, save to gallery
       let finalFileUri = fileUri;
-      if (option === "video") {
-        finalFileUri = await saveFileToGallery(fileUri);
+      if (option === "video" && Platform.OS === "android") {
+        try {
+          finalFileUri = await saveFileToGallery(fileUri);
+          console.log("Video saved to gallery:", finalFileUri);
+        } catch (error) {
+          console.error(
+            "Failed to save to gallery, using file URI instead:",
+            error
+          );
+        }
       }
 
-      // Create a new download record.
+      // Create download record
       const newDownloadRecord = {
         id: downloadId,
         title: selectedVideo.title,
         Poster: selectedVideo.poster,
-        fileUri: finalFileUri, // Use the asset URI if available
-        type: option, // "audio" or "video"
+        fileUri: finalFileUri,
+        type: option,
         source: "direct",
         downloadedAt: Date.now(),
       };
 
-      // Persist the new record.
+      // Save to AsyncStorage
       const existingRecordsStr = await AsyncStorage.getItem("downloadedFiles");
       const existingRecords = existingRecordsStr
         ? JSON.parse(existingRecordsStr)
@@ -320,7 +396,7 @@ export default function Home({ navigation }: any) {
         JSON.stringify(existingRecords)
       );
 
-      // Update complete downloads context and remove from active downloads.
+      // Update UI state
       setCompleteDownloads((prev) => [
         ...prev,
         { id: downloadId, title: `${option.toUpperCase()} Download Complete` },
@@ -330,11 +406,15 @@ export default function Home({ navigation }: any) {
         return rest;
       });
 
+      // Show success message with open option
       Alert.alert("Success", `${option.toUpperCase()} download complete.`, [
         { text: "OK" },
         {
           text: "Open File",
-          onPress: async () => openFile(finalFileUri),
+          onPress: async () => {
+            console.log("Opening file:", finalFileUri);
+            await openFile(finalFileUri);
+          },
         },
       ]);
     } catch (error: any) {
@@ -351,7 +431,6 @@ export default function Home({ navigation }: any) {
       setModalVisible(false);
     }
   };
-
   // Optional: handleLinks for additional pasted link downloads.
   const handleLinks = async (url: string) => {
     setLoading(true);
