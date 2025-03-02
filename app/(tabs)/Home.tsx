@@ -182,12 +182,26 @@ export default function Home({ navigation }: any) {
     if (Platform.OS === "ios") {
       return `${FileSystem.documentDirectory}ZileWatch/`;
     } else {
-      // For Android, try to use external storage if available
-      // This is more reliable for file persistence and access
       try {
+        // Check if we already have permissions stored
+        const storedPermissions = await AsyncStorage.getItem(
+          "storagePermissions"
+        );
+
+        if (storedPermissions) {
+          return JSON.parse(storedPermissions).directoryUri;
+        }
+
+        // If no permissions stored, request them
         const permissions =
           await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+
         if (permissions.granted) {
+          // Store the permissions for future use
+          await AsyncStorage.setItem(
+            "storagePermissions",
+            JSON.stringify(permissions)
+          );
           return permissions.directoryUri;
         }
       } catch (error) {
@@ -195,7 +209,6 @@ export default function Home({ navigation }: any) {
       }
 
       // Fallback to app-specific storage
-      // For Android, consider cacheDirectory for media files which is more accessible
       return `${FileSystem.cacheDirectory}ZileWatch/`;
     }
   };
@@ -288,16 +301,25 @@ export default function Home({ navigation }: any) {
 
     // Check permissions - both storage write and media library permissions
     if (Platform.OS === "android") {
-      const storagePermission = await MediaLibrary.requestPermissionsAsync();
-      if (!storagePermission.granted) {
+      const storedPermissions = await AsyncStorage.getItem(
+        "storagePermissions"
+      );
+
+      if (!storedPermissions) {
         Alert.alert(
-          "Permission Required",
-          "Storage permission is needed to save files."
+          "Storage Access Required",
+          "You'll need to select a folder where your downloads will be saved. This will only be asked once.",
+          [{ text: "OK", onPress: () => continueDownload(option) }]
         );
         return;
       }
     }
 
+    continueDownload(option);
+  };
+
+  // Separated download logic
+  const continueDownload = async (option: "audio" | "video") => {
     setModalVisible(false);
     const downloadId = `${Date.now()}-${selectedVideo.url}`;
     const formatMapping: Record<string, string> = {
@@ -307,6 +329,18 @@ export default function Home({ navigation }: any) {
     const selectedFormat = formatMapping[option];
 
     try {
+      //Check permissions--both storage write and read
+      if (Platform.OS === "android") {
+        const storagePermission = await MediaLibrary.requestPermissionsAsync();
+        if (!storagePermission.granted) {
+          Alert.alert(
+            "Permission Required",
+            "Storage permission is needed to save files."
+          );
+          return;
+        }
+      }
+
       // Add to active downloads context
       setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
         ...prev,
@@ -331,34 +365,61 @@ export default function Home({ navigation }: any) {
 
       // Get appropriate storage directory
       const downloadDir = await getStorageDirectory();
-
-      // Ensure directory exists
-      const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
-      if (!directoryInfo.exists) {
-        await FileSystem.makeDirectoryAsync(downloadDir, {
-          intermediates: true,
-        });
-      }
-
       // Use a sanitized filename
       const fileExtension = option === "audio" ? "m4a" : "mp4";
       const sanitizedTitle = selectedVideo.title
         .replace(/[^a-z0-9\s]/gi, "") // Remove special characters
         .replace(/\s+/g, "_"); // Replace spaces with underscores
 
-      const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
-      const fileUri = `${downloadDir}${fileName}`;
+      let fileUri = "";
 
-      // Write the file
-      await FileSystem.writeAsStringAsync(
-        fileUri,
-        Buffer.from(response.data).toString("base64"),
-        {
-          encoding: FileSystem.EncodingType.Base64,
+      if (Platform.OS === "android" && downloadDir.startsWith("content://")) {
+        // For Android with SAF permissions
+        const fileData = Buffer.from(response.data).toString("base64");
+        const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
+
+        try {
+          // Create a file with SAF
+          fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
+            downloadDir,
+            fileName,
+            option === "audio" ? "audio/mp4a-latm" : "video/mp4"
+          );
+
+          // Write to the file
+          await FileSystem.writeAsStringAsync(fileUri, fileData, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+
+          console.log("File saved to SAF URI:", fileUri);
+        } catch (error) {
+          console.error("Error writing to SAF:", error);
+          throw error;
         }
-      );
+      } else {
+        // For iOS or Android fallback to app storage
+        const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
+        fileUri = `${downloadDir}${fileName}`;
 
-      console.log("File saved to:", fileUri);
+        // Ensure directory exists
+        const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
+        if (!directoryInfo.exists) {
+          await FileSystem.makeDirectoryAsync(downloadDir, {
+            intermediates: true,
+          });
+        }
+
+        // Write the file
+        await FileSystem.writeAsStringAsync(
+          fileUri,
+          Buffer.from(response.data).toString("base64"),
+          {
+            encoding: FileSystem.EncodingType.Base64,
+          }
+        );
+
+        console.log("File saved to:", fileUri);
+      }
 
       // For video downloads, save to gallery
       let finalFileUri = fileUri;

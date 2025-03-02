@@ -39,7 +39,7 @@ export default function EpisodeListScreen() {
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
   const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList, "Stream">>();
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const fetchSeasonEpisodes = useCallback(async () => {
     try {

@@ -27,9 +27,7 @@ export default function SeriesDetailScreen() {
   const route = useRoute<SeriesDetailRouteProp>();
   const { tv_id, title } = route.params;
   const navigation =
-    useNavigation<
-      NativeStackNavigationProp<RootStackParamList, "EpisodeList">
-    >();
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [seriesData, setSeriesData] = useState<any>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);

@@ -76,9 +76,7 @@ export default function Movies(): JSX.Element {
   const [isVisible, setVisible] = useState<boolean>(false);
   const [contentType, setContentType] = useState<"movie" | "series">("movie");
   const navigation =
-    useNavigation<
-      NativeStackNavigationProp<RootStackParamList, "SeriesDetail">
-    >();
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const route = useRoute<NavigationProp>();
 
@@ -194,27 +192,33 @@ export default function Movies(): JSX.Element {
   };
   // render series and movies
   const renderItem = ({ item }: { item: any }) => (
-    <View>
-      <Text>{item.Title}</Text>
-      <Text>{item.Plot}</Text>
-      <Text>IMDb Rating: {item.imdbRating}</Text>
-      <TouchableOpacity
-        onPress={() => {
-          if (contentType === "series") {
-            // Navigate to the SeriesDetailScreen for series items.
-            navigation.navigate("SeriesDetail", {
-              tv_id: parseInt(item.imdbID, 10),
-              title: item.Title,
-            });
-          } else {
-            fetchTorrents(item.Title);
-          }
-        }}
-      >
-        <Text>
-          {contentType === "series" ? "View Seasons" : "Get Torrents"}
+    <View style={styles.movieCard}>
+      <Image source={{ uri: item.Poster }} style={styles.movieImage} />
+      <View style={styles.movieDetails}>
+        <Text style={styles.movieTitle}>{item.Title}</Text>
+        <Text style={styles.movieDescription} numberOfLines={3}>
+          {item.Plot}
         </Text>
-      </TouchableOpacity>
+        <Text style={styles.movieRating}>IMDb Rating: {item.imdbRating}</Text>
+        <TouchableOpacity
+          style={styles.button}
+          onPress={() => {
+            if (contentType === "series") {
+              // Navigate to the SeriesDetailScreen for series items.
+              navigation.navigate("SeriesDetail", {
+                tv_id: parseInt(item.imdbID, 10),
+                title: item.Title,
+              });
+            } else {
+              fetchTorrents(item.Title);
+            }
+          }}
+        >
+          <Text style={styles.buttonText}>
+            {contentType === "series" ? "View Seasons" : "Get Torrents"}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 
