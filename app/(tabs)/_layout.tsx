@@ -120,7 +120,7 @@ export default function Layout() {
             <Tabs.Screen name="index" options={{ href: null }} />
             <Tabs.Screen name="VideoPlayer" options={{ href: null }} />
             <Tabs.Screen name="Stream" options={{ href: null }} />
-            <Tabs.Screen name="SeriesDet" options={{ href: null }} />
+            <Tabs.Screen name="SeriesDetail" options={{ href: null }} />
             <Tabs.Screen name="EpisodeList" options={{ href: null }} />
           </Tabs>
           {/* Persistent MiniPlayer, visible on all screens */}

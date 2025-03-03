@@ -75,19 +75,20 @@ export default function Movies(): JSX.Element {
   const [isSearching, setIsSearching] = useState<boolean>(false);
   const [isVisible, setVisible] = useState<boolean>(false);
   const [contentType, setContentType] = useState<"movie" | "series">("movie");
+
+  // Fix: Make sure to properly type the navigation
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-
   const route = useRoute<NavigationProp>();
 
   // Fetch movies/series by search query (with caching)
-
   const fetchMovies = async (query: string) => {
     try {
       setIsSearching(true);
       setLoading(true);
       const cacheKey = `${query}_${contentType}`;
       const cachedMovies = await AsyncStorage.getItem(cacheKey);
+
       if (cachedMovies) {
         setMovies(JSON.parse(cachedMovies));
       } else {
@@ -95,9 +96,11 @@ export default function Movies(): JSX.Element {
           contentType === "series"
             ? `${TMDB_API_URL}/search/tv`
             : `${TMDB_API_URL}/search/movie`;
+
         const res = await axios.get(url, {
           params: { api_key: TMDB_API_KEY, query, language: "en-US" },
         });
+
         const data = res.data.results.map((item: any) => ({
           Title: contentType === "series" ? item.name : item.title,
           Year:
@@ -111,9 +114,12 @@ export default function Movies(): JSX.Element {
             ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
             : "https://via.placeholder.com/100x150",
           imdbID: item.id.toString(),
+          // Add tv_id for series to make it easier to navigate
+          ...(contentType === "series" && { tv_id: item.id }),
           imdbRating: item.vote_average?.toString() || "N/A",
           category: contentType === "series" ? "Series" : "Movie",
         }));
+
         setMovies(data);
         await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
       }
@@ -125,6 +131,7 @@ export default function Movies(): JSX.Element {
       setIsSearching(false);
     }
   };
+
   // Fetch popular movies or series from TMDB based on contentType.
   const fetchPopular = async () => {
     try {
@@ -133,9 +140,11 @@ export default function Movies(): JSX.Element {
         contentType === "series"
           ? `${TMDB_API_URL}/tv/popular`
           : `${TMDB_API_URL}/movie/popular`;
+
       const res = await axios.get(url, {
         params: { api_key: TMDB_API_KEY, language: "en-US", page: 1 },
       });
+
       const data = res.data.results.map((item: any) => ({
         Title: contentType === "series" ? item.name : item.title,
         Year:
@@ -149,9 +158,12 @@ export default function Movies(): JSX.Element {
           ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
           : "https://via.placeholder.com/100x150",
         imdbID: item.id.toString(),
+        // Add tv_id for series to make it easier to navigate
+        ...(contentType === "series" && { tv_id: item.id }),
         imdbRating: item.vote_average?.toString() || "N/A",
         category: contentType === "series" ? "Series" : "Movie",
       }));
+
       setMovies(data);
     } catch (error) {
       console.error("Error fetching popular content:", error);
@@ -160,6 +172,7 @@ export default function Movies(): JSX.Element {
       setLoading(false);
     }
   };
+
   // Fetch torrents for a selected movie/series title.
   const fetchTorrents = async (title: string) => {
     try {
@@ -167,6 +180,7 @@ export default function Movies(): JSX.Element {
       const res = await axios.get(`${DOWNLOADER_API}/torrent/search`, {
         params: { query: title },
       });
+
       const magnetLink = res.data.magnetLink;
       if (!magnetLink) {
         throw new Error("No valid torrent found.");
@@ -176,11 +190,13 @@ export default function Movies(): JSX.Element {
       const fileRes = await axios.get(`${DOWNLOADER_API}/torrent/files`, {
         params: { magnet: magnetLink },
       });
+
       const torrentData = fileRes.data.files.map((file: any) => ({
         name: file.name,
         magnet: magnetLink,
         size: `${Math.round(file.length / 1024 / 1024)} MB`,
       }));
+
       setTorrents(torrentData);
       setVisible(true);
     } catch (error) {
@@ -190,6 +206,7 @@ export default function Movies(): JSX.Element {
       setLoading(false);
     }
   };
+
   // render series and movies
   const renderItem = ({ item }: { item: any }) => (
     <View style={styles.movieCard}>
@@ -204,9 +221,24 @@ export default function Movies(): JSX.Element {
           style={styles.button}
           onPress={() => {
             if (contentType === "series") {
-              // Navigate to the SeriesDetailScreen for series items.
+              // Fix: Navigate to SeriesDetail screen with proper parameters
+              console.log(
+                `Navigating to SeriesDetail with ID: ${
+                  item.tv_id || item.imdbID
+                } and title: ${item.Title}`
+              );
+
+              // Make sure we're passing the correct tv_id parameter
+              const tvId = item.tv_id || parseInt(item.imdbID, 10);
+
+              // Debug the navigation parameters
+              console.log("Navigation params:", {
+                tv_id: tvId,
+                title: item.Title,
+              });
+
               navigation.navigate("SeriesDetail", {
-                tv_id: parseInt(item.imdbID, 10),
+                tv_id: tvId,
                 title: item.Title,
               });
             } else {
@@ -228,6 +260,7 @@ export default function Movies(): JSX.Element {
       Alert.alert("Error", "Invalid Link");
       return;
     }
+
     try {
       setLoading(true);
       const res = await axios.get(`${DOWNLOADER_API}/download-torrents`, {
@@ -241,18 +274,23 @@ export default function Movies(): JSX.Element {
           );
         },
       });
+
       const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
       const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
+
       if (!directoryInfo.exists) {
         await FileSystem.makeDirectoryAsync(downloadDir, {
           intermediates: true,
         });
       }
+
       const fileUri = `${downloadDir}${videoTitle}.torrent`;
       const base64Data = Buffer.from(res.data).toString("base64");
+
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
         encoding: FileSystem.EncodingType.Base64,
       });
+
       Alert.alert("Download Complete", `Downloaded: ${videoTitle}`);
     } catch (error) {
       console.error("Error Downloading File", error);
@@ -268,6 +306,7 @@ export default function Movies(): JSX.Element {
       Alert.alert("Error", "Invalid Link");
       return;
     }
+
     navigation.navigate("Stream", { magnetLink, videoTitle });
   };
 

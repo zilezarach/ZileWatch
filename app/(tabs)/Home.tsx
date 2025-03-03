@@ -180,22 +180,29 @@ export default function Home({ navigation }: any) {
   // Helper function to determine the proper storage directory
   const getStorageDirectory = async () => {
     if (Platform.OS === "ios") {
-      return `${FileSystem.documentDirectory}ZileWatch/`;
+      // For iOS, create a dedicated directory
+      const directory = `${FileSystem.documentDirectory}ZileWatch/`;
+      const directoryInfo = await FileSystem.getInfoAsync(directory);
+      if (!directoryInfo.exists) {
+        await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
+      }
+      return directory;
     } else {
       try {
-        // Check if we already have permissions stored
+        // For Android, check for existing permissions first
         const storedPermissions = await AsyncStorage.getItem(
           "storagePermissions"
         );
-
         if (storedPermissions) {
-          return JSON.parse(storedPermissions).directoryUri;
+          const permissions = JSON.parse(storedPermissions);
+          if (permissions.directoryUri) {
+            return permissions.directoryUri;
+          }
         }
 
-        // If no permissions stored, request them
+        // If no valid permissions found, request them
         const permissions =
           await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-
         if (permissions.granted) {
           // Store the permissions for future use
           await AsyncStorage.setItem(
@@ -203,16 +210,31 @@ export default function Home({ navigation }: any) {
             JSON.stringify(permissions)
           );
           return permissions.directoryUri;
+        } else {
+          // If permissions not granted, use app's cache directory as fallback
+          const directory = `${FileSystem.cacheDirectory}ZileWatch/`;
+          const directoryInfo = await FileSystem.getInfoAsync(directory);
+          if (!directoryInfo.exists) {
+            await FileSystem.makeDirectoryAsync(directory, {
+              intermediates: true,
+            });
+          }
+          return directory;
         }
       } catch (error) {
-        console.log("Could not access external storage directory", error);
+        console.log("Error accessing storage directory:", error);
+        // Fallback to app-specific storage
+        const directory = `${FileSystem.cacheDirectory}ZileWatch/`;
+        const directoryInfo = await FileSystem.getInfoAsync(directory);
+        if (!directoryInfo.exists) {
+          await FileSystem.makeDirectoryAsync(directory, {
+            intermediates: true,
+          });
+        }
+        return directory;
       }
-
-      // Fallback to app-specific storage
-      return `${FileSystem.cacheDirectory}ZileWatch/`;
     }
   };
-
   // Save file to the device gallery (for video files)
   const saveFileToGallery = async (fileUri: string): Promise<string> => {
     try {
@@ -329,7 +351,7 @@ export default function Home({ navigation }: any) {
     const selectedFormat = formatMapping[option];
 
     try {
-      //Check permissions--both storage write and read
+      // Check permissions - both storage write and media library permissions
       if (Platform.OS === "android") {
         const storagePermission = await MediaLibrary.requestPermissionsAsync();
         if (!storagePermission.granted) {
@@ -347,12 +369,29 @@ export default function Home({ navigation }: any) {
         [downloadId]: { title: selectedVideo.title, progress: 0 },
       }));
 
+      // Create directory before attempting to download
+      const downloadDir = await getStorageDirectory();
+
+      // Ensure directory exists (important step)
+      if (!downloadDir.startsWith("content://")) {
+        const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
+        if (!directoryInfo.exists) {
+          await FileSystem.makeDirectoryAsync(downloadDir, {
+            intermediates: true,
+          });
+        }
+      }
+
       // Call the backend download endpoint
       const response = await axios({
         method: "post",
         url: `${DOWNLOADER_API}/download-videos`,
         data: { url: selectedVideo.url, format: selectedFormat },
         responseType: "arraybuffer",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/octet-stream",
+        },
         onDownloadProgress: (progressEvent) => {
           const total = progressEvent.total || 1;
           const progress = Math.round((progressEvent.loaded / total) * 100);
@@ -363,8 +402,11 @@ export default function Home({ navigation }: any) {
         },
       });
 
-      // Get appropriate storage directory
-      const downloadDir = await getStorageDirectory();
+      // Check if response data exists and has length
+      if (!response.data || response.data.length === 0) {
+        throw new Error("Received empty response from server");
+      }
+
       // Use a sanitized filename
       const fileExtension = option === "audio" ? "m4a" : "mp4";
       const sanitizedTitle = selectedVideo.title
@@ -372,12 +414,10 @@ export default function Home({ navigation }: any) {
         .replace(/\s+/g, "_"); // Replace spaces with underscores
 
       let fileUri = "";
-
       if (Platform.OS === "android" && downloadDir.startsWith("content://")) {
         // For Android with SAF permissions
         const fileData = Buffer.from(response.data).toString("base64");
         const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
-
         try {
           // Create a file with SAF
           fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
@@ -385,12 +425,10 @@ export default function Home({ navigation }: any) {
             fileName,
             option === "audio" ? "audio/mp4a-latm" : "video/mp4"
           );
-
           // Write to the file
           await FileSystem.writeAsStringAsync(fileUri, fileData, {
             encoding: FileSystem.EncodingType.Base64,
           });
-
           console.log("File saved to SAF URI:", fileUri);
         } catch (error) {
           console.error("Error writing to SAF:", error);
@@ -401,14 +439,6 @@ export default function Home({ navigation }: any) {
         const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
         fileUri = `${downloadDir}${fileName}`;
 
-        // Ensure directory exists
-        const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
-        if (!directoryInfo.exists) {
-          await FileSystem.makeDirectoryAsync(downloadDir, {
-            intermediates: true,
-          });
-        }
-
         // Write the file
         await FileSystem.writeAsStringAsync(
           fileUri,
@@ -417,13 +447,12 @@ export default function Home({ navigation }: any) {
             encoding: FileSystem.EncodingType.Base64,
           }
         );
-
         console.log("File saved to:", fileUri);
       }
 
       // For video downloads, save to gallery
       let finalFileUri = fileUri;
-      if (option === "video" && Platform.OS === "android") {
+      if (option === "video" && hasMediaPermission) {
         try {
           finalFileUri = await saveFileToGallery(fileUri);
           console.log("Video saved to gallery:", finalFileUri);
@@ -447,15 +476,7 @@ export default function Home({ navigation }: any) {
       };
 
       // Save to AsyncStorage
-      const existingRecordsStr = await AsyncStorage.getItem("downloadedFiles");
-      const existingRecords = existingRecordsStr
-        ? JSON.parse(existingRecordsStr)
-        : [];
-      existingRecords.push(newDownloadRecord);
-      await AsyncStorage.setItem(
-        "downloadedFiles",
-        JSON.stringify(existingRecords)
-      );
+      await addDownloadRecord(newDownloadRecord);
 
       // Update UI state
       setCompleteDownloads((prev) => [
@@ -481,8 +502,10 @@ export default function Home({ navigation }: any) {
     } catch (error: any) {
       console.error("Download Error:", error);
       Alert.alert(
-        "Error",
-        error.response?.data?.message || "Failed to download. Please try again."
+        "Download Failed",
+        error.response?.data?.message ||
+          error.message ||
+          "Failed to download. Please try again."
       );
       setActiveDownloads((prev: Record<string, ActiveDownload>) => {
         const { [downloadId]: removed, ...rest } = prev;

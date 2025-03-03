@@ -1,13 +1,11 @@
 import React from "react";
-import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import Home from "./Home";
 import VideoPlayer from "./VideoPlayer";
 import { Image, View, StyleSheet } from "react-native";
-import VideoList from "@/components/videoList";
 import Movies from "./Movies";
 import StreamVideo from "./Stream";
-import SeriesDet from "./SeriesDet";
+import SeriesDetail from "./SeriesDetail";
 import EpisodeListScreen from "./EpisodeList";
 import { RootStackParamList } from "@/types/navigation";
 
@@ -67,7 +65,7 @@ const AppNavigator = () => {
       />
       <Stack.Screen name="Stream" component={StreamVideo} />
       <Stack.Screen name="Movies" component={Movies} />
-      <Stack.Screen name="SeriesDetail" component={SeriesDet} />
+      <Stack.Screen name="SeriesDetail" component={SeriesDetail} />
       <Stack.Screen name="EpisodeList" component={EpisodeListScreen} />
     </Stack.Navigator>
   );
