@@ -258,60 +258,77 @@ export default function Home({ navigation }: any) {
   //Opening File
   const openFile = async (fileUri: string) => {
     try {
+      // Check if the file exists
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
-
       if (!fileInfo.exists) {
         Alert.alert("Error", "File not found or may have been deleted.");
         return;
       }
 
+      console.log("Attempting to open file at URI:", fileUri);
+
       // Platform-specific handling
       if (Platform.OS === "android") {
+        // For Android, try converting to a content URI for compatibility with scoped storage
         try {
-          // Try to get content URI first (needed for Android 10+ scoped storage)
           const contentUri = await FileSystem.getContentUriAsync(fileUri);
+          console.log("Converted to content URI:", contentUri);
 
-          // Try direct open with content URI
+          // Check if the content URI can be opened
           const canOpen = await Linking.canOpenURL(contentUri);
           if (canOpen) {
             await Linking.openURL(contentUri);
+            console.log("File opened successfully with content URI");
             return;
+          } else {
+            console.log(
+              "Cannot open content URI directly, falling back to sharing"
+            );
           }
+        } catch (contentError) {
+          console.error("Error converting to content URI:", contentError);
+        }
 
-          // If can't open directly, try sharing
-          if (await Sharing.isAvailableAsync()) {
-            await Sharing.shareAsync(fileUri, {
-              UTI: "public.item", // for iOS
-              mimeType: fileUri.endsWith("mp4")
-                ? "video/mp4"
-                : "audio/mp4a-latm", // for Android
-            });
-            return;
-          }
-        } catch (error) {
-          console.error("Error opening with content URI", error);
+        // Fallback to sharing if direct opening fails
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: fileUri.endsWith(".mp4") ? "video/mp4" : "audio/mp4",
+            UTI: "public.movie", // For iOS compatibility
+            dialogTitle: "Open or share the file",
+          });
+          console.log("File shared successfully");
+          return;
+        } else {
+          Alert.alert("Error", "Sharing is not available on this device.");
         }
       } else if (Platform.OS === "ios") {
-        // iOS handling
-        try {
-          if (await Sharing.isAvailableAsync()) {
-            await Sharing.shareAsync(fileUri);
+        // For iOS, prefer sharing since direct Linking might not work for local files
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: fileUri.endsWith(".mp4") ? "video/mp4" : "audio/mp4",
+            UTI: fileUri.endsWith(".mp4") ? "public.movie" : "public.audio",
+          });
+          console.log("File shared successfully on iOS");
+          return;
+        } else {
+          // Try direct opening as a fallback
+          const canOpen = await Linking.canOpenURL(fileUri);
+          if (canOpen) {
+            await Linking.openURL(fileUri);
+            console.log("File opened successfully on iOS");
             return;
           }
-        } catch (error) {
-          console.error("Error sharing on iOS", error);
         }
       }
 
-      // Last resort: try direct linking
-      try {
-        await Linking.openURL(fileUri);
-      } catch (linkError) {
-        Alert.alert("Error", "No application available to open this file.");
-      }
+      // If all attempts fail
+      Alert.alert(
+        "Error",
+        "No compatible app found to open this file. Try opening it from your file manager."
+      );
     } catch (error) {
-      console.error("Error opening file", error);
-      Alert.alert("Error", `Unable to open file`);
+      console.error("Error opening file:", error);
+      Alert.alert("Error", "Unable to open the file. Please try again.");
     }
   };
   // Download logic: called when user selects a download option from ModalPick.
