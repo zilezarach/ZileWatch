@@ -74,36 +74,77 @@ export default function DownloadsScreen() {
       // Check if the file exists
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
       if (!fileInfo.exists) {
-        Alert.alert("Error", "File does not exist. It may have been deleted.");
+        Alert.alert("Error", "File not found or may have been deleted.");
         return;
       }
 
-      // For Android, try to convert the file:// URI to a content:// URI
-      let uriToOpen = fileUri;
+      console.log("Attempting to open file at URI:", fileUri);
+
+      // Platform-specific handling
       if (Platform.OS === "android") {
-        const contentUri = await FileSystem.getContentUriAsync(fileUri);
-        if (contentUri) {
-          uriToOpen = contentUri;
+        // For Android, try converting to a content URI for compatibility with scoped storage
+        try {
+          const contentUri = await FileSystem.getContentUriAsync(fileUri);
+          console.log("Converted to content URI:", contentUri);
+
+          // Check if the content URI can be opened
+          const canOpen = await Linking.canOpenURL(contentUri);
+          if (canOpen) {
+            await Linking.openURL(contentUri);
+            console.log("File opened successfully with content URI");
+            return;
+          } else {
+            console.log(
+              "Cannot open content URI directly, falling back to sharing"
+            );
+          }
+        } catch (contentError) {
+          console.error("Error converting to content URI:", contentError);
+        }
+
+        // Fallback to sharing if direct opening fails
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: fileUri.endsWith(".mp4") ? "video/mp4" : "audio/mp4",
+            UTI: "public.movie", // For iOS compatibility
+            dialogTitle: "Open or share the file",
+          });
+          console.log("File shared successfully");
+          return;
+        } else {
+          Alert.alert("Error", "Sharing is not available on this device.");
+        }
+      } else if (Platform.OS === "ios") {
+        // For iOS, prefer sharing since direct Linking might not work for local files
+        if (await Sharing.isAvailableAsync()) {
+          await Sharing.shareAsync(fileUri, {
+            mimeType: fileUri.endsWith(".mp4") ? "video/mp4" : "audio/mp4",
+            UTI: fileUri.endsWith(".mp4") ? "public.movie" : "public.audio",
+          });
+          console.log("File shared successfully on iOS");
+          return;
+        } else {
+          // Try direct opening as a fallback
+          const canOpen = await Linking.canOpenURL(fileUri);
+          if (canOpen) {
+            await Linking.openURL(fileUri);
+            console.log("File opened successfully on iOS");
+            return;
+          }
         }
       }
 
-      // Try to open the URI using Linking
-      const supported = await Linking.canOpenURL(uriToOpen);
-      if (supported) {
-        await Linking.openURL(uriToOpen);
-      } else {
-        // Fallback to sharing if no app can directly open the file
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(uriToOpen);
-        } else {
-          Alert.alert("Error", "No application available to open this file.");
-        }
-      }
+      // If all attempts fail
+      Alert.alert(
+        "Error",
+        "No compatible app found to open this file. Try opening it from your file manager."
+      );
     } catch (error) {
       console.error("Error opening file:", error);
-      Alert.alert("Error", "Unable to open file.");
+      Alert.alert("Error", "Unable to open the file. Please try again.");
     }
   };
+
   // Remove a download record and optionally delete the file
   const removeDownloadRecord = async (id: string, fileUri: string) => {
     Alert.alert(
