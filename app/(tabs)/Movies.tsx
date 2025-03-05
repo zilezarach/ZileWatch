@@ -59,7 +59,7 @@ type TMDBMovie = {
 };
 
 type Torrent = {
-  name: string;
+  title: string;
   magnet: string;
   size: string;
   seeds: number;
@@ -206,7 +206,7 @@ export default function Movies(): JSX.Element {
       setVisible(true);
     } catch (error) {
       console.error("Error fetching torrents:", error);
-      Alert.alert("Error", error.response?.data?.error || error.message || "No torrents found for this title.");
+      Alert.alert("Error", "No torrents found for this title.");
     } finally {
       setLoading(false);
     }
@@ -379,12 +379,12 @@ export default function Movies(): JSX.Element {
             keyExtractor={(item, index) => item.magnet + index.toString()}
             renderItem={({ item }) => (
               <View style={styles.torrentCard}>
-                <Text style={styles.torrentName}>{item.name}</Text>
+                <Text style={styles.torrentName}>{item.title}</Text>
                 <Text style={styles.torrentSize}>Size: {item.size}</Text>
-                <TouchableOpacity style={styles.buttonStreamer} onPress={() => handleStream(item.magnet, item.name)}>
+                <TouchableOpacity style={styles.buttonStreamer} onPress={() => handleStream(item.magnet, item.title)}>
                   <Text style={styles.buttonText}>Stream</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.buttonDownload} onPress={() => handleDownload(item.magnet, item.name)}>
+                <TouchableOpacity style={styles.buttonDownload} onPress={() => handleDownload(item.magnet, item.title)}>
                   <Text style={styles.buttonText}>Download</Text>
                 </TouchableOpacity>
               </View>
