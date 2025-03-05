@@ -46,45 +46,31 @@ const StreamVideo = () => {
     try {
       setLoading(true);
       const encodedMagnet = encodeURIComponent(magnetLink);
-      const baseUrl = `${DOWNLOADER_API}/stream-torrents?magnet=${encodedMagnet}&quality=${quality}`;
-      setStreamUrl(baseUrl);
 
-      // Fetch file list for selection
-      const fileResponse = await axios.get(`${DOWNLOADER_API}/torrent/files`, {
+      // Get file list first
+      const filesRes = await axios.get(`${DOWNLOADER_API}/torrent/files`, {
         params: { magnet: magnetLink },
       });
-      const files = fileResponse.data.files;
-      setInfoHash(fileResponse.data.infoHash); // Store infoHash for progress tracking
 
-      if (files.length > 1) {
-        Alert.alert(
-          "Multiple Files Detected",
-          "Choose a file to stream:",
-          files.map((file: any) => ({
-            text: `${file.name} (${file.width}x${file.height}, ${Math.round(
-              file.bitrate / 1000
-            )} kbps)`,
-            onPress: () => {
-              setStreamUrl(
-                `${DOWNLOADER_API}/stream-torrents?magnet=${encodedMagnet}&fileIndex=${file.index}`
-              );
-            },
-          })),
-          { cancelable: true }
-        );
+      if (!filesRes.data.files?.length) {
+        throw new Error("No playable files found");
       }
+
+      // Auto-select best quality
+      const bestFile = filesRes.data.files.reduce((prev, current) =>
+        current.size > prev.size ? current : prev
+      );
+
+      setStreamUrl(
+        `${DOWNLOADER_API}/stream-torrents?` +
+          `magnet=${encodedMagnet}&fileIndex=${bestFile.index}`
+      );
+
+      setInfoHash(filesRes.data.infoHash);
       setError(null);
-    } catch (err: any) {
-      console.error("Stream setup error:", err);
-      setError(
-        err.response?.data?.error ||
-          err.message ||
-          "Unable to prepare streaming."
-      );
-      Alert.alert(
-        "Error",
-        err.response?.data?.error || "Unable to stream video."
-      );
+    } catch (error) {
+      console.error("Stream setup failed:", error);
+      setError("Setup Failed Try Later");
     } finally {
       setLoading(false);
     }
@@ -247,7 +233,13 @@ const StreamVideo = () => {
         </View>
       ) : (
         <Video
-          source={{ uri: streamUrl }}
+          source={{
+            uri: streamUrl,
+            headers: {
+              "Cache-Control": "max-age=6048000",
+              "Accept-Encoding": "identity",
+            },
+          }}
           style={videoStyle}
           controls
           resizeMode="contain"
@@ -263,8 +255,8 @@ const StreamVideo = () => {
           bufferConfig={{
             minBufferMs: 15000,
             maxBufferMs: 50000,
-            bufferForPlaybackMs: 2500,
-            bufferForPlaybackAfterRebufferMs: 5000,
+            bufferForPlaybackMs: 5000,
+            bufferForPlaybackAfterRebufferMs: 10000,
           }}
         />
       )}

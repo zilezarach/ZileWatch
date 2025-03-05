@@ -8,7 +8,7 @@ import {
   TouchableOpacity,
   Alert,
   Platform,
-  Modal
+  Modal,
 } from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import axios from "axios";
@@ -43,7 +43,7 @@ const VideoPlayer = () => {
     const fetchStreamUrl = async () => {
       try {
         const response = await axios.get(`${DOWNLOADER_API}/stream-videos`, {
-          params: { url: videoUrl }
+          params: { url: videoUrl },
         });
         setStreamUrl(response.data.streamUrl);
       } catch (err) {
@@ -73,27 +73,35 @@ const VideoPlayer = () => {
 
     updateOrientation();
 
-    const subscription = ScreenOrientation.addOrientationChangeListener(evt => {
-      const orientation = evt.orientationInfo.orientation;
-      if (
-        orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-        orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-      ) {
-        setLandscape(true);
-        // For iOS, use native fullscreen
-        if (Platform.OS === "ios" && videoRef.current?.presentFullscreenPlayer) {
-          videoRef.current.presentFullscreenPlayer();
-        }
-      } else if (
-        orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
-        orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
-      ) {
-        setLandscape(false);
-        if (Platform.OS === "ios" && videoRef.current?.dismissFullscreenPlayer) {
-          videoRef.current.dismissFullscreenPlayer();
+    const subscription = ScreenOrientation.addOrientationChangeListener(
+      (evt) => {
+        const orientation = evt.orientationInfo.orientation;
+        if (
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+        ) {
+          setLandscape(true);
+          // For iOS, use native fullscreen
+          if (
+            Platform.OS === "ios" &&
+            videoRef.current?.presentFullscreenPlayer
+          ) {
+            videoRef.current.presentFullscreenPlayer();
+          }
+        } else if (
+          orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
+          orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
+        ) {
+          setLandscape(false);
+          if (
+            Platform.OS === "ios" &&
+            videoRef.current?.dismissFullscreenPlayer
+          ) {
+            videoRef.current.dismissFullscreenPlayer();
+          }
         }
       }
-    });
+    );
 
     return () => {
       ScreenOrientation.removeOrientationChangeListener(subscription);
@@ -106,7 +114,7 @@ const VideoPlayer = () => {
   };
 
   const togglePlaypause = () => {
-    setPaused(prev => !prev);
+    setPaused((prev) => !prev);
   };
 
   const returnToFullScreen = () => {
@@ -122,10 +130,12 @@ const VideoPlayer = () => {
   const toggleMiniPlayer = () => {
     // When toggled, update the global mini player state.
     if (!miniPlayer.visible) {
+      const videoCurrent = videoRef.current?.getCurrentPosition() || 0;
       setMiniPlayer({
         visible: true,
         videoUrl: streamUrl || null,
-        title: "Now Playing" // You might replace this with a proper title.
+        videoCurrent,
+        title: "Now Playing", // You might replace this with a proper title.
       });
     } else {
       setMiniPlayer({ ...miniPlayer, visible: false });
@@ -142,18 +152,20 @@ const VideoPlayer = () => {
         url: `${DOWNLOADER_API}/download-videos`,
         data: { url: videoUrl, format },
         responseType: "arraybuffer",
-        onDownloadProgress: progressEvent => {
+        onDownloadProgress: (progressEvent) => {
           const total = progressEvent.total || 1;
           const progress = Math.round((progressEvent.loaded / total) * 100);
           console.log(`Downloading ${option}: ${progress}%`);
-        }
+        },
       });
 
       // Ensure the download folder exists.
       const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
       const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
       if (!directoryInfo.exists) {
-        await FileSystem.makeDirectoryAsync(downloadDir, { intermediates: true });
+        await FileSystem.makeDirectoryAsync(downloadDir, {
+          intermediates: true,
+        });
       }
 
       // Set the file extension based on type.
@@ -165,16 +177,20 @@ const VideoPlayer = () => {
       // Convert the binary data to base64.
       const base64Data = Buffer.from(response.data).toString("base64");
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64
+        encoding: FileSystem.EncodingType.Base64,
       });
 
       // Request media library permission and add the file.
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status === "granted") {
         const asset = await MediaLibrary.createAssetAsync(fileUri);
-        const albumName = option === "video" ? "ZileWatch Videos" : "ZileWatch Audio";
+        const albumName =
+          option === "video" ? "ZileWatch Videos" : "ZileWatch Audio";
         await MediaLibrary.createAlbumAsync(albumName, asset, false);
-        Alert.alert("Download Complete", `Downloaded ${option} successfully. File added to ${albumName} album.`);
+        Alert.alert(
+          "Download Complete",
+          `Downloaded ${option} successfully. File added to ${albumName} album.`
+        );
       } else {
         Alert.alert(
           "Download Complete",
@@ -204,19 +220,28 @@ const VideoPlayer = () => {
       </View>
     );
   }
-  const videoStyle = Platform.OS === "android" && isLandscape ? [styles.video, styles.fullscreenVid] : styles.video;
+  const videoStyle =
+    Platform.OS === "android" && isLandscape
+      ? [styles.video, styles.fullscreenVid]
+      : styles.video;
 
   return (
     <View style={styles.container}>
       {/* Header with controls */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={toggleMiniPlayer} style={styles.headerButton}>
+        <TouchableOpacity
+          onPress={toggleMiniPlayer}
+          style={styles.headerButton}
+        >
           <Ionicons name="contract" size={24} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity onPress={togglePlaypause} style={styles.headerButton}>
           <Ionicons name={isPaused ? "play" : "pause"} size={24} color="#fff" />
         </TouchableOpacity>
-        <TouchableOpacity onPress={returnToFullScreen} style={styles.headerButton}>
+        <TouchableOpacity
+          onPress={returnToFullScreen}
+          style={styles.headerButton}
+        >
           <Ionicons name="expand" size={24} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
@@ -239,17 +264,27 @@ const VideoPlayer = () => {
         visible={downloadModalVisable}
         animationType="slide"
         transparent
-        onRequestClose={() => setDownloadModalVisable(false)}>
+        onRequestClose={() => setDownloadModalVisable(false)}
+      >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Formats</Text>
-            <TouchableOpacity onPress={() => handleDownloadOption("video")} style={styles.optionModal}>
+            <TouchableOpacity
+              onPress={() => handleDownloadOption("video")}
+              style={styles.optionModal}
+            >
               <Ionicons name="videocam" size={24} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleDownloadOption("audio")} style={styles.optionModal}>
+            <TouchableOpacity
+              onPress={() => handleDownloadOption("audio")}
+              style={styles.optionModal}
+            >
               <Ionicons name="musical-note" size={24} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity onPress={() => setDownloadModalVisable(false)} style={styles.optionModal}>
+            <TouchableOpacity
+              onPress={() => setDownloadModalVisable(false)}
+              style={styles.optionModal}
+            >
               <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
           </View>
@@ -264,25 +299,25 @@ const styles = StyleSheet.create({
   video: {
     width: "100%",
     height: (width * 9) / 16,
-    backgroundColor: "#000"
+    backgroundColor: "#000",
   },
   modalTitle: {
     fontWeight: "bold",
     fontSize: 10,
     color: "#7d0b02",
-    marginBottom: 15
+    marginBottom: 15,
   },
   modalContainer: {
     flex: 1,
     justifyContent: "center",
     backgroundColor: "rgba(0,0,0,0.8)",
-    padding: 20
+    padding: 20,
   },
   modalContent: {
     backgroundColor: "#1E1E1E",
     borderRadius: 10,
     padding: 20,
-    alignItems: "center"
+    alignItems: "center",
   },
   optionModal: {
     backgroundColor: "#7d0b02",
@@ -290,27 +325,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginVertical: 5,
     width: "100%",
-    alignItems: "center"
+    alignItems: "center",
   },
   fullscreenVid: {
     position: "absolute",
     top: 0,
     bottom: 0,
     width: Dimensions.get("window").width,
-    height: Dimensions.get("window").height
+    height: Dimensions.get("window").height,
   },
   loaderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#000"
+    backgroundColor: "#000",
   },
   loaderText: { color: "#FFF", marginTop: 10 },
   errorContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#000"
+    backgroundColor: "#000",
   },
   errorText: { color: "red", fontSize: 16, fontWeight: "bold" },
   header: {
@@ -323,9 +358,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 3,
     backgroundColor: "rgba(0,0,0,0.6)",
-    paddingVertical: 5
+    paddingVertical: 5,
   },
-  headerButton: { padding: 10 }
+  headerButton: { padding: 10 },
 });
 
 export default VideoPlayer;

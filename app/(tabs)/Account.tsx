@@ -71,78 +71,70 @@ export default function DownloadsScreen() {
   // Open the downloaded file
   const openFile = async (fileUri: string) => {
     try {
-      // Check if the file exists
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
       if (!fileInfo.exists) {
         Alert.alert("Error", "File not found or may have been deleted.");
         return;
       }
 
-      console.log("Attempting to open file at URI:", fileUri);
+      console.log("Opening file URI:", fileUri);
 
-      // Platform-specific handling
       if (Platform.OS === "android") {
-        // For Android, try converting to a content URI for compatibility with scoped storage
-        try {
-          const contentUri = await FileSystem.getContentUriAsync(fileUri);
-          console.log("Converted to content URI:", contentUri);
-
-          // Check if the content URI can be opened
-          const canOpen = await Linking.canOpenURL(contentUri);
-          if (canOpen) {
-            await Linking.openURL(contentUri);
-            console.log("File opened successfully with content URI");
-            return;
-          } else {
-            console.log(
-              "Cannot open content URI directly, falling back to sharing"
-            );
-          }
-        } catch (contentError) {
-          console.error("Error converting to content URI:", contentError);
-        }
-
-        // Fallback to sharing if direct opening fails
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(fileUri, {
-            mimeType: fileUri.endsWith(".mp4") ? "video/mp4" : "audio/mp4",
-            UTI: "public.movie", // For iOS compatibility
-            dialogTitle: "Open or share the file",
-          });
-          console.log("File shared successfully");
-          return;
-        } else {
-          Alert.alert("Error", "Sharing is not available on this device.");
-        }
-      } else if (Platform.OS === "ios") {
-        // For iOS, prefer sharing since direct Linking might not work for local files
-        if (await Sharing.isAvailableAsync()) {
-          await Sharing.shareAsync(fileUri, {
-            mimeType: fileUri.endsWith(".mp4") ? "video/mp4" : "audio/mp4",
-            UTI: fileUri.endsWith(".mp4") ? "public.movie" : "public.audio",
-          });
-          console.log("File shared successfully on iOS");
-          return;
-        } else {
-          // Try direct opening as a fallback
+        // Handle Android content URIs
+        if (fileUri.startsWith("content://")) {
+          // Directly open content URI
           const canOpen = await Linking.canOpenURL(fileUri);
           if (canOpen) {
             await Linking.openURL(fileUri);
-            console.log("File opened successfully on iOS");
+            return;
+          }
+        } else {
+          // Convert file URI to content URI for scoped storage
+          try {
+            const contentUri = await FileSystem.getContentUriAsync(fileUri);
+            await Linking.openURL(contentUri);
+            return;
+          } catch (contentError) {
+            console.error("Error converting to content URI:", contentError);
+          }
+        }
+
+        // Fallback to sharing
+        if (await Sharing.isAvailableAsync()) {
+          const mimeType = getMimeType(fileUri);
+          await Sharing.shareAsync(fileUri, { mimeType });
+          return;
+        }
+      } else if (Platform.OS === "ios") {
+        // iOS handling
+        if (await Sharing.isAvailableAsync()) {
+          const mimeType = getMimeType(fileUri);
+          const uti = mimeType.startsWith("video/")
+            ? "public.movie"
+            : "public.audio";
+          await Sharing.shareAsync(fileUri, { mimeType, uti });
+          return;
+        } else {
+          const canOpen = await Linking.canOpenURL(fileUri);
+          if (canOpen) {
+            await Linking.openURL(fileUri);
             return;
           }
         }
       }
 
-      // If all attempts fail
-      Alert.alert(
-        "Error",
-        "No compatible app found to open this file. Try opening it from your file manager."
-      );
+      Alert.alert("Error", "No app found to open this file.");
     } catch (error) {
       console.error("Error opening file:", error);
-      Alert.alert("Error", "Unable to open the file. Please try again.");
+      Alert.alert("Error", "Unable to open the file.");
     }
+  };
+
+  // Helper to determine MIME type from file extension
+  const getMimeType = (fileUri: string) => {
+    if (fileUri.endsWith(".mp4")) return "video/mp4";
+    if (fileUri.endsWith(".m4a")) return "audio/m4a";
+    return "application/octet-stream"; // Fallback
   };
 
   // Remove a download record and optionally delete the file

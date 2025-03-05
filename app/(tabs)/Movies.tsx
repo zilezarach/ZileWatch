@@ -11,7 +11,7 @@ import {
   Alert,
   Dimensions,
   Switch,
-  Modal
+  Modal,
 } from "react-native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -64,7 +64,15 @@ type Torrent = {
   size: string;
   seeds: number;
   provider: string;
+  infoHash: string;
+  files: TorrentFile[];
 };
+
+interface TorrentFile {
+  name: string;
+  size: string;
+  index: number;
+}
 
 type NavigationProp = RouteProp<RootStackParamList, "Movies">;
 
@@ -79,7 +87,8 @@ export default function Movies(): JSX.Element {
   const [contentType, setContentType] = useState<"movie" | "series">("movie");
 
   // Fix: Make sure to properly type the navigation
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<NavigationProp>();
 
   // Fetch movies/series by search query (with caching)
@@ -93,15 +102,22 @@ export default function Movies(): JSX.Element {
       if (cachedMovies) {
         setMovies(JSON.parse(cachedMovies));
       } else {
-        const url = contentType === "series" ? `${TMDB_API_URL}/search/tv` : `${TMDB_API_URL}/search/movie`;
+        const url =
+          contentType === "series"
+            ? `${TMDB_API_URL}/search/tv`
+            : `${TMDB_API_URL}/search/movie`;
 
         const res = await axios.get(url, {
-          params: { api_key: TMDB_API_KEY, query, language: "en-US" }
+          params: { api_key: TMDB_API_KEY, query, language: "en-US" },
         });
 
         const data = res.data.results.map((item: any) => ({
           Title: contentType === "series" ? item.name : item.title,
-          Year: (contentType === "series" ? item.first_air_date : item.release_date)?.split("-")[0] || "N/A",
+          Year:
+            (contentType === "series"
+              ? item.first_air_date
+              : item.release_date
+            )?.split("-")[0] || "N/A",
           Genre: item.genres?.[0]?.name || "N/A",
           Plot: item.overview || "No description available.",
           Poster: item.poster_path
@@ -111,7 +127,7 @@ export default function Movies(): JSX.Element {
           // Add tv_id for series to make it easier to navigate
           ...(contentType === "series" && { tv_id: item.id }),
           imdbRating: item.vote_average?.toString() || "N/A",
-          category: contentType === "series" ? "Series" : "Movie"
+          category: contentType === "series" ? "Series" : "Movie",
         }));
 
         setMovies(data);
@@ -130,15 +146,22 @@ export default function Movies(): JSX.Element {
   const fetchPopular = async () => {
     try {
       setLoading(true);
-      const url = contentType === "series" ? `${TMDB_API_URL}/tv/popular` : `${TMDB_API_URL}/movie/popular`;
+      const url =
+        contentType === "series"
+          ? `${TMDB_API_URL}/tv/popular`
+          : `${TMDB_API_URL}/movie/popular`;
 
       const res = await axios.get(url, {
-        params: { api_key: TMDB_API_KEY, language: "en-US", page: 1 }
+        params: { api_key: TMDB_API_KEY, language: "en-US", page: 1 },
       });
 
       const data = res.data.results.map((item: any) => ({
         Title: contentType === "series" ? item.name : item.title,
-        Year: (contentType === "series" ? item.first_air_date : item.release_date)?.split("-")[0] || "N/A",
+        Year:
+          (contentType === "series"
+            ? item.first_air_date
+            : item.release_date
+          )?.split("-")[0] || "N/A",
         Genre: item.genres?.[0]?.name || "N/A",
         Plot: item.overview || "No description available.",
         Poster: item.poster_path
@@ -148,7 +171,7 @@ export default function Movies(): JSX.Element {
         // Add tv_id for series to make it easier to navigate
         ...(contentType === "series" && { tv_id: item.id }),
         imdbRating: item.vote_average?.toString() || "N/A",
-        category: contentType === "series" ? "Series" : "Movie"
+        category: contentType === "series" ? "Series" : "Movie",
       }));
 
       setMovies(data);
@@ -161,52 +184,49 @@ export default function Movies(): JSX.Element {
   };
 
   // Fetch torrents for a selected movie/series title
+
   const fetchTorrents = async (title: string) => {
     try {
       setLoading(true);
       const res = await axios.get(`${DOWNLOADER_API}/torrent/search`, {
-        params: { query: title }
+        params: {
+          query: `${title} ${new Date().getFullYear()}`,
+          category: contentType === "series" ? "TV" : "Movies",
+        },
       });
 
-      // Check if torrents array exists and is not empty
-      if (!res.data.torrents || res.data.torrents.length === 0) {
-        throw new Error("No torrents found.");
+      if (!res.data.torrents?.length) {
+        throw new Error("No torrents found");
       }
 
-      // Process multiple torrents
-      const torrentPromises = res.data.torrents.map(async (torrent: Torrent) => {
-        try {
-          const fileRes = await axios.get(`${DOWNLOADER_API}/torrent/files`, {
-            params: { magnet: torrent.magnet }
-          });
+      // Process torrents with error boundaries
+      const torrentsWithFiles = await Promise.allSettled(
+        res.data.torrents.slice(0, 5).map(async (torrent: Torrent) => {
+          try {
+            const fileRes = await axios.get(`${DOWNLOADER_API}/torrent/files`, {
+              params: { magnet: torrent.magnet },
+            });
+            return {
+              ...torrent,
+              files: fileRes.data.files,
+              infoHash: fileRes.data.infoHash,
+            };
+          } catch (error) {
+            console.warn("Skipping invalid torrent:", error);
+            return null;
+          }
+        })
+      );
 
-          return fileRes.data.files.map((file: any) => ({
-            name: file.name,
-            magnet: torrent.magnet,
-            size: file.lengthMB,
-            title: torrent.title // Include torrent title
-          }));
-        } catch (fileError) {
-          console.warn(`Could not fetch files for torrent: ${torrent.title}`, fileError);
-          return [];
-        }
-      });
+      const validTorrents = torrentsWithFiles
+        .filter((r) => r.status === "fulfilled" && r.value !== null)
+        .map((r) => r.value);
 
-      // Wait for all torrent file fetches
-      const allTorrentFiles = await Promise.all(torrentPromises);
-
-      // Flatten and filter out empty arrays
-      const flattenedTorrents = allTorrentFiles.flat().filter(t => t);
-
-      if (flattenedTorrents.length === 0) {
-        throw new Error("No valid torrent files found.");
-      }
-
-      setTorrents(flattenedTorrents);
+      setTorrents(validTorrents);
       setVisible(true);
     } catch (error) {
-      console.error("Error fetching torrents:", error);
-      Alert.alert("Error", "No torrents found for this title.");
+      console.error("Torrent error:", error);
+      Alert.alert("Error", "No playable torrents found. Try another title.");
     } finally {
       setLoading(false);
     }
@@ -226,7 +246,11 @@ export default function Movies(): JSX.Element {
           onPress={() => {
             if (contentType === "series") {
               // Fix: Navigate to SeriesDetail screen with proper parameters
-              console.log(`Navigating to SeriesDetail with ID: ${item.tv_id || item.imdbID} and title: ${item.Title}`);
+              console.log(
+                `Navigating to SeriesDetail with ID: ${
+                  item.tv_id || item.imdbID
+                } and title: ${item.Title}`
+              );
 
               // Make sure we're passing the correct tv_id parameter
               const tvId = item.tv_id || parseInt(item.imdbID, 10);
@@ -234,18 +258,21 @@ export default function Movies(): JSX.Element {
               // Debug the navigation parameters
               console.log("Navigation params:", {
                 tv_id: tvId,
-                title: item.Title
+                title: item.Title,
               });
 
               navigation.navigate("SeriesDetail", {
                 tv_id: tvId,
-                title: item.Title
+                title: item.Title,
               });
             } else {
               fetchTorrents(item.Title);
             }
-          }}>
-          <Text style={styles.buttonText}>{contentType === "series" ? "View Seasons" : "Get Torrents"}</Text>
+          }}
+        >
+          <Text style={styles.buttonText}>
+            {contentType === "series" ? "View Seasons" : "Get Torrents"}
+          </Text>
         </TouchableOpacity>
       </View>
     </View>
@@ -263,11 +290,13 @@ export default function Movies(): JSX.Element {
       const res = await axios.get(`${DOWNLOADER_API}/download-torrents`, {
         params: { magnet: magnetLink },
         responseType: "arraybuffer",
-        onDownloadProgress: progressEvent => {
+        onDownloadProgress: (progressEvent) => {
           const total = progressEvent.total || 1;
           const fractionProgress = progressEvent.loaded / total;
-          console.log(`Downloading ${videoTitle}: ${Math.round(fractionProgress * 100)}%`);
-        }
+          console.log(
+            `Downloading ${videoTitle}: ${Math.round(fractionProgress * 100)}%`
+          );
+        },
       });
 
       const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
@@ -275,7 +304,7 @@ export default function Movies(): JSX.Element {
 
       if (!directoryInfo.exists) {
         await FileSystem.makeDirectoryAsync(downloadDir, {
-          intermediates: true
+          intermediates: true,
         });
       }
 
@@ -283,7 +312,7 @@ export default function Movies(): JSX.Element {
       const base64Data = Buffer.from(res.data).toString("base64");
 
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64
+        encoding: FileSystem.EncodingType.Base64,
       });
 
       Alert.alert("Download Complete", `Downloaded: ${videoTitle}`);
@@ -320,13 +349,21 @@ export default function Movies(): JSX.Element {
       {/* Content Type Toggle */}
       <View style={styles.typeToggleContainer}>
         <TouchableOpacity
-          style={[styles.typeButton, contentType === "movie" && styles.activeType]}
-          onPress={() => setContentType("movie")}>
+          style={[
+            styles.typeButton,
+            contentType === "movie" && styles.activeType,
+          ]}
+          onPress={() => setContentType("movie")}
+        >
           <Text style={styles.typeButtonText}>Movies</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.typeButton, contentType === "series" && styles.activeType]}
-          onPress={() => setContentType("series")}>
+          style={[
+            styles.typeButton,
+            contentType === "series" && styles.activeType,
+          ]}
+          onPress={() => setContentType("series")}
+        >
           <Text style={styles.typeButtonText}>Series</Text>
         </TouchableOpacity>
       </View>
@@ -337,7 +374,7 @@ export default function Movies(): JSX.Element {
         placeholder="Search for a title..."
         placeholderTextColor="#AAA"
         value={searchQuery}
-        onChangeText={text => {
+        onChangeText={(text) => {
           setSearchQuery(text);
           if (!text.trim()) {
             setMovies([]);
@@ -353,40 +390,61 @@ export default function Movies(): JSX.Element {
       ) : (
         <FlatList
           data={movies}
-          keyExtractor={item => item.imdbID + item.Title}
+          keyExtractor={(item) => item.imdbID + item.Title}
           renderItem={renderItem}
           ListHeaderComponent={
             <Text style={styles.sectionTitle}>
-              {isSearching ? "Search Results" : "Popular " + (contentType === "series" ? "Series" : "Movies")}
+              {isSearching
+                ? "Search Results"
+                : "Popular " + (contentType === "series" ? "Series" : "Movies")}
             </Text>
           }
         />
       )}
 
       {/* Torrent Modal */}
-      <Modal visible={isVisible} animationType="slide" transparent onRequestClose={() => setVisible(false)}>
+      <Modal
+        visible={isVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setVisible(false)}
+      >
         <View style={styles.Modalcontain}>
           <View style={styles.modalHeader}>
-            <TouchableOpacity style={styles.buttonModal} onPress={() => setVisible(false)}>
+            <TouchableOpacity
+              style={styles.buttonModal}
+              onPress={() => setVisible(false)}
+            >
               <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.buttonModal} onPress={() => fetchTorrents(movies[0]?.Title || searchQuery)}>
+            <TouchableOpacity
+              style={styles.buttonModal}
+              onPress={() => fetchTorrents(movies[0]?.Title || searchQuery)}
+            >
               <Text style={styles.buttonText}>Retry Torrents</Text>
             </TouchableOpacity>
           </View>
           <FlatList
             data={torrents}
-            keyExtractor={(item, index) => item.magnet + index.toString()}
+            keyExtractor={(item) => item.infoHash}
             renderItem={({ item }) => (
               <View style={styles.torrentCard}>
                 <Text style={styles.torrentName}>{item.title}</Text>
-                <Text style={styles.torrentSize}>Size: {item.size}</Text>
-                <TouchableOpacity style={styles.buttonStreamer} onPress={() => handleStream(item.magnet, item.title)}>
-                  <Text style={styles.buttonText}>Stream</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={styles.buttonDownload} onPress={() => handleDownload(item.magnet, item.title)}>
-                  <Text style={styles.buttonText}>Download</Text>
-                </TouchableOpacity>
+                <Text style={styles.torrentStats}>
+                  {item.size} | {item.seeds} seeds
+                </Text>
+
+                {item.files?.map((file) => (
+                  <TouchableOpacity
+                    key={file.index}
+                    style={styles.fileButton}
+                    onPress={() => handleStream(item.magnet, file.index)}
+                  >
+                    <Text style={styles.fileText}>
+                      {file.name} ({file.size})
+                    </Text>
+                  </TouchableOpacity>
+                ))}
               </View>
             )}
           />
@@ -402,19 +460,29 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10
+    marginBottom: 10,
   },
   toggleLabel: { fontSize: 16, color: "#FFF" },
   typeToggleContainer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginBottom: 10
+    marginBottom: 10,
+  },
+  fileText: {
+    color: "#7d0b02",
+    fontWeight: "bold",
   },
   typeButton: {
     padding: 10,
     backgroundColor: "#7d0b02",
     borderRadius: 5,
-    marginHorizontal: 5
+    marginHorizontal: 5,
+  },
+  fileButton: {
+    padding: 10,
+    backgroundColor: "#7d0b02",
+    borderRadius: 5,
+    marginHorizontal: 5,
   },
   activeType: { backgroundColor: "#FF5722" },
   typeButtonText: { color: "#FFF", fontWeight: "bold" },
@@ -423,13 +491,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     color: "#FFF",
-    marginBottom: 20
+    marginBottom: 20,
   },
   sectionTitle: {
     color: "#FFF",
     fontSize: 18,
     fontWeight: "bold",
-    marginVertical: 10
+    marginVertical: 10,
   },
   movieCard: {
     flexDirection: "row",
@@ -437,7 +505,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     marginVertical: 10,
-    elevation: 5
+    elevation: 5,
   },
   movieImage: { width: 100, height: 150, borderRadius: 10 },
   movieDetails: { flex: 1, marginLeft: 10 },
@@ -449,33 +517,37 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF5722",
     borderRadius: 10,
     padding: 10,
-    marginTop: 5
+    marginTop: 5,
   },
   buttonText: { color: "#FFF", fontSize: 16 },
   Modalcontain: {
     backgroundColor: "rgba(0, 0, 0, 0.8)",
     justifyContent: "center",
     alignItems: "center",
-    paddingTop: 40
+    paddingTop: 40,
+  },
+  torrentStats: {
+    color: "#FFF",
+    fontSize: 10,
   },
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     width: "100%",
     paddingHorizontal: 20,
-    marginBottom: 10
+    marginBottom: 10,
   },
   buttonModal: {
     backgroundColor: "#7d0b02",
     borderRadius: 10,
     padding: 10,
-    marginHorizontal: 5
+    marginHorizontal: 5,
   },
   torrentCard: {
     backgroundColor: "#1E1E1E",
     borderRadius: 10,
     padding: 10,
-    marginVertical: 6
+    marginVertical: 6,
   },
   torrentName: { color: "#FFF", fontWeight: "bold", fontSize: 15 },
   torrentSize: { color: "#BBB", fontSize: 14, marginBottom: 8 },
@@ -483,13 +555,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#3bfc18",
     padding: 10,
     marginTop: 5,
-    borderRadius: 10
+    borderRadius: 10,
   },
   buttonDownload: {
     backgroundColor: "#540007",
     padding: 6,
     marginTop: 5,
-    borderRadius: 10
+    borderRadius: 10,
   },
-  darkMode: { backgroundColor: "#121212" }
+  darkMode: { backgroundColor: "#121212" },
 });
