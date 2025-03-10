@@ -186,6 +186,8 @@ export default function Movies(): JSX.Element {
     }
   };
   // render series and Movies
+  // Fix the navigation part in renderItem function of Movies.tsx
+
   const renderItem = ({ item }: { item: any }) => (
     <View style={styles.movieCard}>
       <Image source={{ uri: item.Poster }} style={styles.movieImage} />
@@ -206,15 +208,10 @@ export default function Movies(): JSX.Element {
                 title: item.Title,
               });
             } else {
-              // For movies, build the stream URL using the selected source
-              const streamUrl = getMovieUrl(
-                selectedSource.id,
-                Number(item.imdbID)
-              );
+              // For movies, only pass the required information for the Stream component to handle
               navigation.navigate("Stream", {
                 mediaType: "movie",
-                id: Number(item.imdbID),
-                streamUrl,
+                id: item.imdbID,
                 videoTitle: item.Title,
                 sourceId: selectedSource.id,
                 season: 0,
@@ -241,7 +238,6 @@ export default function Movies(): JSX.Element {
       </View>
     </View>
   );
-
   // Download torrent file and save it to device storage.
   const handleDownload = async (magnetLink: string, videoTitle: string) => {
     if (!magnetLink) {

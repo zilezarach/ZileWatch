@@ -17,7 +17,6 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
 import { useMiniPlayer } from "../../context/MiniPlayerContext";
 import axios from "axios";
-import * as FileSystem from "expo-file-system";
 
 const { width, height } = Dimensions.get("window");
 const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
@@ -41,11 +40,23 @@ const StreamVideo = () => {
   const [progress, setProgress] = useState<number>(0);
   const [infoHash, setInfoHash] = useState<string | null>(null);
   const { miniPlayer, setMiniPlayer } = useMiniPlayer();
+  const [debugInfo, setDebugInfo] = useState<string>("");
 
   // Setup Stream
   const setupStream = async () => {
     try {
       setLoading(true);
+      setError(null); // Reset error state
+
+      // Debug info
+      const debugLog = `Setting up stream: 
+      mediaType=${mediaType}, 
+      id=${id}, 
+      sourceId=${sourceId}, 
+      quality=${quality}`;
+      console.log(debugLog);
+      setDebugInfo(debugLog);
+
       // Prepare request parameters
       const params: any = {
         mediaType,
@@ -54,26 +65,52 @@ const StreamVideo = () => {
         source: sourceId,
       };
 
-      // Add season and episode for TV shows
-      if (mediaType === "tv" && season !== undefined && episode !== undefined) {
-        params.season = season;
-        params.episode = episode;
+      // Add season/episode parameters for TV shows
+      if (
+        mediaType === "tv" &&
+        route.params.season !== undefined &&
+        route.params.episode !== undefined
+      ) {
+        params.season = route.params.season;
+        params.episode = route.params.episode;
       }
+
+      console.log("Requesting stream with params:", params);
 
       // Request stream URL from backend
       const response = await axios.get(`${DOWNLOADER_API}/stream`, { params });
+
+      console.log("Stream response:", response.data);
 
       if (response.data && response.data.streamUrl) {
         setStreamUrl(response.data.streamUrl);
         setSourceName(response.data.source || "Unknown Source");
         setError(null);
+        setDebugInfo(debugInfo + "\nStream URL received successfully");
       } else {
-        throw new Error("No stream URL returned");
+        throw new Error("No stream URL returned from API");
       }
     } catch (err: any) {
       console.error("Stream setup failed:", err);
-      setError(err.message || "Failed to load stream");
-      Alert.alert("Error", err.message || "Failed to load stream");
+      let errorMessage = "";
+
+      if (err.response) {
+        // Server responded with an error
+        errorMessage = `Server error: ${err.response.status} - ${JSON.stringify(
+          err.response.data
+        )}`;
+      } else if (err.request) {
+        // No response received from server
+        errorMessage = "No response from server. Check network connection.";
+      } else {
+        // Error setting up request
+        errorMessage = err.message || "Failed to set up stream request";
+      }
+
+      console.log(errorMessage);
+      setDebugInfo(debugInfo + "\nError: " + errorMessage);
+      setError(errorMessage);
+      Alert.alert("Error", errorMessage);
     } finally {
       setLoading(false);
     }
@@ -86,6 +123,11 @@ const StreamVideo = () => {
     } else {
       setupStream();
     }
+
+    // Clear listeners when component unmounts
+    return () => {
+      // Any cleanup code
+    };
   }, [id, quality, sourceId, mediaType]);
 
   // Orientation handling for iOS fullscreen
@@ -157,7 +199,8 @@ const StreamVideo = () => {
 
   const toggleMiniPlayer = () => {
     if (!miniPlayer.visible) {
-      setMiniPlayer({
+      // Create mini player data with only available properties
+      const miniPlayerData = {
         visible: true,
         videoUrl: streamUrl,
         title: videoTitle,
@@ -165,7 +208,8 @@ const StreamVideo = () => {
         id,
         sourceId,
         quality,
-      });
+      };
+      setMiniPlayer(miniPlayerData);
     } else {
       setMiniPlayer({ ...miniPlayer, visible: false });
     }
@@ -182,6 +226,11 @@ const StreamVideo = () => {
     Platform.OS === "android" && isLandscape
       ? [styles.video, styles.fullscreenVideo]
       : styles.video;
+
+  const retryStream = () => {
+    setError(null);
+    setupStream();
+  };
 
   return (
     <View style={styles.container}>
@@ -242,7 +291,9 @@ const StreamVideo = () => {
       ) : error ? (
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
-          <TouchableOpacity onPress={setupStream} style={styles.retryButton}>
+          {/* Show debug info in dev mode */}
+          {__DEV__ && <Text style={styles.debugText}>{debugInfo}</Text>}
+          <TouchableOpacity onPress={retryStream} style={styles.retryButton}>
             <Text style={styles.retryButtonText}>Retry</Text>
           </TouchableOpacity>
         </View>
@@ -263,8 +314,11 @@ const StreamVideo = () => {
           ref={videoRef}
           onError={(err) => {
             console.error("Video playback error:", err);
-            setError("Failed to play video.");
-            Alert.alert("Playback Error", "Unable to play the video.");
+            const errorMsg = err.error
+              ? `Code: ${err.error.code}, ${err.error.localizedDescription}`
+              : "Failed to play video.";
+            setError(errorMsg);
+            Alert.alert("Playback Error", errorMsg);
           }}
           onBuffer={handleBuffer}
           onLoad={() => setLoading(false)}
@@ -347,11 +401,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#000",
+    padding: 20,
   },
   errorText: {
     color: "red",
     fontSize: 16,
+    marginBottom: 10,
+    textAlign: "center",
+  },
+  debugText: {
+    color: "#aaa",
+    fontSize: 12,
     marginBottom: 20,
+    textAlign: "center",
   },
   retryButton: {
     backgroundColor: "#7d0b02",
