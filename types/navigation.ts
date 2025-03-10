@@ -1,7 +1,13 @@
 export type RootStackParamList = {
   Home: undefined;
   VideoPlayer: { videoUrl: string };
-  Stream: { magnetLink: string; videoTitle: string };
+  Stream: {
+    mediaType: "movie" | "tv";
+    id: number;
+    sourceId: string;
+    streamUrl: string;
+    videoTitle: string;
+  };
   Movies: undefined;
   VideoList: undefined;
   SeriesDetail: { tv_id: number; title: string };

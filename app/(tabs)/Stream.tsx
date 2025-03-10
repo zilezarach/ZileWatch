@@ -1,14 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  TouchableOpacity,
-  View,
-  Text,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  Platform,
-  Dimensions,
-} from "react-native";
+import { TouchableOpacity, View, Text, StyleSheet, Alert, ActivityIndicator, Platform, Dimensions } from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
@@ -18,16 +9,16 @@ import { Ionicons } from "@expo/vector-icons";
 import { useMiniPlayer } from "../../context/MiniPlayerContext";
 import axios from "axios";
 import * as FileSystem from "expo-file-system";
+import { title } from "process";
 
 const { width, height } = Dimensions.get("window");
-const DOWNLOADER_API =
-  Constants.expoConfig?.extra?.API_Backend || "http://your-backend-url:3000";
+const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 
 type StreamRouteProp = RouteProp<RootStackParamList, "Stream">;
 
 const StreamVideo = () => {
   const route = useRoute<StreamRouteProp>();
-  const { magnetLink, videoTitle } = route.params;
+  const { mediaType, id, sourceId, videoTitle } = route.params;
   const navigation = useNavigation();
   const videoRef = useRef<VideoRef>(null);
 
@@ -42,61 +33,52 @@ const StreamVideo = () => {
   const [infoHash, setInfoHash] = useState<string | null>(null);
   const { miniPlayer, setMiniPlayer } = useMiniPlayer();
 
+  //Setup Stream
   const setupStream = async () => {
     try {
       setLoading(true);
-      const encodedMagnet = encodeURIComponent(magnetLink);
-
-      // Get file list first
-      const filesRes = await axios.get(`${DOWNLOADER_API}/torrent/files`, {
-        params: { magnet: magnetLink },
+      // backend /stream endpoint with mediaType, id, quality, and source (if any)
+      const response = await axios.get(`${DOWNLOADER_API}/stream`, {
+        params: {
+          mediaType,
+          id,
+          quality,
+          source: sourceId
+        }
       });
-
-      if (!filesRes.data.files?.length) {
-        throw new Error("No playable files found");
+      if (response.data && response.data.streamUrl) {
+        setStreamUrl(response.data.streamUrl);
+        setError(null);
+      } else {
+        throw new Error("No stream URL returned");
       }
-
-      // Auto-select best quality
-      const bestFile = filesRes.data.files.reduce((prev, current) =>
-        current.size > prev.size ? current : prev
-      );
-
-      setStreamUrl(
-        `${DOWNLOADER_API}/stream-torrents?` +
-          `magnet=${encodedMagnet}&fileIndex=${bestFile.index}`
-      );
-
-      setInfoHash(filesRes.data.infoHash);
-      setError(null);
-    } catch (error) {
-      console.error("Stream setup failed:", error);
-      setError("Setup Failed Try Later");
+    } catch (err: any) {
+      console.error("Stream setup failed:", err);
+      setError(err.message || "Failed to load stream");
+      Alert.alert("Error", err.message || "Failed to load stream");
     } finally {
       setLoading(false);
     }
   };
-
   useEffect(() => {
-    if (!magnetLink || magnetLink.trim() === "") {
-      Alert.alert("Error", "Invalid video reference.");
+    if (!id) {
+      Alert.alert("Error", "Invalid media reference.");
       navigation.goBack();
     } else {
       setupStream();
     }
-  }, [magnetLink, quality]);
+  }, [id, quality, sourceId, mediaType]);
 
+  // Orientation handling for iOS fullscreen
   // Progress tracking
   useEffect(() => {
     let interval: NodeJS.Timeout;
     if (infoHash) {
       interval = setInterval(async () => {
         try {
-          const response = await axios.get(
-            `${DOWNLOADER_API}/torrent/progress`,
-            {
-              params: { infoHash },
-            }
-          );
+          const response = await axios.get(`${DOWNLOADER_API}/torrent/progress`, {
+            params: { infoHash }
+          });
           setProgress(response.data.progress * 100);
         } catch (err) {
           console.error("Progress fetch error:", err);
@@ -117,28 +99,25 @@ const StreamVideo = () => {
 
     checkOrientation();
 
-    const subscription = ScreenOrientation.addOrientationChangeListener(
-      (evt) => {
-        const orientation = evt.orientationInfo.orientation;
-        setIsLandscape(
+    const subscription = ScreenOrientation.addOrientationChangeListener(evt => {
+      const orientation = evt.orientationInfo.orientation;
+      setIsLandscape(
+        orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+      );
+      if (Platform.OS === "ios" && videoRef.current) {
+        if (
           orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-            orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-        );
-        if (Platform.OS === "ios" && videoRef.current) {
-          if (
-            orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-            orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-          ) {
-            videoRef.current.presentFullscreenPlayer();
-          } else {
-            videoRef.current.dismissFullscreenPlayer();
-          }
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+        ) {
+          videoRef.current.presentFullscreenPlayer();
+        } else {
+          videoRef.current.dismissFullscreenPlayer();
         }
       }
-    );
+    });
 
-    return () =>
-      ScreenOrientation.removeOrientationChangeListener(subscription);
+    return () => ScreenOrientation.removeOrientationChangeListener(subscription);
   }, []);
 
   const handleBuffer = ({ isBuffering }: { isBuffering: boolean }) => {
@@ -158,22 +137,21 @@ const StreamVideo = () => {
     }
   };
 
-  const handleDownload = async () => {
-    try {
-      setLoading(true);
-      const downloadUrl = `${DOWNLOADER_API}/api/download-torrents?magnet=${encodeURIComponent(
-        magnetLink
-      )}`;
-      const fileUri = `${FileSystem.documentDirectory}${videoTitle}.mp4`;
-      await FileSystem.downloadAsync(downloadUrl, fileUri);
-      Alert.alert("Download Complete", `Saved to ${fileUri}`);
-    } catch (error) {
-      console.error("Download error:", error);
-      Alert.alert("Error", "Failed to download video.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  // handle downloads uses torrenting functionality to be added
+  //   const handleDownload = async () => {
+  //    try {
+  //    setLoading(true);
+  ///  const downloadUrl = `${DOWNLOADER_API}/api/download-torrents?magnet=${encodeURIComponent()}`;
+  //const fileUri = `${FileSystem.documentDirectory}${title}.mp4`;
+  //await FileSystem.downloadAsync(downloadUrl, fileUri);
+  //Alert.alert("Download Complete", `Saved to ${fileUri}`);
+  //} catch (error) {
+  //console.error("Download error:", error);
+  //Alert.alert("Error", "Failed to download video.");
+  //} finally {
+  //setLoading(false);
+  // }
+  //};
 
   const toggleQuality = (selected: "hd" | "sd") => {
     if (quality !== selected) {
@@ -182,30 +160,19 @@ const StreamVideo = () => {
     }
   };
 
-  const videoStyle =
-    Platform.OS === "android" && isLandscape
-      ? [styles.video, styles.fullscreenVideo]
-      : styles.video;
+  const videoStyle = Platform.OS === "android" && isLandscape ? [styles.video, styles.fullscreenVideo] : styles.video;
 
   return (
     <View style={styles.container}>
       <View style={styles.qualityControls}>
         <TouchableOpacity
           onPress={() => toggleQuality("hd")}
-          style={[
-            styles.qualityButton,
-            quality === "hd" && styles.activeQuality,
-          ]}
-        >
+          style={[styles.qualityButton, quality === "hd" && styles.activeQuality]}>
           <Text style={styles.qualityButtonText}>HD</Text>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={() => toggleQuality("sd")}
-          style={[
-            styles.qualityButton,
-            quality === "sd" && styles.activeQuality,
-          ]}
-        >
+          style={[styles.qualityButton, quality === "sd" && styles.activeQuality]}>
           <Text style={styles.qualityButtonText}>SD</Text>
         </TouchableOpacity>
       </View>
@@ -213,9 +180,7 @@ const StreamVideo = () => {
       {isBuffering && (
         <View style={styles.bufferContainer}>
           <ActivityIndicator size="large" color="#7d0b02" />
-          <Text style={styles.bufferText}>
-            Buffering... ({progress.toFixed(1)}% downloaded)
-          </Text>
+          <Text style={styles.bufferText}>Buffering... ({progress.toFixed(1)}% downloaded)</Text>
         </View>
       )}
 
@@ -237,15 +202,15 @@ const StreamVideo = () => {
             uri: streamUrl,
             headers: {
               "Cache-Control": "max-age=6048000",
-              "Accept-Encoding": "identity",
-            },
+              "Accept-Encoding": "identity"
+            }
           }}
           style={videoStyle}
           controls
           resizeMode="contain"
           paused={!isPlaying}
           ref={videoRef}
-          onError={(err) => {
+          onError={err => {
             console.error("Video playback error:", err);
             setError("Failed to play video.");
             Alert.alert("Playback Error", "Unable to play the video.");
@@ -256,24 +221,14 @@ const StreamVideo = () => {
             minBufferMs: 15000,
             maxBufferMs: 50000,
             bufferForPlaybackMs: 5000,
-            bufferForPlaybackAfterRebufferMs: 10000,
+            bufferForPlaybackAfterRebufferMs: 10000
           }}
         />
       )}
 
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={toggleMiniPlayer}
-          style={styles.headerButton}
-        >
-          <Ionicons
-            name={miniPlayer.visible ? "expand" : "contract"}
-            size={24}
-            color="#fff"
-          />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleDownload} style={styles.headerButton}>
-          <Ionicons name="download" size={24} color="#fff" />
+        <TouchableOpacity onPress={toggleMiniPlayer} style={styles.headerButton}>
+          <Ionicons name={miniPlayer.visible ? "expand" : "contract"} size={24} color="#fff" />
         </TouchableOpacity>
         <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
           <Ionicons name="close" size={24} color="#fff" />
@@ -282,10 +237,7 @@ const StreamVideo = () => {
 
       {miniPlayer.visible && (
         <View style={styles.miniPlayerOverlay}>
-          <TouchableOpacity
-            onPress={toggleMiniPlayer}
-            style={styles.headerButton}
-          >
+          <TouchableOpacity onPress={toggleMiniPlayer} style={styles.headerButton}>
             <Ionicons name="expand" size={24} color="#fff" />
           </TouchableOpacity>
           <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
@@ -305,20 +257,20 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     width: Dimensions.get("window").width,
-    height: Dimensions.get("window").height,
+    height: Dimensions.get("window").height
   },
   loaderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#000",
+    backgroundColor: "#000"
   },
   loaderText: { color: "#fff", marginTop: 10 },
   errorContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#000",
+    backgroundColor: "#000"
   },
   errorText: { color: "red", fontSize: 16, marginBottom: 20 },
   retryButton: { backgroundColor: "#7d0b02", padding: 10, borderRadius: 5 },
@@ -333,20 +285,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 3,
     backgroundColor: "rgba(0,0,0,0.6)",
-    paddingVertical: 5,
+    paddingVertical: 5
   },
   headerButton: { padding: 10 },
   qualityControls: {
     flexDirection: "row",
     justifyContent: "center",
-    marginVertical: 10,
+    marginVertical: 10
   },
   qualityButton: {
     backgroundColor: "#444",
     paddingHorizontal: 15,
     paddingVertical: 8,
     marginHorizontal: 5,
-    borderRadius: 5,
+    borderRadius: 5
   },
   activeQuality: { backgroundColor: "#7d0b02" },
   qualityButtonText: { color: "#fff", fontSize: 16 },
@@ -356,7 +308,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: "center",
-    zIndex: 4,
+    zIndex: 4
   },
   bufferText: { color: "#7d0b02", marginTop: 5 },
   miniPlayerOverlay: {
@@ -366,8 +318,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-around",
     width: 160,
-    zIndex: 4,
-  },
+    zIndex: 4
+  }
 });
 
 export default StreamVideo;
