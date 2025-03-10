@@ -4,6 +4,10 @@ export type MiniPlayerState = {
   visible: boolean;
   videoUrl: string | null;
   title: string;
+  mediaType: string;
+  id: number;
+  quality: string;
+  sourceId: string;
 };
 
 type MiniPlayerContextType = {
@@ -24,6 +28,10 @@ export const MiniPlayerProvider: React.FC<Props> = ({ children }) => {
     visible: false,
     videoUrl: null,
     title: "",
+    mediaType: "",
+    id: 0,
+    quality: "",
+    sourceId: "",
   });
 
   return (
