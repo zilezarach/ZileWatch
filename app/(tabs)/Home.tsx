@@ -11,6 +11,7 @@ import {
   Switch,
   Alert,
   Platform,
+  PlatformColor,
 } from "react-native";
 import {
   fetchPopularVids,
@@ -25,13 +26,18 @@ import { Buffer } from "buffer";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as MediaLibrary from "expo-media-library";
-import * as Linking from "expo-linking";
-import * as Sharing from "expo-sharing";
+import FileViewer from "react-native-file-viewer";
+
 // Types
 type Video = {
   Title: string;
   Plot: string;
-  Formats: string[];
+  Formats: Array<{
+    id: string;
+    quality: string;
+    size: string;
+    format: string;
+  }>;
   Poster: string;
 };
 
@@ -130,26 +136,28 @@ export default function Home({ navigation }: any) {
   // Fetch video details for a pasted URL
   const fetchByUrl = async (url: string) => {
     try {
-      setLoading(true);
       const res = await axios.get(`${DOWNLOADER_API}/download-videos`, {
         params: { url },
       });
-      console.log("Response:", res.data);
-      const formatsArray = Array.isArray(res.data.formats)
-        ? res.data.formats
-        : typeof res.data.formats === "string"
-        ? res.data.formats.split(",\n").map((line: string) => line.trim())
-        : res.data.formats;
+      console.log("Response", res.data);
+      let formatsArray = [];
+      if (Array.isArray(res.data.formats)) {
+        formatsArray = res.data.formats;
+      } else if (typeof res.data.formats === "string") {
+        formatsArray = res.data.formats
+          .split(",\n")
+          .map((line: string) => line.trim())
+          .filter((line: string) => line.length > 0);
+      }
       const socialDownload: Video = {
         Title: res.data.title,
         Plot: "Download",
         Poster: res.data.thumbnail,
         Formats: formatsArray,
       };
-      setDownloadVids([socialDownload]);
     } catch (error) {
-      console.error("Error Fetching Videos", error);
-      Alert.alert("Error", "Unable to Fetch Data from Url");
+      console.error("Unable to Fetch Video", error);
+      Alert.alert("Error", "Unable to fetch videos from Url");
     } finally {
       setLoading(false);
     }
@@ -260,60 +268,14 @@ export default function Home({ navigation }: any) {
     try {
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
       if (!fileInfo.exists) {
-        Alert.alert("Error", "File not found or may have been deleted.");
+        Alert.alert("Error", "File not Found");
         return;
       }
-
-      console.log("Opening file URI:", fileUri);
-
-      if (Platform.OS === "android") {
-        // Handle Android content URIs
-        if (fileUri.startsWith("content://")) {
-          // Directly open content URI
-          const canOpen = await Linking.canOpenURL(fileUri);
-          if (canOpen) {
-            await Linking.openURL(fileUri);
-            return;
-          }
-        } else {
-          // Convert file URI to content URI for scoped storage
-          try {
-            const contentUri = await FileSystem.getContentUriAsync(fileUri);
-            await Linking.openURL(contentUri);
-            return;
-          } catch (contentError) {
-            console.error("Error converting to content URI:", contentError);
-          }
-        }
-
-        // Fallback to sharing
-        if (await Sharing.isAvailableAsync()) {
-          const mimeType = getMimeType(fileUri);
-          await Sharing.shareAsync(fileUri, { mimeType });
-          return;
-        }
-      } else if (Platform.OS === "ios") {
-        // iOS handling
-        if (await Sharing.isAvailableAsync()) {
-          const mimeType = getMimeType(fileUri);
-          const uti = mimeType.startsWith("video/")
-            ? "public.movie"
-            : "public.audio";
-          await Sharing.shareAsync(fileUri, { mimeType, uti });
-          return;
-        } else {
-          const canOpen = await Linking.canOpenURL(fileUri);
-          if (canOpen) {
-            await Linking.openURL(fileUri);
-            return;
-          }
-        }
-      }
-
-      Alert.alert("Error", "No app found to open this file.");
+      console.log("Attempting to Open File:", fileUri);
+      await FileViewer.open(fileUri, { showOpenWithDialog: true });
     } catch (error) {
-      console.error("Error opening file:", error);
-      Alert.alert("Error", "Unable to open the file.");
+      console.error("Error Opening File with FileViewer", error);
+      Alert.alert("Error", "Unable to open File");
     }
   };
   // MIME HELPER FUNCTION

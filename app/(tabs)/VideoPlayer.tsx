@@ -295,7 +295,12 @@ const VideoPlayer = () => {
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
+  container: {
+    flex: 1,
+    backgroundColor: "#000",
+    justifyContent: "center",
+    alignItems: "center",
+  },
   video: {
     width: "100%",
     height: (width * 9) / 16,
