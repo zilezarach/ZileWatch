@@ -17,12 +17,12 @@ export async function fetchSources() {
 
     //Combine sources and embeds
     const combinedSources = sources
-      .map(source => ({
+      .map((source) => ({
         id: source.id,
         name: source.name,
         type: source.type,
         MediaTypes: source.mediaTypes || [],
-        rank: source.rank || 0
+        rank: source.rank || 0,
       }))
       .sort((a, b) => b.rank - a.rank);
     defaultSource = combinedSources[0] || null;
@@ -47,8 +47,8 @@ export async function getDefaultSource() {
 
 export async function getSourcesforMedia(mediaType) {
   try {
-    const response = await axios.get(`${BACKEND_URL}/source-for-media`, {
-      params: { mediaType }
+    const response = await axios.get(`${BACKEND_URL}/sources-for-media`, {
+      params: { mediaType },
     });
     return response.data.sources;
   } catch (error) {

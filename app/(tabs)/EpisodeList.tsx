@@ -110,7 +110,12 @@ export default function EpisodeListScreen() {
       return;
     }
     navigation.navigate("Stream", {
-      magnetLink: episode.videoUrl,
+      mediaType: "tv",
+      id: tv_id,
+      sourceId: "",
+      streamUrl: "",
+      season: season_number,
+      episode: episode.episode_number,
       videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`,
     });
   };
