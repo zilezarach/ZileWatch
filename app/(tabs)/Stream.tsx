@@ -1,14 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import {
-  TouchableOpacity,
-  View,
-  Text,
-  StyleSheet,
-  Alert,
-  ActivityIndicator,
-  Platform,
-  Dimensions,
-} from "react-native";
+import { TouchableOpacity, View, Text, StyleSheet, Alert, ActivityIndicator, Platform, Dimensions } from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
@@ -25,7 +16,7 @@ type StreamRouteProp = RouteProp<RootStackParamList, "Stream">;
 
 const StreamVideo = () => {
   const route = useRoute<StreamRouteProp>();
-  const { mediaType, id, sourceId, videoTitle, season, episode } = route.params;
+  const { mediaType = "movie", id, sourceId, videoTitle, season = 0, episode = 0 } = route.params;
   const navigation = useNavigation();
   const videoRef = useRef<VideoRef>(null);
 
@@ -46,47 +37,44 @@ const StreamVideo = () => {
   const setupStream = async () => {
     try {
       setLoading(true);
-      setError(null); // Reset error state
-
-      // Debug info
-      const debugLog = `Setting up stream: 
-      mediaType=${mediaType}, 
-      id=${id}, 
-      sourceId=${sourceId}, 
-      quality=${quality}`;
-      console.log(debugLog);
-      setDebugInfo(debugLog);
-
-      // Prepare request parameters
-      const params: any = {
+      setError(null);
+      // Comprehensive logging
+      console.log("Stream setup params:", {
         mediaType,
         id,
+        sourceId,
+        season,
+        episode,
+        quality
+      });
+
+      // Prepare request parameters with robust type handling
+      const params: any = {
+        mediaType: mediaType || "movie",
+        id,
+        sourceId,
         quality,
-        source: sourceId,
+        ...(mediaType === "tv" && {
+          season: season || 0,
+          episode: episode || 0
+        })
       };
-
-      // Add season/episode parameters for TV shows
-      if (
-        mediaType === "tv" &&
-        route.params.season !== undefined &&
-        route.params.episode !== undefined
-      ) {
-        params.season = route.params.season;
-        params.episode = route.params.episode;
-      }
-
       console.log("Requesting stream with params:", params);
-
       // Request stream URL from backend
-      const response = await axios.get(`${DOWNLOADER_API}/stream`, { params });
+      const response = await axios.get(`${DOWNLOADER_API}/stream`, { params, timeout: 10000 });
 
       console.log("Stream response:", response.data);
 
       if (response.data && response.data.streamUrl) {
+        const streamUrl = response.data.streamUrl;
+        //valid stream url
+        if (!streamUrl.startswith("http")) {
+          throw new Error("Invalid Stream Url");
+        }
         setStreamUrl(response.data.streamUrl);
         setSourceName(response.data.source || "Unknown Source");
         setError(null);
-        setDebugInfo(debugInfo + "\nStream URL received successfully");
+        setDebugInfo(`Stream URL: ${streamUrl.substring(0, 50)}...`);
       } else {
         throw new Error("No stream URL returned from API");
       }
@@ -96,9 +84,7 @@ const StreamVideo = () => {
 
       if (err.response) {
         // Server responded with an error
-        errorMessage = `Server error: ${err.response.status} - ${JSON.stringify(
-          err.response.data
-        )}`;
+        errorMessage = `Server error: ${err.response.status} - ${JSON.stringify(err.response.data)}`;
       } else if (err.request) {
         // No response received from server
         errorMessage = "No response from server. Check network connection.";
@@ -142,29 +128,26 @@ const StreamVideo = () => {
 
     checkOrientation();
 
-    const subscription = ScreenOrientation.addOrientationChangeListener(
-      (evt) => {
-        const orientation = evt.orientationInfo.orientation;
-        setIsLandscape(
-          orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-            orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-        );
+    const subscription = ScreenOrientation.addOrientationChangeListener(evt => {
+      const orientation = evt.orientationInfo.orientation;
+      setIsLandscape(
+        orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+      );
 
-        if (Platform.OS === "ios" && videoRef.current) {
-          if (
-            orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-            orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-          ) {
-            videoRef.current.presentFullscreenPlayer();
-          } else {
-            videoRef.current.dismissFullscreenPlayer();
-          }
+      if (Platform.OS === "ios" && videoRef.current) {
+        if (
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
+        ) {
+          videoRef.current.presentFullscreenPlayer();
+        } else {
+          videoRef.current.dismissFullscreenPlayer();
         }
       }
-    );
+    });
 
-    return () =>
-      ScreenOrientation.removeOrientationChangeListener(subscription);
+    return () => ScreenOrientation.removeOrientationChangeListener(subscription);
   }, []);
 
   // Progress tracking for torrents if needed
@@ -173,12 +156,9 @@ const StreamVideo = () => {
     if (infoHash) {
       interval = setInterval(async () => {
         try {
-          const response = await axios.get(
-            `${DOWNLOADER_API}/torrent/progress`,
-            {
-              params: { infoHash },
-            }
-          );
+          const response = await axios.get(`${DOWNLOADER_API}/torrent/progress`, {
+            params: { infoHash }
+          });
           setProgress(response.data.progress * 100);
         } catch (err) {
           console.error("Progress fetch error:", err);
@@ -207,7 +187,7 @@ const StreamVideo = () => {
         mediaType,
         id,
         sourceId,
-        quality,
+        quality
       };
       setMiniPlayer(miniPlayerData);
     } else {
@@ -222,10 +202,7 @@ const StreamVideo = () => {
     }
   };
 
-  const videoStyle =
-    Platform.OS === "android" && isLandscape
-      ? [styles.video, styles.fullscreenVideo]
-      : styles.video;
+  const videoStyle = Platform.OS === "android" && isLandscape ? [styles.video, styles.fullscreenVideo] : styles.video;
 
   const retryStream = () => {
     setError(null);
@@ -245,20 +222,12 @@ const StreamVideo = () => {
         <View style={styles.qualityControls}>
           <TouchableOpacity
             onPress={() => toggleQuality("hd")}
-            style={[
-              styles.qualityButton,
-              quality === "hd" && styles.activeQuality,
-            ]}
-          >
+            style={[styles.qualityButton, quality === "hd" && styles.activeQuality]}>
             <Text style={styles.qualityButtonText}>HD</Text>
           </TouchableOpacity>
           <TouchableOpacity
             onPress={() => toggleQuality("sd")}
-            style={[
-              styles.qualityButton,
-              quality === "sd" && styles.activeQuality,
-            ]}
-          >
+            style={[styles.qualityButton, quality === "sd" && styles.activeQuality]}>
             <Text style={styles.qualityButtonText}>SD</Text>
           </TouchableOpacity>
         </View>
@@ -304,15 +273,15 @@ const StreamVideo = () => {
             uri: streamUrl,
             headers: {
               "Cache-Control": "max-age=6048000",
-              "Accept-Encoding": "identity",
-            },
+              "Accept-Encoding": "identity"
+            }
           }}
           style={videoStyle}
           controls
           resizeMode="contain"
           paused={!isPlaying}
           ref={videoRef}
-          onError={(err) => {
+          onError={err => {
             console.error("Video playback error:", err);
             const errorMsg = err.error
               ? `Code: ${err.error.code}, ${err.error.localizedDescription}`
@@ -326,40 +295,25 @@ const StreamVideo = () => {
             minBufferMs: 15000,
             maxBufferMs: 50000,
             bufferForPlaybackMs: 5000,
-            bufferForPlaybackAfterRebufferMs: 10000,
+            bufferForPlaybackAfterRebufferMs: 10000
           }}
         />
       )}
 
       {/* Mini player controls */}
       <View style={styles.playerControls}>
-        <TouchableOpacity
-          onPress={toggleMiniPlayer}
-          style={styles.controlButton}
-        >
-          <Ionicons
-            name={miniPlayer.visible ? "expand-outline" : "contract-outline"}
-            size={24}
-            color="#fff"
-          />
-          <Text style={styles.controlText}>
-            {miniPlayer.visible ? "Expand" : "Mini Player"}
-          </Text>
+        <TouchableOpacity onPress={toggleMiniPlayer} style={styles.controlButton}>
+          <Ionicons name={miniPlayer.visible ? "expand-outline" : "contract-outline"} size={24} color="#fff" />
+          <Text style={styles.controlText}>{miniPlayer.visible ? "Expand" : "Mini Player"}</Text>
         </TouchableOpacity>
       </View>
 
       {miniPlayer.visible && (
         <View style={styles.miniPlayerOverlay}>
-          <TouchableOpacity
-            onPress={toggleMiniPlayer}
-            style={styles.miniPlayerButton}
-          >
+          <TouchableOpacity onPress={toggleMiniPlayer} style={styles.miniPlayerButton}>
             <Ionicons name="expand-outline" size={24} color="#fff" />
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={handleClose}
-            style={styles.miniPlayerButton}
-          >
+          <TouchableOpacity onPress={handleClose} style={styles.miniPlayerButton}>
             <Ionicons name="close-outline" size={24} color="#fff" />
           </TouchableOpacity>
         </View>
@@ -373,12 +327,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000",
     alignItems: "center",
-    justifyContent: "center",
+    justifyContent: "center"
   },
   video: {
     width: "100%",
     height: 300,
-    backgroundColor: "#000",
+    backgroundColor: "#000"
   },
   fullscreenVideo: {
     position: "absolute",
@@ -386,45 +340,45 @@ const styles = StyleSheet.create({
     left: 0,
     width: Dimensions.get("window").width,
     height: Dimensions.get("window").height,
-    zIndex: 2,
+    zIndex: 2
   },
   loaderContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#000",
+    backgroundColor: "#000"
   },
   loaderText: {
     color: "#fff",
-    marginTop: 10,
+    marginTop: 10
   },
   errorContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#000",
-    padding: 20,
+    padding: 20
   },
   errorText: {
     color: "red",
     fontSize: 16,
     marginBottom: 10,
-    textAlign: "center",
+    textAlign: "center"
   },
   debugText: {
     color: "#aaa",
     fontSize: 12,
     marginBottom: 20,
-    textAlign: "center",
+    textAlign: "center"
   },
   retryButton: {
     backgroundColor: "#7d0b02",
     padding: 10,
-    borderRadius: 5,
+    borderRadius: 5
   },
   retryButtonText: {
     color: "#fff",
-    fontSize: 16,
+    fontSize: 16
   },
   header: {
     flexDirection: "row",
@@ -434,10 +388,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingBottom: 10,
     backgroundColor: "rgba(0,0,0,0.7)",
-    zIndex: 3,
+    zIndex: 3
   },
   headerButton: {
-    padding: 10,
+    padding: 10
   },
   titleText: {
     color: "#fff",
@@ -445,25 +399,25 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     flex: 1,
     textAlign: "center",
-    marginHorizontal: 10,
+    marginHorizontal: 10
   },
   qualityControls: {
     flexDirection: "row",
-    justifyContent: "flex-end",
+    justifyContent: "flex-end"
   },
   qualityButton: {
     backgroundColor: "#444",
     paddingHorizontal: 10,
     paddingVertical: 5,
     marginHorizontal: 5,
-    borderRadius: 5,
+    borderRadius: 5
   },
   activeQuality: {
-    backgroundColor: "#7d0b02",
+    backgroundColor: "#7d0b02"
   },
   qualityButtonText: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: 14
   },
   bufferContainer: {
     position: "absolute",
@@ -471,7 +425,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     alignItems: "center",
-    zIndex: 4,
+    zIndex: 4
   },
   bufferText: {
     color: "#fff",
@@ -479,17 +433,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 20,
-    marginTop: 5,
+    marginTop: 5
   },
   sourceInfo: {
     paddingVertical: 5,
     paddingHorizontal: 10,
     backgroundColor: "rgba(0,0,0,0.7)",
-    alignItems: "center",
+    alignItems: "center"
   },
   sourceText: {
     color: "#ddd",
-    fontSize: 14,
+    fontSize: 14
   },
   playerControls: {
     position: "absolute",
@@ -498,7 +452,7 @@ const styles = StyleSheet.create({
     right: 0,
     flexDirection: "row",
     justifyContent: "center",
-    zIndex: 3,
+    zIndex: 3
   },
   controlButton: {
     backgroundColor: "rgba(0,0,0,0.7)",
@@ -506,11 +460,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: 8,
     paddingHorizontal: 15,
-    borderRadius: 20,
+    borderRadius: 20
   },
   controlText: {
     color: "#fff",
-    marginLeft: 5,
+    marginLeft: 5
   },
   miniPlayerOverlay: {
     position: "absolute",
@@ -522,11 +476,11 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.7)",
     borderRadius: 20,
     padding: 5,
-    zIndex: 4,
+    zIndex: 4
   },
   miniPlayerButton: {
-    padding: 8,
-  },
+    padding: 8
+  }
 });
 
 export default StreamVideo;

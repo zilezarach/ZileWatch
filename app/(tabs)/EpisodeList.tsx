@@ -8,7 +8,7 @@ import {
   Alert,
   RefreshControl,
   StyleSheet,
-  Image,
+  Image
 } from "react-native";
 import axios from "axios";
 import Constants from "expo-constants";
@@ -16,8 +16,7 @@ import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-const TMDB_URL =
-  Constants.expoConfig?.extra?.TMBD_URL || "https://api.themoviedb.org/3";
+const TMDB_URL = Constants.expoConfig?.extra?.TMBD_URL || "https://api.themoviedb.org/3";
 const TMDB_API_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
 const BACKEND_URL = Constants.expoConfig?.extra?.API_Backend;
 
@@ -38,8 +37,7 @@ export default function EpisodeListScreen() {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
 
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const fetchSeasonEpisodes = useCallback(async () => {
     try {
@@ -52,12 +50,9 @@ export default function EpisodeListScreen() {
       if (cachedData) {
         episodeData = JSON.parse(cachedData);
       } else {
-        const response = await axios.get(
-          `${TMDB_URL}/tv/${tv_id}/season/${season_number}`,
-          {
-            params: { api_key: TMDB_API_KEY, language: "en-US" },
-          }
-        );
+        const response = await axios.get(`${TMDB_URL}/tv/${tv_id}/season/${season_number}`, {
+          params: { api_key: TMDB_API_KEY, language: "en-US" }
+        });
         episodeData = response.data.episodes;
         await AsyncStorage.setItem(cacheKey, JSON.stringify(episodeData));
       }
@@ -70,12 +65,9 @@ export default function EpisodeListScreen() {
             "0"
           )}E${String(episode.episode_number).padStart(2, "0")}`;
           try {
-            const torrentResponse = await axios.get(
-              `${BACKEND_URL}/torrent/search`,
-              {
-                params: { query },
-              }
-            );
+            const torrentResponse = await axios.get(`${BACKEND_URL}/torrent/search`, {
+              params: { query }
+            });
             return { ...episode, magnetLink: torrentResponse.data.magnetLink };
           } catch (error) {
             console.error(`Failed to fetch torrent for ${query}:`, error);
@@ -113,10 +105,9 @@ export default function EpisodeListScreen() {
       mediaType: "tv",
       id: tv_id,
       sourceId: "",
-      streamUrl: "",
       season: season_number,
       episode: episode.episode_number,
-      videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`,
+      videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`
     });
   };
 
@@ -132,10 +123,7 @@ export default function EpisodeListScreen() {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>No episodes found.</Text>
-        <TouchableOpacity
-          onPress={fetchSeasonEpisodes}
-          style={styles.retryButton}
-        >
+        <TouchableOpacity onPress={fetchSeasonEpisodes} style={styles.retryButton}>
           <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
       </View>
@@ -149,16 +137,13 @@ export default function EpisodeListScreen() {
       </Text>
       <FlatList
         data={episodes}
-        keyExtractor={(item) => item.id.toString()}
+        keyExtractor={item => item.id.toString()}
         renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.episodeItem}
-            onPress={() => handleEpisodePress(item)}
-          >
+          <TouchableOpacity style={styles.episodeItem} onPress={() => handleEpisodePress(item)}>
             {item.still_path ? (
               <Image
                 source={{
-                  uri: `https://image.tmdb.org/t/p/w200${item.still_path}`,
+                  uri: `https://image.tmdb.org/t/p/w200${item.still_path}`
                 }}
                 style={styles.thumbnail}
               />
@@ -177,9 +162,7 @@ export default function EpisodeListScreen() {
             </View>
           </TouchableOpacity>
         )}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       />
     </View>
   );
@@ -194,23 +177,23 @@ const styles = StyleSheet.create({
     marginTop: 10,
     backgroundColor: "#7d0b02",
     padding: 10,
-    borderRadius: 5,
+    borderRadius: 5
   },
   retryButtonText: { color: "#fff", fontSize: 16 },
   episodeItem: {
     flexDirection: "row",
     paddingVertical: 15,
     borderBottomWidth: 1,
-    borderBottomColor: "#ccc",
+    borderBottomColor: "#ccc"
   },
   thumbnail: { width: 80, height: 80, borderRadius: 5, marginRight: 10 },
   placeholderThumbnail: {
     backgroundColor: "#ccc",
     justifyContent: "center",
-    alignItems: "center",
+    alignItems: "center"
   },
   placeholderText: { fontSize: 10, color: "#333" },
   episodeInfo: { flex: 1 },
   episodeTitle: { fontSize: 18, fontWeight: "bold" },
-  episodeOverview: { fontSize: 14, color: "#555", marginTop: 5 },
+  episodeOverview: { fontSize: 14, color: "#555", marginTop: 5 }
 });

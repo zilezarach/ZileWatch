@@ -213,7 +213,6 @@ export default function Movies(): JSX.Element {
               navigation.navigate("Stream", {
                 mediaType: "movie",
                 id: parseInt(item.imdbID, 10),
-                streamUrl: "",
                 videoTitle: item.Title,
                 sourceId: selectedSource?.id || sources[0]?.id || "",
                 season: 0,

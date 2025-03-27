@@ -5,7 +5,6 @@ export type RootStackParamList = {
     mediaType: "movie" | "tv";
     id: number;
     sourceId: string;
-    streamUrl: string;
     videoTitle: string;
     season?: number;
     episode?: number;
