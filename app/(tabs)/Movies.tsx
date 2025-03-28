@@ -11,7 +11,7 @@ import {
   Alert,
   Dimensions,
   Switch,
-  Modal
+  Modal,
 } from "react-native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -22,7 +22,11 @@ import * as FileSystem from "expo-file-system";
 import { Buffer } from "buffer";
 import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
-import { getSources, getDefaultSource, getSourcesforMedia } from "@/utils/sources";
+import {
+  getSources,
+  getDefaultSource,
+  getSourcesforMedia,
+} from "@/utils/sources";
 
 const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 const { width } = Dimensions.get("window");
@@ -95,18 +99,23 @@ export default function Movies(): JSX.Element {
     const loadSources = async () => {
       try {
         const availableSources = await getSourcesforMedia(contentType);
-        setSelectedSource(availableSources);
-        const defaultSources = availableSources[0] || getDefaultSource();
-        setSelectedSource(defaultSources);
+        // Save the list of sources in state for the modal
+        setSources(availableSources);
+        // Set default source from available sources or fallback to getDefaultSource
+        const defaultSource =
+          availableSources && availableSources.length > 0
+            ? availableSources[0]
+            : await getDefaultSource();
+        setSelectedSource(defaultSource);
       } catch (error) {
-        console.log("Unable fetch sources", error);
+        console.log("Unable to fetch sources", error);
       }
     };
     loadSources();
   }, [contentType]);
-
   // Fix: Make sure to properly type the navigation
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<NavigationProp>();
 
   // Fetch movies/series by search query (with caching)
@@ -120,15 +129,22 @@ export default function Movies(): JSX.Element {
       if (cachedMovies) {
         setMovies(JSON.parse(cachedMovies));
       } else {
-        const url = contentType === "series" ? `${TMDB_API_URL}/search/tv` : `${TMDB_API_URL}/search/movie`;
+        const url =
+          contentType === "series"
+            ? `${TMDB_API_URL}/search/tv`
+            : `${TMDB_API_URL}/search/movie`;
 
         const res = await axios.get(url, {
-          params: { api_key: TMDB_API_KEY, query, language: "en-US" }
+          params: { api_key: TMDB_API_KEY, query, language: "en-US" },
         });
 
         const data = res.data.results.map((item: any) => ({
           Title: contentType === "series" ? item.name : item.title,
-          Year: (contentType === "series" ? item.first_air_date : item.release_date)?.split("-")[0] || "N/A",
+          Year:
+            (contentType === "series"
+              ? item.first_air_date
+              : item.release_date
+            )?.split("-")[0] || "N/A",
           Genre: item.genres?.[0]?.name || "N/A",
           Plot: item.overview || "No description available.",
           Poster: item.poster_path
@@ -138,7 +154,7 @@ export default function Movies(): JSX.Element {
           // Add tv_id for series to make it easier to navigate
           ...(contentType === "series" && { tv_id: item.id }),
           imdbRating: item.vote_average?.toString() || "N/A",
-          category: contentType === "series" ? "Series" : "Movie"
+          category: contentType === "series" ? "Series" : "Movie",
         }));
 
         setMovies(data);
@@ -157,15 +173,22 @@ export default function Movies(): JSX.Element {
   const fetchPopular = async () => {
     try {
       setLoading(true);
-      const url = contentType === "series" ? `${TMDB_API_URL}/tv/popular` : `${TMDB_API_URL}/movie/popular`;
+      const url =
+        contentType === "series"
+          ? `${TMDB_API_URL}/tv/popular`
+          : `${TMDB_API_URL}/movie/popular`;
 
       const res = await axios.get(url, {
-        params: { api_key: TMDB_API_KEY, language: "en-US", page: 1 }
+        params: { api_key: TMDB_API_KEY, language: "en-US", page: 1 },
       });
 
       const data = res.data.results.map((item: any) => ({
         Title: contentType === "series" ? item.name : item.title,
-        Year: (contentType === "series" ? item.first_air_date : item.release_date)?.split("-")[0] || "N/A",
+        Year:
+          (contentType === "series"
+            ? item.first_air_date
+            : item.release_date
+          )?.split("-")[0] || "N/A",
         Genre: item.genres?.[0]?.name || "N/A",
         Plot: item.overview || "No description available.",
         Poster: item.poster_path
@@ -175,7 +198,7 @@ export default function Movies(): JSX.Element {
         // Add tv_id for series to make it easier to navigate
         ...(contentType === "series" && { tv_id: item.id }),
         imdbRating: item.vote_average?.toString() || "N/A",
-        category: contentType === "series" ? "Series" : "Movie"
+        category: contentType === "series" ? "Series" : "Movie",
       }));
 
       setMovies(data);
@@ -206,7 +229,7 @@ export default function Movies(): JSX.Element {
               const tvId = item.tv_id || parseInt(item.imdbID, 10);
               navigation.navigate("SeriesDetail", {
                 tv_id: tvId,
-                title: item.Title
+                title: item.Title,
               });
             } else {
               // For movies, only pass the required information for the Stream component to handle
@@ -216,18 +239,24 @@ export default function Movies(): JSX.Element {
                 videoTitle: item.Title,
                 sourceId: selectedSource?.id || sources[0]?.id || "",
                 season: 0,
-                episode: 0
+                episode: 0,
               });
             }
-          }}>
-          <Text style={styles.buttonText}>{contentType === "series" ? "View Seasons" : "Watch Now"}</Text>
+          }}
+        >
+          <Text style={styles.buttonText}>
+            {contentType === "series" ? "View Seasons" : "Watch Now"}
+          </Text>
         </TouchableOpacity>
         {/* Button to choose source */}
         {contentType === "movie" && (
           <TouchableOpacity
             style={[styles.button, { backgroundColor: "#444", marginTop: 5 }]}
-            onPress={() => setSourceModalVisiable(true)}>
-            <Text style={styles.buttonText}>Change Source ({selectedSource.name})</Text>
+            onPress={() => setSourceModalVisiable(true)}
+          >
+            <Text style={styles.buttonText}>
+              Change Source ({selectedSource.name})
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -245,11 +274,13 @@ export default function Movies(): JSX.Element {
       const res = await axios.get(`${DOWNLOADER_API}/download-torrents`, {
         params: { magnet: magnetLink },
         responseType: "arraybuffer",
-        onDownloadProgress: progressEvent => {
+        onDownloadProgress: (progressEvent) => {
           const total = progressEvent.total || 1;
           const fractionProgress = progressEvent.loaded / total;
-          console.log(`Downloading ${videoTitle}: ${Math.round(fractionProgress * 100)}%`);
-        }
+          console.log(
+            `Downloading ${videoTitle}: ${Math.round(fractionProgress * 100)}%`
+          );
+        },
       });
 
       const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
@@ -257,7 +288,7 @@ export default function Movies(): JSX.Element {
 
       if (!directoryInfo.exists) {
         await FileSystem.makeDirectoryAsync(downloadDir, {
-          intermediates: true
+          intermediates: true,
         });
       }
 
@@ -265,7 +296,7 @@ export default function Movies(): JSX.Element {
       const base64Data = Buffer.from(res.data).toString("base64");
 
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64
+        encoding: FileSystem.EncodingType.Base64,
       });
 
       Alert.alert("Download Complete", `Downloaded: ${videoTitle}`);
@@ -291,13 +322,21 @@ export default function Movies(): JSX.Element {
       {/* Content Type Toggle */}
       <View style={styles.typeToggleContainer}>
         <TouchableOpacity
-          style={[styles.typeButton, contentType === "movie" && styles.activeType]}
-          onPress={() => setContentType("movie")}>
+          style={[
+            styles.typeButton,
+            contentType === "movie" && styles.activeType,
+          ]}
+          onPress={() => setContentType("movie")}
+        >
           <Text style={styles.typeButtonText}>Movies</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[styles.typeButton, contentType === "series" && styles.activeType]}
-          onPress={() => setContentType("series")}>
+          style={[
+            styles.typeButton,
+            contentType === "series" && styles.activeType,
+          ]}
+          onPress={() => setContentType("series")}
+        >
           <Text style={styles.typeButtonText}>Series</Text>
         </TouchableOpacity>
       </View>
@@ -307,7 +346,7 @@ export default function Movies(): JSX.Element {
         placeholder="Search for a title..."
         placeholderTextColor="#AAA"
         value={searchQuery}
-        onChangeText={text => {
+        onChangeText={(text) => {
           setSearchQuery(text);
           if (!text.trim()) {
             setMovies([]);
@@ -322,11 +361,13 @@ export default function Movies(): JSX.Element {
       ) : (
         <FlatList
           data={movies}
-          keyExtractor={item => item.imdbID + item.Title}
+          keyExtractor={(item) => item.imdbID + item.Title}
           renderItem={renderItem}
           ListHeaderComponent={
             <Text style={styles.sectionTitle}>
-              {isSearching ? "Search Results" : "Popular " + (contentType === "series" ? "Series" : "Movies")}
+              {isSearching
+                ? "Search Results"
+                : "Popular " + (contentType === "series" ? "Series" : "Movies")}
             </Text>
           }
         />
@@ -336,24 +377,29 @@ export default function Movies(): JSX.Element {
         visible={sourceModalVisiable}
         animationType="slide"
         transparent
-        onRequestClose={() => setSourceModalVisiable(false)}>
+        onRequestClose={() => setSourceModalVisiable(false)}
+      >
         <View style={styles.modalContainer}>
           <Text style={styles.modalTitle}>Select Source</Text>
           <FlatList
             data={sources}
-            keyExtractor={item => item.id}
+            keyExtractor={(item) => item.id}
             renderItem={({ item }) => (
               <TouchableOpacity
                 style={styles.sourceItem}
                 onPress={() => {
                   setSelectedSource(item);
                   setSourceModalVisiable(false);
-                }}>
+                }}
+              >
                 <Text style={styles.sourceName}>{item.name}</Text>
               </TouchableOpacity>
             )}
           />
-          <TouchableOpacity style={[styles.button, { marginTop: 20 }]} onPress={() => setSourceModalVisiable(false)}>
+          <TouchableOpacity
+            style={[styles.button, { marginTop: 20 }]}
+            onPress={() => setSourceModalVisiable(false)}
+          >
             <Text style={styles.buttonText}>Cancel</Text>
           </TouchableOpacity>
         </View>
@@ -368,51 +414,51 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10
+    marginBottom: 10,
   },
   toggleLabel: { fontSize: 16, color: "#FFF" },
   typeToggleContainer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginBottom: 10
+    marginBottom: 10,
   },
   modalContainer: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.9)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 20
+    padding: 20,
   },
   modalTitle: {
     fontSize: 20,
     color: "#fff",
-    marginBottom: 20
+    marginBottom: 20,
   },
   sourceItem: {
     padding: 15,
     borderBottomWidth: 1,
     borderBottomColor: "#444",
-    width: "100%"
+    width: "100%",
   },
   sourceName: {
     color: "#7d0b02",
-    fontSize: 15
+    fontSize: 15,
   },
   fileText: {
     color: "#7d0b02",
-    fontWeight: "bold"
+    fontWeight: "bold",
   },
   typeButton: {
     padding: 10,
     backgroundColor: "#7d0b02",
     borderRadius: 5,
-    marginHorizontal: 5
+    marginHorizontal: 5,
   },
   fileButton: {
     padding: 10,
     backgroundColor: "#7d0b02",
     borderRadius: 5,
-    marginHorizontal: 5
+    marginHorizontal: 5,
   },
   activeType: { backgroundColor: "#FF5722" },
   typeButtonText: { color: "#FFF", fontWeight: "bold" },
@@ -421,13 +467,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     color: "#FFF",
-    marginBottom: 20
+    marginBottom: 20,
   },
   sectionTitle: {
     color: "#FFF",
     fontSize: 18,
     fontWeight: "bold",
-    marginVertical: 10
+    marginVertical: 10,
   },
   movieCard: {
     flexDirection: "row",
@@ -435,7 +481,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     marginVertical: 10,
-    elevation: 5
+    elevation: 5,
   },
   movieImage: { width: 100, height: 150, borderRadius: 10 },
   movieDetails: { flex: 1, marginLeft: 10 },
@@ -447,20 +493,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF5722",
     borderRadius: 10,
     padding: 10,
-    marginTop: 5
+    marginTop: 5,
   },
   buttonText: { color: "#FFF", fontSize: 16 },
   buttonStreamer: {
     backgroundColor: "#3bfc18",
     padding: 10,
     marginTop: 5,
-    borderRadius: 10
+    borderRadius: 10,
   },
   buttonDownload: {
     backgroundColor: "#540007",
     padding: 6,
     marginTop: 5,
-    borderRadius: 10
+    borderRadius: 10,
   },
-  darkMode: { backgroundColor: "#121212" }
+  darkMode: { backgroundColor: "#121212" },
 });

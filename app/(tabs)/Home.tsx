@@ -268,14 +268,29 @@ export default function Home({ navigation }: any) {
     try {
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
       if (!fileInfo.exists) {
-        Alert.alert("Error", "File not Found");
+        Alert.alert("Error", "File not found");
         return;
       }
-      console.log("Attempting to Open File:", fileUri);
-      await FileViewer.open(fileUri, { showOpenWithDialog: true });
+      console.log("Attempting to open file:", fileUri);
+
+      let fileToOpen = fileUri;
+      // If fileUri is a SAF URI on Android, copy to cache first.
+      if (Platform.OS === "android" && fileUri.startsWith("content://")) {
+        const cacheFileUri = `${FileSystem.cacheDirectory}${selectedVideo.title
+          .replace(/[^a-z0-9\s]/gi, "")
+          .replace(/\s+/g, "_")}_${Date.now()}.mp4`;
+        await FileSystem.copyAsync({ from: fileUri, to: cacheFileUri });
+        fileToOpen = cacheFileUri;
+        console.log("Copied SAF file to cache:", fileToOpen);
+      }
+      // Ensure the file URI starts with file:// if needed.
+      if (!fileToOpen.startsWith("file://")) {
+        fileToOpen = `file://${fileToOpen}`;
+      }
+      await FileViewer.open(fileToOpen, { showOpenWithDialog: true });
     } catch (error) {
-      console.error("Error Opening File with FileViewer", error);
-      Alert.alert("Error", "Unable to open File");
+      console.error("Error opening file with FileViewer:", error);
+      Alert.alert("Error", "Unable to open file");
     }
   };
   // MIME HELPER FUNCTION
