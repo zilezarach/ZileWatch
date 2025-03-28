@@ -31,7 +31,7 @@ import {
 const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 const { width } = Dimensions.get("window");
 const TMDB_API_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
-const TMDB_API_URL = "https://api.themoviedb.org/3";
+const TMDB_API_URL = Constants.expoConfig?.extra?.TMBD_URL;
 
 interface BaseMedia {
   Title: string;
