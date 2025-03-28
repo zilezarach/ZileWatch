@@ -156,8 +156,8 @@ export default function Movies(): JSX.Element {
           imdbRating: item.vote_average?.toString() || "N/A",
           category: contentType === "series" ? "Series" : "Movie",
         }));
-
         setMovies(data);
+        console.log(movies);
         await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
       }
     } catch (error) {
@@ -202,6 +202,7 @@ export default function Movies(): JSX.Element {
       }));
 
       setMovies(data);
+      console.log(movies);
     } catch (error) {
       console.error("Error fetching popular content:", error);
       Alert.alert("Error", "Failed to fetch popular content.");
