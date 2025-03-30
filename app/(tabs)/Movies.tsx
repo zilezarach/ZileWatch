@@ -256,7 +256,7 @@ export default function Movies(): JSX.Element {
             onPress={() => setSourceModalVisiable(true)}
           >
             <Text style={styles.buttonText}>
-              Change Source ({selectedSource.name})
+              Change Source ({selectedSource.name || "Alpha"})
             </Text>
           </TouchableOpacity>
         )}
