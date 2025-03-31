@@ -62,24 +62,63 @@ export default function EpisodeListScreen() {
       isMounted.current = false;
     };
   }, []);
-  //UseEffect code to get available getSources
+
+  // UseEffect code to get available sources
   useEffect(() => {
     const loadSources = async () => {
       try {
+        // Add a local state variable to track loading state
+        setLoading(true);
+
         const availableSources = await getSourcesforMedia(contentType);
-        setSources(availableSources);
-        const defaultSource =
-          availableSources && availableSources.length > 0
-            ? availableSources[0]
-            : await getDefaultSource();
-        setSelectedSource(defaultSource);
+        console.log("Available sources:", availableSources); // Add this for debugging
+
+        if (Array.isArray(availableSources) && availableSources.length > 0) {
+          setSources(availableSources);
+          setSelectedSource(availableSources[0]);
+        } else {
+          // If getSourcesforMedia fails to return valid sources, try fallback
+          const fallbackSources = await getSources();
+          console.log("Fallback sources:", fallbackSources); // Add this for debugging
+
+          if (Array.isArray(fallbackSources) && fallbackSources.length > 0) {
+            setSources(fallbackSources);
+            setSelectedSource(fallbackSources[0]);
+          } else {
+            // If all else fails, try to get at least the default source
+            const defaultSource = await getDefaultSource();
+            console.log("Default source:", defaultSource); // Add this for debugging
+
+            if (defaultSource) {
+              setSources([defaultSource]);
+              setSelectedSource(defaultSource);
+            } else {
+              // No sources available at all
+              console.error("No sources available");
+              Alert.alert(
+                "No Sources Available",
+                "Unable to load streaming sources. Please check your connection and try again."
+              );
+            }
+          }
+        }
       } catch (error) {
-        console.error("Unable to fetching Sources");
+        console.error("Error fetching sources:", error);
+        Alert.alert(
+          "Error",
+          "Failed to load streaming sources. Please try again later."
+        );
+      } finally {
+        if (isMounted.current) {
+          setLoading(false);
+        }
       }
     };
+
     loadSources();
   }, [contentType]);
 
+  //get data on the episode
   const fetchSeasonEpisodes = useCallback(async () => {
     try {
       setLoading(true);
@@ -204,11 +243,27 @@ export default function EpisodeListScreen() {
   const handleEpisodePressWithDebounce = useCallback(
     (episode: Episode) => {
       if (debounceTimeout.current) return;
+
+      // Check if we have a valid source before navigation
+      const sourceId =
+        selectedSource?.id ||
+        (sources && sources.length > 0 ? sources[0]?.id : null);
+
+      // If no source is available, show an alert instead of navigating
+      if (!sourceId) {
+        Alert.alert(
+          "No Source Available",
+          "Unable to play episode - no streaming source is available.",
+          [{ text: "OK" }]
+        );
+        return;
+      }
+
       debounceTimeout.current = setTimeout(() => {
         navigation.navigate("Stream", {
           mediaType: "tv",
           id: tv_id,
-          sourceId: selectedSource?.id || sources[0]?.id || "",
+          sourceId: sourceId,
           season: season_number,
           episode: episode.episode_number,
           videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`,
@@ -252,7 +307,32 @@ export default function EpisodeListScreen() {
       </View>
     );
   }
-
+  if (sources.length === 0) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>No streaming sources available.</Text>
+        <TouchableOpacity
+          onPress={() => {
+            const loadSources = async () => {
+              try {
+                const availableSources = await getSourcesforMedia(contentType);
+                if (availableSources && availableSources.length > 0) {
+                  setSources(availableSources);
+                  setSelectedSource(availableSources[0]);
+                }
+              } catch (error) {
+                console.error("Failed to reload sources:", error);
+              }
+            };
+            loadSources();
+          }}
+          style={styles.retryButton}
+        >
+          <Text style={styles.retryButtonText}>Reload Sources</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
   return (
     <View style={styles.container}>
       <Text style={styles.title}>
