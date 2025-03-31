@@ -145,6 +145,7 @@ export default function Layout() {
                       color={focused ? "#7d0b02" : color}
                     />
                   ),
+                  href: null,
                 }}
               />
               {/* Movies Tab */}

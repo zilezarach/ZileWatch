@@ -53,5 +53,6 @@ export async function getSourcesforMedia(mediaType) {
     return response.data.sources;
   } catch (error) {
     console.log("Unable to Find Sources related to the mediaType");
+    return [];
   }
 }

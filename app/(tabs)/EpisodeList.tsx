@@ -43,11 +43,6 @@ interface EpisodeItemProps {
   onSourcePress: () => void;
 }
 
-interface DebouncedFunction {
-  (episode: Episode): void;
-  timeout: NodeJS.Timeout | null;
-}
-
 export default function EpisodeListScreen() {
   const route = useRoute<EpisodeListRouteProp>();
   const { tv_id, season_number, seasonName, seriesTitle } = route.params;
@@ -57,7 +52,7 @@ export default function EpisodeListScreen() {
   const [sources, setSources] = useState<any[]>([]);
   const [selectedSource, setSelectedSource] = useState<any | null>(null);
   const [contentType, setContentType] = useState<"movie" | "tv">("tv");
-  const [modalVisiable, setModalVisiable] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
   const isMounted = useRef(true);
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -203,30 +198,26 @@ export default function EpisodeListScreen() {
   const keyExtractor = useCallback((item: any) => item.id.toString(), []);
 
   //handle episode to sources
+
+  const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
+
   const handleEpisodePressWithDebounce = useCallback(
     (episode: Episode) => {
-      if ((handleEpisodePressWithDebounce as DebouncedFunction).timeout) {
-        return;
-      }
-
-      (handleEpisodePressWithDebounce as DebouncedFunction).timeout =
-        setTimeout(() => {
-          navigation.navigate("Stream", {
-            mediaType: "tv",
-            id: tv_id,
-            sourceId: selectedSource?.id || sources[0]?.id || "",
-            season: season_number,
-            episode: episode.episode_number,
-            videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`,
-          });
-          (handleEpisodePressWithDebounce as DebouncedFunction).timeout = null;
-        }, 300);
+      if (debounceTimeout.current) return;
+      debounceTimeout.current = setTimeout(() => {
+        navigation.navigate("Stream", {
+          mediaType: "tv",
+          id: tv_id,
+          sourceId: selectedSource?.id || sources[0]?.id || "",
+          season: season_number,
+          episode: episode.episode_number,
+          videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`,
+        });
+        debounceTimeout.current = null;
+      }, 300);
     },
     [tv_id, season_number, seriesTitle, selectedSource, sources, navigation]
   );
-
-  // Initialize timeout property for our debounced function
-  (handleEpisodePressWithDebounce as DebouncedFunction).timeout = null;
 
   // Fix the renderItem type error
   const renderEpisodeItem = useCallback(
@@ -234,7 +225,7 @@ export default function EpisodeListScreen() {
       <MemoizedEpisodeItem
         item={item}
         onPress={handleEpisodePressWithDebounce}
-        onSourcePress={() => setModalVisiable(true)}
+        onSourcePress={() => setModalVisible(true)}
       />
     ),
     [handleEpisodePressWithDebounce]
@@ -285,12 +276,12 @@ export default function EpisodeListScreen() {
         })}
       />
       {/* Get available streams */}
-      {modalVisiable && (
+      {modalVisible && (
         <Modal
-          visible={modalVisiable}
+          visible={modalVisible}
           animationType="fade"
           transparent
-          onRequestClose={() => setModalVisiable(false)}
+          onRequestClose={() => setModalVisible(false)}
         >
           <View style={styles.modalContainer}>
             <FlatList
@@ -301,7 +292,7 @@ export default function EpisodeListScreen() {
                   style={styles.sourceItem}
                   onPress={() => {
                     setSelectedSource(item);
-                    setModalVisiable(false);
+                    setModalVisible(false);
                   }}
                 >
                   <Text style={styles.sourceName}>{item.name}</Text>
@@ -312,7 +303,7 @@ export default function EpisodeListScreen() {
             />
             <TouchableOpacity
               style={[styles.button, { marginTop: 20 }]}
-              onPress={() => setModalVisiable(false)}
+              onPress={() => setModalVisible(false)}
             >
               <Text style={styles.buttonText}>Cancel</Text>
             </TouchableOpacity>
