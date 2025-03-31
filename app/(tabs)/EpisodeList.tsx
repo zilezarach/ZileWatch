@@ -22,8 +22,6 @@ import {
   getSources,
   getSourcesforMedia,
 } from "@/utils/sources";
-import { useContextKey } from "expo-router/build/Route";
-import { FadeOutToLeftAndroidSpec } from "@react-navigation/stack/lib/typescript/commonjs/src/TransitionConfigs/TransitionSpecs";
 const TMDB_URL =
   Constants.expoConfig?.extra?.TMBD_URL || "https://api.themoviedb.org/3";
 const TMDB_API_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
@@ -190,7 +188,7 @@ export default function EpisodeListScreen() {
           onPress={onSourcePress}
         >
           <Text style={styles.buttonText}>
-            Change Source ({selectedSource?.name || "Default"})
+            Source ({selectedSource?.name || "Alpha"})
           </Text>
         </TouchableOpacity>
       </TouchableOpacity>
@@ -216,8 +214,7 @@ export default function EpisodeListScreen() {
           navigation.navigate("Stream", {
             mediaType: "tv",
             id: tv_id,
-            sourceId:
-              selectedSource?.id || (sources.length > 0 ? sources[0]?.id : ""),
+            sourceId: selectedSource?.id || sources[0]?.id || "",
             season: season_number,
             episode: episode.episode_number,
             videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`,
@@ -328,7 +325,13 @@ export default function EpisodeListScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20, backgroundColor: "#fff" },
-  modalContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0,0,0,0.9)",
+    padding: 20,
+  },
   center: { flex: 1, justifyContent: "center", alignItems: "center" },
   title: { fontSize: 22, fontWeight: "bold", marginBottom: 20 },
   errorText: { fontSize: 16, color: "red" },
