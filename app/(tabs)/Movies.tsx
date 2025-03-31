@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View,
   Text,
@@ -94,6 +94,16 @@ export default function Movies(): JSX.Element {
   const [sourceModalVisiable, setSourceModalVisiable] = useState(false);
   const [sources, setSources] = useState<any[]>([]);
 
+  //ref to track mounted
+  const isMounted = useRef(true);
+
+  //clean up when component umounts
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   //useEffect to get available sources on the API_Backend
   useEffect(() => {
     const loadSources = async () => {
@@ -125,7 +135,7 @@ export default function Movies(): JSX.Element {
       setLoading(true);
       const cacheKey = `${query}_${contentType}`;
       const cachedMovies = await AsyncStorage.getItem(cacheKey);
-
+      if (!isMounted.current) return;
       if (cachedMovies) {
         setMovies(JSON.parse(cachedMovies));
       } else {
@@ -137,7 +147,7 @@ export default function Movies(): JSX.Element {
         const res = await axios.get(url, {
           params: { api_key: TMDB_API_KEY, query, language: "en-US" },
         });
-
+        if (!isMounted.current) return;
         const data = res.data.results.map((item: any) => ({
           Title: contentType === "series" ? item.name : item.title,
           Year:
@@ -156,6 +166,7 @@ export default function Movies(): JSX.Element {
           imdbRating: item.vote_average?.toString() || "N/A",
           category: contentType === "series" ? "Series" : "Movie",
         }));
+        if (!isMounted.current) return;
         setMovies(data);
         console.log(movies);
         await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
@@ -164,8 +175,10 @@ export default function Movies(): JSX.Element {
       console.error("Error fetching search results:", error);
       Alert.alert("Error", "Failed to fetch search results.");
     } finally {
-      setLoading(false);
-      setIsSearching(false);
+      if (isMounted.current) {
+        setLoading(false);
+        setIsSearching(false);
+      }
     }
   };
 
@@ -207,15 +220,21 @@ export default function Movies(): JSX.Element {
       console.error("Error fetching popular content:", error);
       Alert.alert("Error", "Failed to fetch popular content.");
     } finally {
-      setLoading(false);
+      if (isMounted.current) {
+        setLoading(false);
+      }
     }
   };
   // render series and Movies
   // Fix the navigation part in renderItem function of Movies.tsx
-
-  const renderItem = ({ item }: { item: any }) => (
+  const MemoizedMovieItem = React.memo(({ item }: { item: any }) => (
     <View style={styles.movieCard}>
-      <Image source={{ uri: item.Poster }} style={styles.movieImage} />
+      <Image
+        source={{ uri: item.Poster }}
+        style={styles.movieImage}
+        // Add default image fallback
+        defaultSource={require("../../assets/placeholder.png")}
+      />
       <View style={styles.movieDetails}>
         <Text style={styles.movieTitle}>{item.Title}</Text>
         <Text style={styles.movieDescription} numberOfLines={3}>
@@ -226,14 +245,12 @@ export default function Movies(): JSX.Element {
           style={styles.button}
           onPress={() => {
             if (contentType === "series") {
-              // Navigate to SeriesDetail screen
               const tvId = item.tv_id || parseInt(item.imdbID, 10);
               navigation.navigate("SeriesDetail", {
                 tv_id: tvId,
                 title: item.Title,
               });
             } else {
-              // For movies, only pass the required information for the Stream component to handle
               navigation.navigate("Stream", {
                 mediaType: "movie",
                 id: parseInt(item.imdbID, 10),
@@ -249,19 +266,27 @@ export default function Movies(): JSX.Element {
             {contentType === "series" ? "View Seasons" : "Watch Now"}
           </Text>
         </TouchableOpacity>
-        {/* Button to choose source */}
         {contentType === "movie" && (
           <TouchableOpacity
             style={[styles.button, { backgroundColor: "#444", marginTop: 5 }]}
             onPress={() => setSourceModalVisiable(true)}
           >
             <Text style={styles.buttonText}>
-              Change Source ({selectedSource.name || "Alpha"})
+              Change Source ({selectedSource?.name || "Alpha"})
             </Text>
           </TouchableOpacity>
         )}
       </View>
     </View>
+  ));
+  //RenderItem
+  const renderItem = ({ item }: { item: any }) => (
+    <MemoizedMovieItem item={item} />
+  );
+  //flalist optimizations
+  const keyExtractor = React.useCallback(
+    (item: any) => item.imdbID + item.Title,
+    []
   );
   // Download torrent file and save it to device storage.
   const handleDownload = async (magnetLink: string, videoTitle: string) => {
@@ -362,7 +387,7 @@ export default function Movies(): JSX.Element {
       ) : (
         <FlatList
           data={movies}
-          keyExtractor={(item) => item.imdbID + item.Title}
+          keyExtractor={keyExtractor}
           renderItem={renderItem}
           ListHeaderComponent={
             <Text style={styles.sectionTitle}>
@@ -371,40 +396,51 @@ export default function Movies(): JSX.Element {
                 : "Popular " + (contentType === "series" ? "Series" : "Movies")}
             </Text>
           }
+          removeClippedSubviews={true}
+          initialNumToRender={5}
+          maxToRenderPerBatch={10}
+          windowSize={10}
+          getItemLayout={(data, index) => ({
+            length: 170,
+            offset: 170 * index,
+            index,
+          })}
         />
       )}
       {/* Get available streams */}
-      <Modal
-        visible={sourceModalVisiable}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setSourceModalVisiable(false)}
-      >
-        <View style={styles.modalContainer}>
-          <Text style={styles.modalTitle}>Select Source</Text>
-          <FlatList
-            data={sources}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.sourceItem}
-                onPress={() => {
-                  setSelectedSource(item);
-                  setSourceModalVisiable(false);
-                }}
-              >
-                <Text style={styles.sourceName}>{item.name}</Text>
-              </TouchableOpacity>
-            )}
-          />
-          <TouchableOpacity
-            style={[styles.button, { marginTop: 20 }]}
-            onPress={() => setSourceModalVisiable(false)}
-          >
-            <Text style={styles.buttonText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+      {sourceModalVisiable && (
+        <Modal
+          visible={sourceModalVisiable}
+          animationType="slide"
+          transparent
+          onRequestClose={() => setSourceModalVisiable(false)}
+        >
+          <View style={styles.modalContainer}>
+            <Text style={styles.modalTitle}>Select Source</Text>
+            <FlatList
+              data={sources}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.sourceItem}
+                  onPress={() => {
+                    setSelectedSource(item);
+                    setSourceModalVisiable(false);
+                  }}
+                >
+                  <Text style={styles.sourceName}>{item.name}</Text>
+                </TouchableOpacity>
+              )}
+            />
+            <TouchableOpacity
+              style={[styles.button, { marginTop: 20 }]}
+              onPress={() => setSourceModalVisiable(false)}
+            >
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }

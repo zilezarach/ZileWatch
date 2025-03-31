@@ -20,7 +20,7 @@ import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import * as Linking from "expo-linking";
 import * as Progress from "react-native-progress";
-import { DownloadContext } from "./_layout"; // Adjust path as needed
+import { DownloadContext } from "./_layout";
 
 // Define DownloadRecord type (aligned with Home)
 export type DownloadRecord = {
@@ -68,8 +68,8 @@ export default function DownloadsScreen() {
     loadDownloads();
   };
 
-  // Open the downloaded file
-  const openFile = async (fileUri: string) => {
+  // Open the downloaded fileUri
+  const openFile = async (fileUri: string, fileType: string) => {
     try {
       const fileInfo = await FileSystem.getInfoAsync(fileUri);
       if (!fileInfo.exists) {
@@ -77,66 +77,93 @@ export default function DownloadsScreen() {
         return;
       }
 
-      console.log("Opening file URI:", fileUri);
+      console.log("Opening file URI:", fileUri, "of type:", fileType);
 
+      // For Android, we need special handling for media files
       if (Platform.OS === "android") {
-        // Handle Android content URIs
-        if (fileUri.startsWith("content://")) {
-          // Directly open content URI
-          const canOpen = await Linking.canOpenURL(fileUri);
-          if (canOpen) {
-            await Linking.openURL(fileUri);
-            return;
-          }
-        } else {
-          // Convert file URI to content URI for scoped storage
+        // First, try to save to MediaLibrary for media files
+        if (fileType === "audio" || fileType === "video") {
           try {
+            // Make sure the file is saved to the MediaLibrary
+            await MediaLibrary.createAssetAsync(fileUri);
+
+            // Use content URI with the appropriate MIME type
             const contentUri = await FileSystem.getContentUriAsync(fileUri);
+            const mimeType = getMimeType(fileUri);
+
+            // Use Intent to open the file with the default app
             await Linking.openURL(contentUri);
             return;
-          } catch (contentError) {
-            console.error("Error converting to content URI:", contentError);
+          } catch (mediaError) {
+            console.log("MediaLibrary error:", mediaError);
+            // Fall through to other methods if this fails
           }
         }
 
-        // Fallback to sharing
+        // Alternate approach: Try to open with content URI
+        try {
+          const contentUri = await FileSystem.getContentUriAsync(fileUri);
+          await Linking.openURL(contentUri);
+          return;
+        } catch (contentError) {
+          console.error("Error opening with content URI:", contentError);
+        }
+
+        // Fallback to sharing if direct opening fails
         if (await Sharing.isAvailableAsync()) {
           const mimeType = getMimeType(fileUri);
           await Sharing.shareAsync(fileUri, { mimeType });
           return;
         }
-      } else if (Platform.OS === "ios") {
-        // iOS handling
-        if (await Sharing.isAvailableAsync()) {
-          const mimeType = getMimeType(fileUri);
-          const uti = mimeType.startsWith("video/")
-            ? "public.movie"
-            : "public.audio";
-          await Sharing.shareAsync(fileUri, { mimeType, uti });
-          return;
-        } else {
+      }
+      // iOS handling
+      else if (Platform.OS === "ios") {
+        // Try direct opening first for iOS
+        try {
           const canOpen = await Linking.canOpenURL(fileUri);
           if (canOpen) {
             await Linking.openURL(fileUri);
             return;
           }
+        } catch (error) {
+          console.log("iOS direct open error:", error);
+        }
+
+        // Fall back to sharing
+        if (await Sharing.isAvailableAsync()) {
+          const mimeType = getMimeType(fileUri);
+          // Note: Removed the 'uti' property as it's not supported
+          await Sharing.shareAsync(fileUri, { mimeType });
+          return;
         }
       }
 
       Alert.alert("Error", "No app found to open this file.");
     } catch (error) {
       console.error("Error opening file:", error);
-      Alert.alert("Error", "Unable to open the file.");
+      Alert.alert("Error", "Unable to open the file: ");
     }
   };
-
-  // Helper to determine MIME type from file extension
+  //get Mime mimeType
   const getMimeType = (fileUri: string) => {
-    if (fileUri.endsWith(".mp4")) return "video/mp4";
-    if (fileUri.endsWith(".m4a")) return "audio/m4a";
+    const extension = fileUri.split(".").pop()?.toLowerCase();
+
+    // Video formats
+    if (extension === "mp4") return "video/mp4";
+    if (extension === "mov") return "video/quicktime";
+    if (extension === "avi") return "video/x-msvideo";
+    if (extension === "mkv") return "video/x-matroska";
+
+    // Audio formats
+    if (extension === "mp3") return "audio/mpeg";
+    if (extension === "m4a") return "audio/m4a";
+    if (extension === "aac") return "audio/aac";
+    if (extension === "wav") return "audio/wav";
+    if (extension === "ogg") return "audio/ogg";
+    if (extension === "flac") return "audio/flac";
+
     return "application/octet-stream"; // Fallback
   };
-
   // Remove a download record and optionally delete the file
   const removeDownloadRecord = async (id: string, fileUri: string) => {
     Alert.alert(
@@ -218,7 +245,7 @@ export default function DownloadsScreen() {
     return (
       <TouchableOpacity
         style={styles.downloadItem}
-        onPress={() => openFile(item.fileUri)}
+        onPress={() => openFile(item.fileUri, item.type)}
         onLongPress={() => shareDownload(item.fileUri)}
       >
         {item.Poster ? (

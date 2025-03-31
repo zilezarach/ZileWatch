@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -39,6 +39,17 @@ interface Episode {
 }
 type EpisodeListRouteProp = RouteProp<RootStackParamList, "EpisodeList">;
 
+interface EpisodeItemProps {
+  item: Episode;
+  onPress: (episode: Episode) => void;
+  onSourcePress: () => void;
+}
+
+interface DebouncedFunction {
+  (episode: Episode): void;
+  timeout: NodeJS.Timeout | null;
+}
+
 export default function EpisodeListScreen() {
   const route = useRoute<EpisodeListRouteProp>();
   const { tv_id, season_number, seasonName, seriesTitle } = route.params;
@@ -49,9 +60,15 @@ export default function EpisodeListScreen() {
   const [selectedSource, setSelectedSource] = useState<any | null>(null);
   const [contentType, setContentType] = useState<"movie" | "tv">("tv");
   const [modalVisiable, setModalVisiable] = useState(false);
+  const isMounted = useRef(true);
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-
+  //useEffect for tracking component lifecycle
+  useEffect(() => {
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
   //UseEffect code to get available getSources
   useEffect(() => {
     const loadSources = async () => {
@@ -77,6 +94,8 @@ export default function EpisodeListScreen() {
       const cachedData = await AsyncStorage.getItem(cacheKey);
       let episodeData = [];
 
+      if (!isMounted.current) return;
+
       // Fetch TMDB data
       if (cachedData) {
         episodeData = JSON.parse(cachedData);
@@ -87,39 +106,50 @@ export default function EpisodeListScreen() {
             params: { api_key: TMDB_API_KEY, language: "en-US" },
           }
         );
+        if (!isMounted.current) return;
         episodeData = response.data.episodes;
         await AsyncStorage.setItem(cacheKey, JSON.stringify(episodeData));
       }
 
-      // Fetch magnet links from backend (assuming /torrent/search exists)
-      const enrichedEpisodes = await Promise.all(
-        episodeData.map(async (episode: Episode) => {
-          const query = `${seriesTitle} S${String(season_number).padStart(
-            2,
-            "0"
-          )}E${String(episode.episode_number).padStart(2, "0")}`;
-          try {
-            const torrentResponse = await axios.get(
-              `${BACKEND_URL}/torrent/search`,
-              {
-                params: { query },
-              }
-            );
-            return { ...episode, magnetLink: torrentResponse.data.magnetLink };
-          } catch (error) {
-            console.error(`Failed to fetch torrent for ${query}:`, error);
-            return { ...episode, magnetLink: null };
-          }
-        })
-      );
+      // Fetch magnet links from backend (assuming /torrent/search exists
+      const enrichedEpisodes = [];
+      for (const episode of episodeData) {
+        if (!isMounted.current) return;
 
+        const query = `${seriesTitle} S${String(season_number).padStart(
+          2,
+          "0"
+        )}E${String(episode.episode_number).padStart(2, "0")}`;
+
+        try {
+          const torrentResponse = await axios.get(
+            `${BACKEND_URL}/torrent/search`,
+            {
+              params: { query },
+            }
+          );
+          enrichedEpisodes.push({
+            ...episode,
+            magnetLink: torrentResponse.data.magnetLink,
+          });
+        } catch (error) {
+          console.error(`Failed to fetch torrent for ${query}:`, error);
+          enrichedEpisodes.push({ ...episode, magnetLink: null });
+        }
+      }
+
+      if (!isMounted.current) return;
       setEpisodes(enrichedEpisodes);
-    } catch (error: any) {
-      Alert.alert("Error", "Failed to fetch episodes or torrents.");
-      console.error("Episode fetch error:", error);
+    } catch (error) {
+      if (isMounted.current) {
+        Alert.alert("Error", "Failed to fetch episodes or torrents.");
+        console.error("Episode fetch error:", error);
+      }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (isMounted.current) {
+        setLoading(false);
+        setRefreshing(false);
+      }
     }
   }, [tv_id, season_number, seriesTitle]);
 
@@ -127,22 +157,91 @@ export default function EpisodeListScreen() {
     fetchSeasonEpisodes();
   }, [fetchSeasonEpisodes]);
 
+  // Memoize the episode item for rendering efficiency
+  const MemoizedEpisodeItem = React.memo<EpisodeItemProps>(
+    ({ item, onPress, onSourcePress }) => (
+      <TouchableOpacity
+        style={styles.episodeItem}
+        onPress={() => onPress(item)}
+      >
+        {item.still_path ? (
+          <Image
+            source={{
+              uri: `https://image.tmdb.org/t/p/w200${item.still_path}`,
+            }}
+            style={styles.thumbnail}
+            defaultSource={require("../../assets/placeholder.png")}
+          />
+        ) : (
+          <View style={[styles.thumbnail, styles.placeholderThumbnail]}>
+            <Text style={styles.placeholderText}>No Image</Text>
+          </View>
+        )}
+        <View style={styles.episodeInfo}>
+          <Text style={styles.episodeTitle}>
+            Episode {item.episode_number}: {item.name}
+          </Text>
+          <Text style={styles.episodeOverview} numberOfLines={2}>
+            {item.overview}
+          </Text>
+        </View>
+        <TouchableOpacity
+          style={[styles.button, { backgroundColor: "#444", marginTop: 5 }]}
+          onPress={onSourcePress}
+        >
+          <Text style={styles.buttonText}>
+            Change Source ({selectedSource?.name || "Default"})
+          </Text>
+        </TouchableOpacity>
+      </TouchableOpacity>
+    )
+  );
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchSeasonEpisodes();
   };
 
-  const handleEpisodePress = (episode: any) => {
-    navigation.navigate("Stream", {
-      mediaType: "tv",
-      id: tv_id,
-      sourceId:
-        selectedSource?.id || (sources.length > 0 ? sources[0]?.id : ""),
-      season: season_number,
-      episode: episode.episode_number,
-      videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`,
-    });
-  };
+  const keyExtractor = useCallback((item: any) => item.id.toString(), []);
+
+  //handle episode to sources
+  const handleEpisodePressWithDebounce = useCallback(
+    (episode: Episode) => {
+      if ((handleEpisodePressWithDebounce as DebouncedFunction).timeout) {
+        return;
+      }
+
+      (handleEpisodePressWithDebounce as DebouncedFunction).timeout =
+        setTimeout(() => {
+          navigation.navigate("Stream", {
+            mediaType: "tv",
+            id: tv_id,
+            sourceId:
+              selectedSource?.id || (sources.length > 0 ? sources[0]?.id : ""),
+            season: season_number,
+            episode: episode.episode_number,
+            videoTitle: `${seriesTitle} S${season_number}E${episode.episode_number} - ${episode.name}`,
+          });
+          (handleEpisodePressWithDebounce as DebouncedFunction).timeout = null;
+        }, 300);
+    },
+    [tv_id, season_number, seriesTitle, selectedSource, sources, navigation]
+  );
+
+  // Initialize timeout property for our debounced function
+  (handleEpisodePressWithDebounce as DebouncedFunction).timeout = null;
+
+  // Fix the renderItem type error
+  const renderEpisodeItem = useCallback(
+    ({ item }: { item: Episode }) => (
+      <MemoizedEpisodeItem
+        item={item}
+        onPress={handleEpisodePressWithDebounce}
+        onSourcePress={() => setModalVisiable(true)}
+      />
+    ),
+    [handleEpisodePressWithDebounce]
+  );
 
   if (loading) {
     return (
@@ -173,77 +272,56 @@ export default function EpisodeListScreen() {
       </Text>
       <FlatList
         data={episodes}
-        keyExtractor={(item) => item.id.toString()}
-        renderItem={({ item }) => (
-          <TouchableOpacity
-            style={styles.episodeItem}
-            onPress={() => handleEpisodePress(item)}
-          >
-            {item.still_path ? (
-              <Image
-                source={{
-                  uri: `https://image.tmdb.org/t/p/w200${item.still_path}`,
-                }}
-                style={styles.thumbnail}
-              />
-            ) : (
-              <View style={[styles.thumbnail, styles.placeholderThumbnail]}>
-                <Text style={styles.placeholderText}>No Image</Text>
-              </View>
-            )}
-            <View style={styles.episodeInfo}>
-              <Text style={styles.episodeTitle}>
-                Episode {item.episode_number}: {item.name}
-              </Text>
-              <Text style={styles.episodeOverview} numberOfLines={2}>
-                {item.overview}
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={[styles.button, { backgroundColor: "#444", marginTop: 5 }]}
-              onPress={() => setModalVisiable(true)}
-            >
-              <Text style={styles.buttonText}>
-                Change Source ({selectedSource.name})
-              </Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
-        )}
+        keyExtractor={keyExtractor}
+        renderItem={renderEpisodeItem}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
+        removeClippedSubviews={true}
+        initialNumToRender={5}
+        maxToRenderPerBatch={10}
+        windowSize={10}
+        getItemLayout={(data, index) => ({
+          length: 110, // approximate height of episode item
+          offset: 110 * index,
+          index,
+        })}
       />
       {/* Get available streams */}
-      <Modal
-        visible={modalVisiable}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setModalVisiable(false)}
-      >
-        <View style={styles.modalContainer}>
-          <FlatList
-            data={sources}
-            keyExtractor={(item) => item.id}
-            renderItem={({ item }) => (
-              <TouchableOpacity
-                style={styles.sourceItem}
-                onPress={() => {
-                  setSelectedSource(item);
-                  setModalVisiable(false);
-                }}
-              >
-                <Text style={styles.sourceName}>{item.name}</Text>
-              </TouchableOpacity>
-            )}
-          />
-          <TouchableOpacity
-            style={[styles.button, { marginTop: 20 }]}
-            onPress={() => setModalVisiable(false)}
-          >
-            <Text style={styles.buttonText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </Modal>
+      {modalVisiable && (
+        <Modal
+          visible={modalVisiable}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setModalVisiable(false)}
+        >
+          <View style={styles.modalContainer}>
+            <FlatList
+              data={sources}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={styles.sourceItem}
+                  onPress={() => {
+                    setSelectedSource(item);
+                    setModalVisiable(false);
+                  }}
+                >
+                  <Text style={styles.sourceName}>{item.name}</Text>
+                </TouchableOpacity>
+              )}
+              initialNumToRender={5}
+              maxToRenderPerBatch={10}
+            />
+            <TouchableOpacity
+              style={[styles.button, { marginTop: 20 }]}
+              onPress={() => setModalVisiable(false)}
+            >
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
