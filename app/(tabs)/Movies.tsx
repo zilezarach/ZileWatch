@@ -233,7 +233,7 @@ export default function Movies(): JSX.Element {
         source={{ uri: item.Poster }}
         style={styles.movieImage}
         // Add default image fallback
-        defaultSource={require("../../assets/placeholder.png")}
+        defaultSource={require("../../assets/images/Original.png")}
       />
       <View style={styles.movieDetails}>
         <Text style={styles.movieTitle}>{item.Title}</Text>
