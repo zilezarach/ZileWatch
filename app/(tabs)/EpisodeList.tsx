@@ -170,7 +170,7 @@ export default function EpisodeListScreen() {
               uri: `https://image.tmdb.org/t/p/w200${item.still_path}`,
             }}
             style={styles.thumbnail}
-            defaultSource={require("../../assets/placeholder.png")}
+            defaultSource={require("../../assets/images/Original.png")}
           />
         ) : (
           <View style={[styles.thumbnail, styles.placeholderThumbnail]}>
