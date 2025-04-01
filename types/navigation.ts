@@ -2,7 +2,7 @@ export type RootStackParamList = {
   Home: undefined;
   VideoPlayer: { videoUrl: string };
   Stream: {
-    mediaType: "movie" | "tv";
+    mediaType: "movie" | "show";
     id: number;
     sourceId: string;
     videoTitle: string;
