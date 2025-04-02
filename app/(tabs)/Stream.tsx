@@ -70,7 +70,7 @@ const StreamVideo = () => {
         id,
         sourceId,
         quality,
-        ...(mediaType === "tv" && {
+        ...(mediaType === "show" && {
           season: season || 0,
           episode: episode || 0,
         }),

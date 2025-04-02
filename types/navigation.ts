@@ -6,8 +6,8 @@ export type RootStackParamList = {
     id: number;
     sourceId: string;
     videoTitle: string;
-    season?: number;
-    episode?: number;
+    season?: string;
+    episode?: string;
   };
   Movies: undefined;
   VideoList: undefined;

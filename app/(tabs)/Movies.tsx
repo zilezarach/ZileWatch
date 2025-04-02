@@ -108,21 +108,57 @@ export default function Movies(): JSX.Element {
   useEffect(() => {
     const loadSources = async () => {
       try {
+        // Add a local state variable to track loading state
+        setLoading(true);
+
         const availableSources = await getSourcesforMedia(contentType);
-        // Save the list of sources in state for the modal
-        setSources(availableSources);
-        // Set default source from available sources or fallback to getDefaultSource
-        const defaultSource =
-          availableSources && availableSources.length > 0
-            ? availableSources[0]
-            : await getDefaultSource();
-        setSelectedSource(defaultSource);
+        console.log("Available sources:", availableSources); // Add this for debugging
+
+        if (Array.isArray(availableSources) && availableSources.length > 0) {
+          setSources(availableSources);
+          setSelectedSource(availableSources[0]);
+        } else {
+          // If getSourcesforMedia fails to return valid sources, try fallback
+          const fallbackSources = await getSources();
+          console.log("Fallback sources:", fallbackSources); // Add this for debugging
+
+          if (Array.isArray(fallbackSources) && fallbackSources.length > 0) {
+            setSources(fallbackSources);
+            setSelectedSource(fallbackSources[0]);
+          } else {
+            // If all else fails, try to get at least the default source
+            const defaultSource = await getDefaultSource();
+            console.log("Default source:", defaultSource); // Add this for debugging
+
+            if (defaultSource) {
+              setSources([defaultSource]);
+              setSelectedSource(defaultSource);
+            } else {
+              // No sources available at all
+              console.error("No sources available");
+              Alert.alert(
+                "No Sources Available",
+                "Unable to load streaming sources. Please check your connection and try again."
+              );
+            }
+          }
+        }
       } catch (error) {
-        console.log("Unable to fetch sources", error);
+        console.error("Error fetching sources:", error);
+        Alert.alert(
+          "Error",
+          "Failed to load streaming sources. Please try again later."
+        );
+      } finally {
+        if (isMounted.current) {
+          setLoading(false);
+        }
       }
     };
+
     loadSources();
   }, [contentType]);
+
   // Fix: Make sure to properly type the navigation
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -256,8 +292,8 @@ export default function Movies(): JSX.Element {
                 id: parseInt(item.imdbID, 10),
                 videoTitle: item.Title,
                 sourceId: selectedSource?.id || sources[0]?.id || "",
-                season: 0,
-                episode: 0,
+                season: "0",
+                episode: "0",
               });
             }
           }}
