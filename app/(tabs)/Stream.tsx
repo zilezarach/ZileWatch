@@ -17,6 +17,7 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
 import { useMiniPlayer } from "../../context/MiniPlayerContext";
 import axios from "axios";
+import { useSafeArea } from "react-native-safe-area-context";
 
 const { width, height } = Dimensions.get("window");
 const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
@@ -48,7 +49,7 @@ const StreamVideo = () => {
   const [infoHash, setInfoHash] = useState<string | null>(null);
   const { miniPlayer, setMiniPlayer } = useMiniPlayer();
   const [debugInfo, setDebugInfo] = useState<string>("");
-
+  const [streamType, setStreamType] = useState<string | null>(null);
   // Setup Stream
   const setupStream = async () => {
     try {
@@ -86,12 +87,15 @@ const StreamVideo = () => {
 
       if (response.data && response.data.streamUrl) {
         const streamUrl = response.data.streamUrl;
+        const headers = response.data.headers || {};
         //valid stream url
         if (!streamUrl.startsWith("http")) {
           throw new Error("Invalid Stream Url");
         }
         setStreamUrl(response.data.streamUrl);
         setSourceName(response.data.source || "Unknown Source");
+        setStreamType(response.data.streamType || null);
+        setHeaders(response.data.headers || {});
         setError(null);
         setDebugInfo(`Stream URL: ${streamUrl.substring(0, 50)}...`);
       } else {
@@ -173,7 +177,8 @@ const StreamVideo = () => {
     return () =>
       ScreenOrientation.removeOrientationChangeListener(subscription);
   }, []);
-
+  // add a new state
+  const [headers, setHeaders] = useState<Record<string, string>>({});
   // Progress tracking for torrents if needed
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -310,9 +315,11 @@ const StreamVideo = () => {
           source={{
             uri: streamUrl,
             headers: {
+              ...headers,
               "Cache-Control": "max-age=6048000",
               "Accept-Encoding": "identity",
             },
+            type: streamType === "hls" ? "m3u8" : undefined,
           }}
           style={videoStyle}
           controls
