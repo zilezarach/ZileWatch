@@ -320,12 +320,50 @@ const StreamVideo = () => {
           paused={!isPlaying}
           ref={videoRef}
           onError={(err) => {
-            console.error("Video playback error:", err);
-            const errorMsg = err.error
-              ? `Code: ${err.error.code}, ${err.error.localizedDescription}`
-              : "Failed to play video.";
+            console.error("Video playback error:", JSON.stringify(err));
+            let errorMsg;
+
+            if (err.error && err.error.code) {
+              errorMsg = `Code: ${err.error.code}, ${
+                err.error.localizedDescription || "Unknown error"
+              }`;
+            } else if (err.error) {
+              errorMsg = `Error: ${JSON.stringify(err.error)}`;
+            } else {
+              errorMsg = `Failed to play video from ${sourceName}. URL may be invalid or inaccessible.`;
+            }
+
+            // Add more debug info
+            setDebugInfo(
+              `Stream URL: ${streamUrl.substring(
+                0,
+                50
+              )}...\nError details: ${JSON.stringify(err)}`
+            );
             setError(errorMsg);
-            Alert.alert("Playback Error", errorMsg);
+
+            // Alert with actionable information
+            Alert.alert(
+              "Playback Error",
+              `${errorMsg}\n\nWould you like to try a different quality setting?`,
+              [
+                {
+                  text: "Try SD Quality",
+                  onPress: () => {
+                    setQuality("sd");
+                    setupStream();
+                  },
+                },
+                {
+                  text: "Retry",
+                  onPress: () => setupStream(),
+                },
+                {
+                  text: "Cancel",
+                  style: "cancel",
+                },
+              ]
+            );
           }}
           onBuffer={handleBuffer}
           onLoad={() => setLoading(false)}
