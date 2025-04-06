@@ -93,7 +93,7 @@ const StreamVideo = () => {
         if (streamingInfo && streamingInfo.streamUrl) {
           setStreamUrl(streamingInfo.streamUrl);
           setSourceName(streamingInfo.selectedServer?.name || "Unknown Source");
-          setStreamType(streamingInfo.sources?.sources?.[0]?.type || "mp4");
+          setStreamType(streamingInfo.sources?.sources?.[0]?.type || "hls");
           setHeaders(streamingInfo.sources?.headers || {});
           setSubtitles(streamingInfo.subtitles || []);
           setDebugInfo(
@@ -376,7 +376,7 @@ const StreamVideo = () => {
             playInBackground={false}
             repeat={false}
             selectedTextTrack={{
-              type: "index", // or 'language',
+              type: "index" as const, // or 'language',
               value: 0, // value is language code when type is 'language'
             }}
             textTracks={subtitles.map((sub, index) => ({

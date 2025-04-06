@@ -116,6 +116,7 @@ export interface BackendEpisode {
   title: string;
   number: number;
   description: string;
+  episode_number?: number;
   img: string | null;
   still_path: string | null;
 }

@@ -120,7 +120,7 @@ export default function EpisodeListScreen() {
         } else {
           const seasonData = await streamingService.getSeasonWithEpisodes(
             tv_id.toString(),
-            (season_id || season_number).toString()
+            (season_id || season_number || 1).toString()
           );
 
           if (seasonData && seasonData.episodes) {
