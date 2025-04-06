@@ -18,17 +18,10 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useNavigation, RouteProp, useRoute } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
-import * as FileSystem from "expo-file-system";
-import { Buffer } from "buffer";
 import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
-import {
-  getSources,
-  getDefaultSource,
-  getSourcesforMedia,
-} from "@/utils/sources";
+import streamingService from "@/utils/streamingService";
 
-const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 const { width } = Dimensions.get("window");
 const TMDB_API_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
 const TMDB_API_URL = Constants.expoConfig?.extra?.TMBD_URL;
@@ -43,6 +36,8 @@ interface BaseMedia {
   imdbRating?: string;
   category?: string;
   hasTorrent?: boolean;
+  originalId?: number;
+  duration?: string;
 }
 
 interface Movie extends BaseMedia {
@@ -53,111 +48,26 @@ interface Series extends BaseMedia {
   tv_id: number;
 }
 
-type TMDBMovie = {
-  title: string;
-  release_date: string;
-  overview: string;
-  poster_path: string;
-  id: number;
-  first_air_date: string;
-  name: string;
-};
-
-type Torrent = {
-  title: string;
-  magnet: string;
-  size: string;
-  seeds: number;
-  provider: string;
-  infoHash: string;
-  files: TorrentFile[];
-};
-
-interface TorrentFile {
-  name: string;
-  size: string;
-  index: number;
-}
-
-type NavigationProp = RouteProp<RootStackParamList, "Movies">;
+type NavigationProp = RouteProp<RootStackParamList, "MovieDetail">;
 
 export default function Movies(): JSX.Element {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
-  const [torrents, setTorrents] = useState<Torrent[]>([]);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [isSearching, setIsSearching] = useState<boolean>(false);
-  const [isVisible, setVisible] = useState<boolean>(false);
   const [contentType, setContentType] = useState<"movie" | "series">("movie");
-  const [selectedSource, setSelectedSource] = useState<any | null>(null);
-  const [sourceModalVisiable, setSourceModalVisiable] = useState(false);
-  const [sources, setSources] = useState<any[]>([]);
+  const [streamLoading, setStreamLoading] = useState<boolean>(false);
 
-  //ref to track mounted
+  // ref to track mounted
   const isMounted = useRef(true);
 
-  //clean up when component umounts
+  // Clean up when component umounts
   useEffect(() => {
     return () => {
       isMounted.current = false;
     };
   }, []);
-
-  //useEffect to get available sources on the API_Backend
-  useEffect(() => {
-    const loadSources = async () => {
-      try {
-        // Add a local state variable to track loading state
-        setLoading(true);
-
-        const availableSources = await getSourcesforMedia(contentType);
-        console.log("Available sources:", availableSources); // Add this for debugging
-
-        if (Array.isArray(availableSources) && availableSources.length > 0) {
-          setSources(availableSources);
-          setSelectedSource(availableSources[0]);
-        } else {
-          // If getSourcesforMedia fails to return valid sources, try fallback
-          const fallbackSources = await getSources();
-          console.log("Fallback sources:", fallbackSources); // Add this for debugging
-
-          if (Array.isArray(fallbackSources) && fallbackSources.length > 0) {
-            setSources(fallbackSources);
-            setSelectedSource(fallbackSources[0]);
-          } else {
-            // If all else fails, try to get at least the default source
-            const defaultSource = await getDefaultSource();
-            console.log("Default source:", defaultSource); // Add this for debugging
-
-            if (defaultSource) {
-              setSources([defaultSource]);
-              setSelectedSource(defaultSource);
-            } else {
-              // No sources available at all
-              console.error("No sources available");
-              Alert.alert(
-                "No Sources Available",
-                "Unable to load streaming sources. Please check your connection and try again."
-              );
-            }
-          }
-        }
-      } catch (error) {
-        console.error("Error fetching sources:", error);
-        Alert.alert(
-          "Error",
-          "Failed to load streaming sources. Please try again later."
-        );
-      } finally {
-        if (isMounted.current) {
-          setLoading(false);
-        }
-      }
-    };
-
-    loadSources();
-  }, [contentType]);
 
   // Fix: Make sure to properly type the navigation
   const navigation =
@@ -169,12 +79,55 @@ export default function Movies(): JSX.Element {
     try {
       setIsSearching(true);
       setLoading(true);
+
+      // Check cache first
       const cacheKey = `${query}_${contentType}`;
       const cachedMovies = await AsyncStorage.getItem(cacheKey);
+
       if (!isMounted.current) return;
+
       if (cachedMovies) {
         setMovies(JSON.parse(cachedMovies));
       } else {
+        // Try to search from our streaming service first
+        try {
+          const streamResults = await streamingService.searchContent(
+            query,
+            contentType
+          );
+
+          if (streamResults && streamResults.length > 0) {
+            // Format results to match our Movie interface
+            const formattedResults = streamResults.map((item: any) => ({
+              Title: item.title || "Unknown",
+              Year: item.stats?.year || "N/A",
+              Genre: item.stats?.genre || "N/A",
+              Plot: item.overview || "No description available.",
+              Poster: item.poster || "https://via.placeholder.com/100x150",
+              imdbID: item.id.toString(),
+              imdbRating: item.stats?.rating || "N/A",
+              category: contentType === "series" ? "Series" : "Movie",
+              // Store original data for direct streaming
+              originalId: item.id,
+              duration: item.stats?.duration || "N/A",
+            }));
+
+            if (!isMounted.current) return;
+            setMovies(formattedResults);
+            await AsyncStorage.setItem(
+              cacheKey,
+              JSON.stringify(formattedResults)
+            );
+            return;
+          }
+        } catch (err) {
+          console.warn(
+            "Streaming service search failed, falling back to TMDB:",
+            err
+          );
+        }
+
+        // Fallback to TMDB
         const url =
           contentType === "series"
             ? `${TMDB_API_URL}/search/tv`
@@ -183,7 +136,9 @@ export default function Movies(): JSX.Element {
         const res = await axios.get(url, {
           params: { api_key: TMDB_API_KEY, query, language: "en-US" },
         });
+
         if (!isMounted.current) return;
+
         const data = res.data.results.map((item: any) => ({
           Title: contentType === "series" ? item.name : item.title,
           Year:
@@ -202,9 +157,9 @@ export default function Movies(): JSX.Element {
           imdbRating: item.vote_average?.toString() || "N/A",
           category: contentType === "series" ? "Series" : "Movie",
         }));
+
         if (!isMounted.current) return;
         setMovies(data);
-        console.log(movies);
         await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
       }
     } catch (error) {
@@ -251,7 +206,6 @@ export default function Movies(): JSX.Element {
       }));
 
       setMovies(data);
-      console.log(movies);
     } catch (error) {
       console.error("Error fetching popular content:", error);
       Alert.alert("Error", "Failed to fetch popular content.");
@@ -261,8 +215,67 @@ export default function Movies(): JSX.Element {
       }
     }
   };
+
+  // New function to handle "Watch Now" directly
+  const handleWatchNow = async (item: Movie) => {
+    try {
+      setStreamLoading(true);
+
+      // Check if this is a direct streaming item from our service
+      if (item.originalId) {
+        // Directly navigate to streaming with all required data
+        const movieId = item.originalId.toString();
+
+        // Get streaming info in one call
+        const streamingInfo = await streamingService.getMovieStreamingInfo(
+          movieId
+        );
+
+        if (streamingInfo && streamingInfo.streamUrl) {
+          // Navigate directly to the Stream screen with all required info
+          navigation.navigate("Stream", {
+            mediaType: "movie",
+            id: parseInt(movieId, 10),
+            videoTitle: item.Title,
+            streamUrl: streamingInfo.streamUrl,
+            subtitles: streamingInfo.subtitles || [],
+            sourceName: streamingInfo.selectedServer?.name || "Default",
+            // Add any other required props
+          });
+        } else {
+          throw new Error("Failed to get stream URL");
+        }
+      } else {
+        // Fall back to regular navigation flow for TMDB items
+        if (contentType === "series") {
+          const tvId = parseInt(item.imdbID, 10);
+          navigation.navigate("SeriesDetail", {
+            tv_id: tvId,
+            title: item.Title,
+          });
+        } else {
+          navigation.navigate("Stream", {
+            mediaType: "movie",
+            id: parseInt(item.imdbID, 10),
+            videoTitle: item.Title,
+            // Default values since we don't have streaming info yet
+            season: "0",
+            episode: "0",
+          });
+        }
+      }
+    } catch (error) {
+      console.error("Stream setup error:", error);
+      Alert.alert(
+        "Streaming Error",
+        "Failed to set up streaming. Please try again."
+      );
+    } finally {
+      setStreamLoading(false);
+    }
+  };
+
   // render series and Movies
-  // Fix the navigation part in renderItem function of Movies.tsx
   const MemoizedMovieItem = React.memo(({ item }: { item: any }) => (
     <View style={styles.movieCard}>
       <Image
@@ -277,98 +290,34 @@ export default function Movies(): JSX.Element {
           {item.Plot}
         </Text>
         <Text style={styles.movieRating}>IMDb Rating: {item.imdbRating}</Text>
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => {
-            if (contentType === "series") {
-              const tvId = item.tv_id || parseInt(item.imdbID, 10);
-              navigation.navigate("SeriesDetail", {
-                tv_id: tvId,
-                title: item.Title,
-              });
-            } else {
-              navigation.navigate("Stream", {
-                mediaType: "movie",
-                id: parseInt(item.imdbID, 10),
-                videoTitle: item.Title,
-                sourceId: selectedSource?.id || sources[0]?.id || "",
-                season: "0",
-                episode: "0",
-              });
-            }
-          }}
-        >
-          <Text style={styles.buttonText}>
-            {contentType === "series" ? "View Seasons" : "Watch Now"}
-          </Text>
-        </TouchableOpacity>
-        {contentType === "movie" && (
+
+        {/* Show loading indicator when streaming is being set up */}
+        {streamLoading ? (
+          <ActivityIndicator size="small" color="#FF5722" />
+        ) : (
           <TouchableOpacity
-            style={[styles.button, { backgroundColor: "#444", marginTop: 5 }]}
-            onPress={() => setSourceModalVisiable(true)}
+            style={styles.button}
+            onPress={() => handleWatchNow(item)}
           >
             <Text style={styles.buttonText}>
-              Change Source ({selectedSource?.name || "Alpha"})
+              {contentType === "series" ? "View Seasons" : "Watch Now"}
             </Text>
           </TouchableOpacity>
         )}
       </View>
     </View>
   ));
+
   //RenderItem
   const renderItem = ({ item }: { item: any }) => (
     <MemoizedMovieItem item={item} />
   );
-  //flalist optimizations
+
+  //flatlist optimizations
   const keyExtractor = React.useCallback(
     (item: any) => item.imdbID + item.Title,
     []
   );
-  // Download torrent file and save it to device storage.
-  const handleDownload = async (magnetLink: string, videoTitle: string) => {
-    if (!magnetLink) {
-      Alert.alert("Error", "Invalid Link");
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const res = await axios.get(`${DOWNLOADER_API}/download-torrents`, {
-        params: { magnet: magnetLink },
-        responseType: "arraybuffer",
-        onDownloadProgress: (progressEvent) => {
-          const total = progressEvent.total || 1;
-          const fractionProgress = progressEvent.loaded / total;
-          console.log(
-            `Downloading ${videoTitle}: ${Math.round(fractionProgress * 100)}%`
-          );
-        },
-      });
-
-      const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
-      const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
-
-      if (!directoryInfo.exists) {
-        await FileSystem.makeDirectoryAsync(downloadDir, {
-          intermediates: true,
-        });
-      }
-
-      const fileUri = `${downloadDir}${videoTitle}.torrent`;
-      const base64Data = Buffer.from(res.data).toString("base64");
-
-      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      Alert.alert("Download Complete", `Downloaded: ${videoTitle}`);
-    } catch (error) {
-      console.error("Error Downloading File", error);
-      Alert.alert("Failed to Download file. Please Try Again");
-    } finally {
-      setLoading(false);
-    }
-  };
 
   useEffect(() => {
     fetchPopular();
@@ -381,6 +330,7 @@ export default function Movies(): JSX.Element {
         <Text style={styles.toggleLabel}>Dark Mode</Text>
         <Switch value={isDarkMode} onValueChange={setIsDarkMode} />
       </View>
+
       {/* Content Type Toggle */}
       <View style={styles.typeToggleContainer}>
         <TouchableOpacity
@@ -402,6 +352,7 @@ export default function Movies(): JSX.Element {
           <Text style={styles.typeButtonText}>Series</Text>
         </TouchableOpacity>
       </View>
+
       {/* Search Bar */}
       <TextInput
         style={styles.searchBar}
@@ -417,6 +368,7 @@ export default function Movies(): JSX.Element {
         }}
         onSubmitEditing={() => fetchMovies(searchQuery)}
       />
+
       {/* List of Movies/Series */}
       {loading ? (
         <ActivityIndicator size="large" color="#FFF" />
@@ -443,40 +395,6 @@ export default function Movies(): JSX.Element {
           })}
         />
       )}
-      {/* Get available streams */}
-      {sourceModalVisiable && (
-        <Modal
-          visible={sourceModalVisiable}
-          animationType="slide"
-          transparent
-          onRequestClose={() => setSourceModalVisiable(false)}
-        >
-          <View style={styles.modalContainer}>
-            <Text style={styles.modalTitle}>Select Source</Text>
-            <FlatList
-              data={sources}
-              keyExtractor={(item) => item.id}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={styles.sourceItem}
-                  onPress={() => {
-                    setSelectedSource(item);
-                    setSourceModalVisiable(false);
-                  }}
-                >
-                  <Text style={styles.sourceName}>{item.name}</Text>
-                </TouchableOpacity>
-              )}
-            />
-            <TouchableOpacity
-              style={[styles.button, { marginTop: 20 }]}
-              onPress={() => setSourceModalVisiable(false)}
-            >
-              <Text style={styles.buttonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </Modal>
-      )}
     </View>
   );
 }
@@ -495,39 +413,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 10,
   },
-  modalContainer: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.9)",
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 20,
-  },
-  modalTitle: {
-    fontSize: 20,
-    color: "#fff",
-    marginBottom: 20,
-  },
-  sourceItem: {
-    padding: 15,
-    borderBottomWidth: 1,
-    borderBottomColor: "#444",
-    width: "100%",
-  },
-  sourceName: {
-    color: "#7d0b02",
-    fontSize: 15,
-  },
-  fileText: {
-    color: "#7d0b02",
-    fontWeight: "bold",
-  },
   typeButton: {
-    padding: 10,
-    backgroundColor: "#7d0b02",
-    borderRadius: 5,
-    marginHorizontal: 5,
-  },
-  fileButton: {
     padding: 10,
     backgroundColor: "#7d0b02",
     borderRadius: 5,
@@ -561,7 +447,6 @@ const styles = StyleSheet.create({
   movieTitle: { color: "#FFF", fontSize: 16, fontWeight: "bold" },
   movieDescription: { color: "#BBB", fontSize: 14, marginVertical: 5 },
   movieRating: { color: "#FFD700", fontSize: 14, marginVertical: 5 },
-  torrentAvailable: { color: "#FFF", marginTop: 5, fontWeight: "bold" },
   button: {
     backgroundColor: "#FF5722",
     borderRadius: 10,
@@ -569,17 +454,5 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   buttonText: { color: "#FFF", fontSize: 16 },
-  buttonStreamer: {
-    backgroundColor: "#3bfc18",
-    padding: 10,
-    marginTop: 5,
-    borderRadius: 10,
-  },
-  buttonDownload: {
-    backgroundColor: "#540007",
-    padding: 6,
-    marginTop: 5,
-    borderRadius: 10,
-  },
   darkMode: { backgroundColor: "#121212" },
 });

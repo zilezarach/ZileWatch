@@ -1,21 +1,44 @@
 export type RootStackParamList = {
   Home: undefined;
-  VideoPlayer: { videoUrl: string };
+  Search: undefined;
+  Settings: undefined;
+  MovieDetail: {
+    movie_id: number | string;
+    title?: string;
+    isFromBackend?: boolean;
+  };
+  SeriesDetail: {
+    tv_id: number | string;
+    title?: string;
+    isFromBackend?: boolean;
+  };
+  EpisodeList: {
+    tv_id: number | string;
+    season_number?: number | string;
+    season_id?: number | string;
+    seasonName?: string;
+    seriesTitle?: string;
+    isFromBackend?: boolean;
+  };
   Stream: {
     mediaType: "movie" | "show";
-    id: number;
-    sourceId: string;
+    id: number | string;
+    sourceId?: string;
+    episodeId?: string;
     videoTitle: string;
     season?: string;
     episode?: string;
+    streamUrl?: string;
+    subtitles?: Array<{
+      file: string;
+      label?: string;
+      kind?: string;
+    }>;
+    sourceName?: string;
   };
-  Movies: undefined;
-  VideoList: undefined;
-  SeriesDetail: { tv_id: number; title: string };
-  EpisodeList: {
-    tv_id: number;
-    season_number: number;
-    seasonName: string;
-    seriesTitle: string;
-  };
+  Favorites: undefined;
+  Profile: undefined;
+  Login: undefined;
+  Register: undefined;
+  // Add more routes as needed
 };

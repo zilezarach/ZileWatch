@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Platform,
   Dimensions,
+  StatusBar,
 } from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
@@ -16,11 +17,9 @@ import Constants from "expo-constants";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
 import { useMiniPlayer } from "../../context/MiniPlayerContext";
-import axios from "axios";
-import { useSafeArea } from "react-native-safe-area-context";
+import streamingService from "@/utils/streamingService";
 
 const { width, height } = Dimensions.get("window");
-const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
 
 type StreamRouteProp = RouteProp<RootStackParamList, "Stream">;
 
@@ -31,76 +30,103 @@ const StreamVideo = () => {
     id,
     sourceId,
     videoTitle,
-    season = 0,
-    episode = 0,
+    season = "0",
+    episode = "0",
+    episodeId,
+    // New props that might be passed directly
+    streamUrl: directStreamUrl,
+    subtitles: directSubtitles,
+    sourceName: directSourceName,
   } = route.params;
+
   const navigation = useNavigation();
   const videoRef = useRef<VideoRef>(null);
 
   const [quality, setQuality] = useState<"hd" | "sd">("hd");
-  const [streamUrl, setStreamUrl] = useState<string>("");
-  const [sourceName, setSourceName] = useState<string>("");
-  const [isLoading, setLoading] = useState<boolean>(true);
+  const [streamUrl, setStreamUrl] = useState<string>(directStreamUrl || "");
+  const [sourceName, setSourceName] = useState<string>(directSourceName || "");
+  const [isLoading, setLoading] = useState<boolean>(!directStreamUrl);
   const [isPlaying, setPlaying] = useState<boolean>(true);
   const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState<number>(0);
-  const [infoHash, setInfoHash] = useState<string | null>(null);
-  const { miniPlayer, setMiniPlayer } = useMiniPlayer();
   const [debugInfo, setDebugInfo] = useState<string>("");
   const [streamType, setStreamType] = useState<string | null>(null);
+  const [headers, setHeaders] = useState<Record<string, string>>({});
+  const [subtitles, setSubtitles] = useState<any[]>(directSubtitles || []);
+  const { miniPlayer, setMiniPlayer } = useMiniPlayer();
+
   // Setup Stream
   const setupStream = async () => {
     try {
+      // If we already have a direct stream URL, skip setup
+      if (directStreamUrl) {
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
-      // Comprehensive logging
+
+      // Log params for debugging
       console.log("Stream setup params:", {
         mediaType,
         id,
         sourceId,
         season,
         episode,
+        episodeId,
         quality,
       });
 
-      // Prepare request parameters with robust type handling
-      const params: any = {
-        mediaType: mediaType || "movie",
-        id,
-        sourceId,
-        quality,
-        ...(mediaType === "show" && {
-          season: season || 0,
-          episode: episode || 0,
-        }),
-      };
-      console.log("Requesting stream with params:", params);
-      // Request stream URL from backend
-      const response = await axios.get(`${DOWNLOADER_API}/stream`, {
-        params,
-        timeout: 10000,
-      });
+      if (mediaType === "movie") {
+        // Get movie streaming info
+        const streamingInfo = await streamingService.getMovieStreamingInfo(
+          id.toString(),
+          {
+            serverId: sourceId,
+            quality,
+          }
+        );
 
-      console.log("Stream response:", response.data);
-
-      if (response.data && response.data.streamUrl) {
-        const streamUrl = response.data.streamUrl;
-        const headers = response.data.headers || {};
-        //valid stream url
-        if (!streamUrl.startsWith("http")) {
-          throw new Error("Invalid Stream Url");
+        if (streamingInfo && streamingInfo.streamUrl) {
+          setStreamUrl(streamingInfo.streamUrl);
+          setSourceName(streamingInfo.selectedServer?.name || "Unknown Source");
+          setStreamType(streamingInfo.sources?.sources?.[0]?.type || "mp4");
+          setHeaders(streamingInfo.sources?.headers || {});
+          setSubtitles(streamingInfo.subtitles || []);
+          setDebugInfo(
+            `Movie Stream URL: ${streamingInfo.streamUrl.substring(0, 50)}...`
+          );
+        } else {
+          throw new Error("No movie stream URL returned from API");
         }
-        setStreamUrl(response.data.streamUrl);
-        setSourceName(response.data.source || "Unknown Source");
-        setStreamType(response.data.streamType || null);
-        setHeaders(response.data.headers || {});
-        setError(null);
-        setDebugInfo(`Stream URL: ${streamUrl.substring(0, 50)}...`);
       } else {
-        throw new Error("No stream URL returned from API");
+        // Get episode streaming info
+        const streamingInfo = await streamingService.getEpisodeStreamingInfo(
+          id.toString(),
+          episodeId || episode,
+          {
+            serverId: sourceId,
+            quality,
+          }
+        );
+
+        if (streamingInfo && streamingInfo.streamUrl) {
+          setStreamUrl(streamingInfo.streamUrl);
+          setSourceName(streamingInfo.selectedServer?.name || "Unknown Source");
+          setStreamType(streamingInfo.sources?.sources?.[0]?.type || "mp4");
+          setHeaders(streamingInfo.sources?.headers || {});
+          setSubtitles(streamingInfo.subtitles || []);
+          setDebugInfo(
+            `Episode Stream URL: ${streamingInfo.streamUrl.substring(0, 50)}...`
+          );
+        } else {
+          throw new Error("No episode stream URL returned from API");
+        }
       }
+      setError(null);
     } catch (err: any) {
       console.error("Stream setup failed:", err);
       let errorMessage = "";
@@ -128,16 +154,29 @@ const StreamVideo = () => {
   };
 
   useEffect(() => {
-    if (!id) {
+    if (!id && !directStreamUrl) {
       Alert.alert("Error", "Invalid media reference.");
       navigation.goBack();
     } else {
       setupStream();
     }
 
-    // Clear listeners when component unmounts
+    // Set orientation unlock when component mounts
+    const lockOrientation = async () => {
+      await ScreenOrientation.unlockAsync();
+    };
+
+    lockOrientation();
+
+    // Clear listeners and lock orientation back when component unmounts
     return () => {
-      // Any cleanup code
+      const resetOrientation = async () => {
+        await ScreenOrientation.lockAsync(
+          ScreenOrientation.OrientationLock.PORTRAIT
+        );
+      };
+
+      resetOrientation();
     };
   }, [id, quality, sourceId, mediaType]);
 
@@ -177,28 +216,6 @@ const StreamVideo = () => {
     return () =>
       ScreenOrientation.removeOrientationChangeListener(subscription);
   }, []);
-  // add a new state
-  const [headers, setHeaders] = useState<Record<string, string>>({});
-  // Progress tracking for torrents if needed
-  useEffect(() => {
-    let interval: NodeJS.Timeout;
-    if (infoHash) {
-      interval = setInterval(async () => {
-        try {
-          const response = await axios.get(
-            `${DOWNLOADER_API}/torrent/progress`,
-            {
-              params: { infoHash },
-            }
-          );
-          setProgress(response.data.progress * 100);
-        } catch (err) {
-          console.error("Progress fetch error:", err);
-        }
-      }, 5000); // Poll every 5 seconds
-    }
-    return () => clearInterval(interval);
-  }, [infoHash]);
 
   const handleBuffer = ({ isBuffering }: { isBuffering: boolean }) => {
     setIsBuffering(isBuffering);
@@ -234,15 +251,44 @@ const StreamVideo = () => {
     }
   };
 
-  const videoStyle =
-    Platform.OS === "android" && isLandscape
-      ? [styles.video, styles.fullscreenVideo]
-      : styles.video;
+  const handleProgress = (data: {
+    currentTime: number;
+    playableDuration: number;
+  }) => {
+    if (data.playableDuration > 0) {
+      setProgress((data.currentTime / data.playableDuration) * 100);
+    }
+  };
+
+  const togglePlayPause = () => {
+    setPlaying(!isPlaying);
+  };
+
+  const handleError = (err: any) => {
+    console.error("Video Error:", err);
+    setError(
+      `Video playback error: ${err.error?.errorString || "Unknown error"}`
+    );
+  };
 
   const retryStream = () => {
     setError(null);
     setupStream();
   };
+
+  const videoStyle =
+    Platform.OS === "android" && isLandscape
+      ? [styles.video, styles.fullscreenVideo]
+      : styles.video;
+
+  useEffect(() => {
+    // Hide status bar in fullscreen mode
+    if (isLandscape) {
+      StatusBar.setHidden(true);
+    } else {
+      StatusBar.setHidden(false);
+    }
+  }, [isLandscape]);
 
   return (
     <View style={styles.container}>
@@ -283,139 +329,101 @@ const StreamVideo = () => {
         </View>
       )}
 
-      {/* Buffering indicator */}
-      {isBuffering && (
-        <View style={styles.bufferContainer}>
-          <ActivityIndicator size="large" color="#7d0b02" />
-          <Text style={styles.bufferText}>
-            Buffering...
-            {infoHash && `(${progress.toFixed(1)}% downloaded)`}
-          </Text>
-        </View>
-      )}
-
-      {/* Loading and error states */}
+      {/* Loading state */}
       {isLoading ? (
-        <View style={styles.loaderContainer}>
+        <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#7d0b02" />
-          <Text style={styles.loaderText}>Loading Video...</Text>
+          <Text style={styles.loadingText}>Loading stream...</Text>
         </View>
       ) : error ? (
+        // Error state
         <View style={styles.errorContainer}>
           <Text style={styles.errorText}>{error}</Text>
-          {/* Show debug info in dev mode */}
-          {__DEV__ && <Text style={styles.debugText}>{debugInfo}</Text>}
-          <TouchableOpacity onPress={retryStream} style={styles.retryButton}>
+          <TouchableOpacity style={styles.retryButton} onPress={retryStream}>
             <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.retryButton, { marginTop: 10 }]}
+            onPress={handleClose}
+          >
+            <Text style={styles.retryButtonText}>Go Back</Text>
           </TouchableOpacity>
         </View>
       ) : (
         // Video player
-        <Video
-          source={{
-            uri: streamUrl,
-            headers: {
-              ...headers,
-              "Cache-Control": "max-age=6048000",
-              "Accept-Encoding": "identity",
-            },
-            type: streamType === "hls" ? "m3u8" : undefined,
-          }}
-          style={videoStyle}
-          controls
-          resizeMode="contain"
-          paused={!isPlaying}
-          ref={videoRef}
-          onError={(err) => {
-            console.error("Video playback error:", JSON.stringify(err));
-            let errorMsg;
-
-            if (err.error && err.error.code) {
-              errorMsg = `Code: ${err.error.code}, ${
-                err.error.localizedDescription || "Unknown error"
-              }`;
-            } else if (err.error) {
-              errorMsg = `Error: ${JSON.stringify(err.error)}`;
-            } else {
-              errorMsg = `Failed to play video from ${sourceName}. URL may be invalid or inaccessible.`;
-            }
-
-            // Add more debug info
-            setDebugInfo(
-              `Stream URL: ${streamUrl.substring(
-                0,
-                50
-              )}...\nError details: ${JSON.stringify(err)}`
-            );
-            setError(errorMsg);
-
-            // Alert with actionable information
-            Alert.alert(
-              "Playback Error",
-              `${errorMsg}\n\nWould you like to try a different quality setting?`,
-              [
-                {
-                  text: "Try SD Quality",
-                  onPress: () => {
-                    setQuality("sd");
-                    setupStream();
-                  },
-                },
-                {
-                  text: "Retry",
-                  onPress: () => setupStream(),
-                },
-                {
-                  text: "Cancel",
-                  style: "cancel",
-                },
-              ]
-            );
-          }}
-          onBuffer={handleBuffer}
-          onLoad={() => setLoading(false)}
-          bufferConfig={{
-            minBufferMs: 15000,
-            maxBufferMs: 50000,
-            bufferForPlaybackMs: 5000,
-            bufferForPlaybackAfterRebufferMs: 10000,
-          }}
-        />
-      )}
-
-      {/* Mini player controls */}
-      <View style={styles.playerControls}>
-        <TouchableOpacity
-          onPress={toggleMiniPlayer}
-          style={styles.controlButton}
-        >
-          <Ionicons
-            name={miniPlayer.visible ? "expand-outline" : "contract-outline"}
-            size={24}
-            color="#fff"
+        <View style={styles.videoContainer}>
+          <Video
+            ref={videoRef}
+            source={{
+              uri: streamUrl,
+              headers,
+              type: streamType || undefined,
+            }}
+            style={videoStyle}
+            controls={true}
+            paused={!isPlaying}
+            resizeMode="contain"
+            onBuffer={handleBuffer}
+            onError={handleError}
+            onProgress={handleProgress}
+            onLoad={() => setIsBuffering(false)}
+            fullscreen={isLandscape}
+            fullscreenOrientation="landscape"
+            poster="https://via.placeholder.com/1920x1080?text=Loading..."
+            posterResizeMode="cover"
+            ignoreSilentSwitch="ignore"
+            playWhenInactive={false}
+            playInBackground={false}
+            repeat={false}
+            selectedTextTrack={{
+              type: "index", // or 'language',
+              value: 0, // value is language code when type is 'language'
+            }}
+            textTracks={subtitles.map((sub, index) => ({
+              title: sub.label || `Subtitle ${index + 1}`,
+              language: sub.label || `lang-${index}`,
+              type: "text/vtt",
+              uri: sub.file,
+            }))}
           />
-          <Text style={styles.controlText}>
-            {miniPlayer.visible ? "Expand" : "Mini Player"}
-          </Text>
-        </TouchableOpacity>
-      </View>
 
-      {miniPlayer.visible && (
-        <View style={styles.miniPlayerOverlay}>
+          {/* Buffering indicator overlay */}
+          {isBuffering && (
+            <View style={styles.bufferOverlay}>
+              <ActivityIndicator size="large" color="#fff" />
+              <Text style={styles.bufferText}>Buffering...</Text>
+            </View>
+          )}
+
+          {/* Mini player toggle button */}
           <TouchableOpacity
+            style={styles.miniPlayerButton}
             onPress={toggleMiniPlayer}
-            style={styles.miniPlayerButton}
           >
-            <Ionicons name="expand-outline" size={24} color="#fff" />
+            <Ionicons
+              name={miniPlayer.visible ? "expand" : "contract"}
+              size={24}
+              color="#fff"
+            />
           </TouchableOpacity>
+
+          {/* Play/Pause overlay button (shown briefly on tap) */}
           <TouchableOpacity
-            onPress={handleClose}
-            style={styles.miniPlayerButton}
+            style={styles.playPauseOverlay}
+            onPress={togglePlayPause}
+            activeOpacity={1}
           >
-            <Ionicons name="close-outline" size={24} color="#fff" />
+            {/* Usually empty, just used for capturing taps */}
           </TouchableOpacity>
         </View>
       )}
+
+      {/* Debug info in development */}
+      {__DEV__ && debugInfo ? (
+        <View style={styles.debugContainer}>
+          <Text style={styles.debugText}>{debugInfo}</Text>
+        </View>
+      ) : null}
     </View>
   );
 };
@@ -424,160 +432,155 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  video: {
-    width: "100%",
-    height: 300,
-    backgroundColor: "#000",
-  },
-  fullscreenVideo: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    width: Dimensions.get("window").width,
-    height: Dimensions.get("window").height,
-    zIndex: 2,
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#000",
-  },
-  loaderText: {
-    color: "#fff",
-    marginTop: 10,
-  },
-  errorContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#000",
-    padding: 20,
-  },
-  errorText: {
-    color: "red",
-    fontSize: 16,
-    marginBottom: 10,
-    textAlign: "center",
-  },
-  debugText: {
-    color: "#aaa",
-    fontSize: 12,
-    marginBottom: 20,
-    textAlign: "center",
-  },
-  retryButton: {
-    backgroundColor: "#7d0b02",
-    padding: 10,
-    borderRadius: 5,
-  },
-  retryButtonText: {
-    color: "#fff",
-    fontSize: 16,
   },
   header: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    paddingTop: Platform.OS === "ios" ? 40 : 20,
-    paddingHorizontal: 10,
-    paddingBottom: 10,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    zIndex: 3,
+    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    backgroundColor: "#121212",
   },
   headerButton: {
-    padding: 10,
+    padding: 8,
   },
   titleText: {
-    color: "#fff",
+    flex: 1,
     fontSize: 18,
     fontWeight: "bold",
-    flex: 1,
-    textAlign: "center",
-    marginHorizontal: 10,
+    color: "#fff",
+    marginHorizontal: 16,
   },
   qualityControls: {
     flexDirection: "row",
-    justifyContent: "flex-end",
   },
   qualityButton: {
-    backgroundColor: "#444",
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    marginHorizontal: 5,
-    borderRadius: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 4,
+    marginLeft: 8,
+    backgroundColor: "#333",
   },
   activeQuality: {
     backgroundColor: "#7d0b02",
   },
   qualityButtonText: {
     color: "#fff",
+    fontWeight: "bold",
+  },
+  sourceInfo: {
+    backgroundColor: "#121212",
+    padding: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
+  },
+  sourceText: {
+    color: "#aaa",
     fontSize: 14,
   },
-  bufferContainer: {
+  videoContainer: {
+    flex: 1,
+    position: "relative",
+    backgroundColor: "#000",
+  },
+  video: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  fullscreenVideo: {
     position: "absolute",
-    top: "45%",
+    top: 0,
+    left: 0,
+    bottom: 0,
+    right: 0,
+    height,
+    width,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#121212",
+  },
+  loadingText: {
+    marginTop: 16,
+    color: "#fff",
+    fontSize: 16,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+    backgroundColor: "#121212",
+  },
+  errorText: {
+    fontSize: 16,
+    color: "#ff6b6b",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: "#7d0b02",
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  bufferOverlay: {
+    position: "absolute",
+    top: 0,
     left: 0,
     right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    justifyContent: "center",
     alignItems: "center",
-    zIndex: 4,
   },
   bufferText: {
     color: "#fff",
-    backgroundColor: "rgba(0,0,0,0.7)",
-    paddingHorizontal: 15,
-    paddingVertical: 8,
-    borderRadius: 20,
-    marginTop: 5,
+    marginTop: 12,
+    fontSize: 16,
   },
-  sourceInfo: {
-    paddingVertical: 5,
-    paddingHorizontal: 10,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    alignItems: "center",
-  },
-  sourceText: {
-    color: "#ddd",
-    fontSize: 14,
-  },
-  playerControls: {
-    position: "absolute",
-    bottom: 20,
-    left: 0,
-    right: 0,
-    flexDirection: "row",
-    justifyContent: "center",
-    zIndex: 3,
-  },
-  controlButton: {
-    backgroundColor: "rgba(0,0,0,0.7)",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    paddingHorizontal: 15,
-    borderRadius: 20,
-  },
-  controlText: {
-    color: "#fff",
-    marginLeft: 5,
-  },
-  miniPlayerOverlay: {
+  miniPlayerButton: {
     position: "absolute",
     bottom: 20,
     right: 20,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    width: 100,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    borderRadius: 20,
-    padding: 5,
-    zIndex: 4,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
+    padding: 12,
+    borderRadius: 30,
   },
-  miniPlayerButton: {
-    padding: 8,
+  playPauseOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  debugContainer: {
+    padding: 16,
+    backgroundColor: "#121212",
+  },
+  debugText: {
+    color: "#777",
+    fontSize: 12,
+  },
+  bufferContainer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    zIndex: 10,
   },
 });
 
