@@ -20,7 +20,7 @@ import { useNavigation, RouteProp, useRoute } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import Constants from "expo-constants";
 import { Ionicons } from "@expo/vector-icons";
-import streamingService from "@/utils/streamingService";
+import streamingService, { SearchItem } from "@/utils/streamingService";
 
 const { width } = Dimensions.get("window");
 const TMDB_API_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
@@ -217,47 +217,40 @@ export default function Movies(): JSX.Element {
   };
 
   // New function to handle "Watch Now" directly
-  const handleWatchNow = async (item: Movie) => {
+  const handleWatchNow = async (item: SearchItem) => {
     try {
       setStreamLoading(true);
 
       // Check if this is a direct streaming item from our service
-      if (item.originalId) {
+      if (item.id) {
         // Directly navigate to streaming with all required data
-        const movieId = item.originalId.toString();
+        const movieId = item.id.toString();
 
         // Get streaming info in one call
-        const streamingInfo = await streamingService.getMovieStreamingInfo(
-          movieId
+        const streamInfo = await streamingService.getMovieStreamingInfo(
+          item.id.toString()
         );
-
-        if (streamingInfo && streamingInfo.streamUrl) {
-          // Navigate directly to the Stream screen with all required info
-          navigation.navigate("Stream", {
-            mediaType: "movie",
-            id: parseInt(movieId, 10),
-            videoTitle: item.Title,
-            streamUrl: streamingInfo.streamUrl,
-            subtitles: streamingInfo.subtitles || [],
-            sourceName: streamingInfo.selectedServer?.name || "Default",
-            // Add any other required props
-          });
-        } else {
-          throw new Error("Failed to get stream URL");
-        }
+        navigation.navigate("Stream", {
+          mediaType: "movie",
+          id: item.id,
+          videoTitle: item.title,
+          streamUrl: streamInfo.streamUrl,
+          subtitles: streamInfo.subtitles,
+          sourceName: streamInfo.selectedServer?.name,
+        });
       } else {
         // Fall back to regular navigation flow for TMDB items
         if (contentType === "series") {
-          const tvId = parseInt(item.imdbID, 10);
+          const tvId = item.id;
           navigation.navigate("SeriesDetail", {
             tv_id: tvId,
-            title: item.Title,
+            title: item.title,
           });
         } else {
           navigation.navigate("Stream", {
             mediaType: "movie",
-            id: parseInt(item.imdbID, 10),
-            videoTitle: item.Title,
+            id: item.id,
+            videoTitle: item.title,
             // Default values since we don't have streaming info yet
             season: "0",
             episode: "0",

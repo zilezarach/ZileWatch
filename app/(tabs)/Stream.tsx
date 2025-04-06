@@ -83,18 +83,14 @@ const StreamVideo = () => {
       if (mediaType === "movie") {
         // Get movie streaming info
         const streamingInfo = await streamingService.getMovieStreamingInfo(
-          id.toString(),
-          {
-            serverId: sourceId,
-            quality,
-          }
+          id.toString()
         );
 
         if (streamingInfo && streamingInfo.streamUrl) {
           setStreamUrl(streamingInfo.streamUrl);
           setSourceName(streamingInfo.selectedServer?.name || "Unknown Source");
-          setStreamType(streamingInfo.sources?.sources?.[0]?.type || "hls");
-          setHeaders(streamingInfo.sources?.headers || {});
+          setStreamType("hls");
+          setHeaders({});
           setSubtitles(streamingInfo.subtitles || []);
           setDebugInfo(
             `Movie Stream URL: ${streamingInfo.streamUrl.substring(0, 50)}...`
@@ -106,18 +102,14 @@ const StreamVideo = () => {
         // Get episode streaming info
         const streamingInfo = await streamingService.getEpisodeStreamingInfo(
           id.toString(),
-          episodeId || episode,
-          {
-            serverId: sourceId,
-            quality,
-          }
+          episodeId?.toString() || episode?.toString()
         );
 
         if (streamingInfo && streamingInfo.streamUrl) {
           setStreamUrl(streamingInfo.streamUrl);
           setSourceName(streamingInfo.selectedServer?.name || "Unknown Source");
-          setStreamType(streamingInfo.sources?.sources?.[0]?.type || "mp4");
-          setHeaders(streamingInfo.sources?.headers || {});
+          setStreamType("hls");
+          setHeaders({});
           setSubtitles(streamingInfo.subtitles || []);
           setDebugInfo(
             `Episode Stream URL: ${streamingInfo.streamUrl.substring(0, 50)}...`
@@ -375,16 +367,6 @@ const StreamVideo = () => {
             playWhenInactive={false}
             playInBackground={false}
             repeat={false}
-            selectedTextTrack={{
-              type: "index" as const, // or 'language',
-              value: 0, // value is language code when type is 'language'
-            }}
-            textTracks={subtitles.map((sub, index) => ({
-              title: sub.label || `Subtitle ${index + 1}`,
-              language: sub.label || `lang-${index}`,
-              type: "text/vtt",
-              uri: sub.file,
-            }))}
           />
 
           {/* Buffering indicator overlay */}

@@ -76,32 +76,6 @@ export default function EpisodeListScreen() {
   // Error state handler
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch available servers
-  const fetchServers = useCallback(async () => {
-    if (!isFromBackend) return; // Only fetch servers for backend content
-
-    try {
-      const firstEpisodeId = episodes.length > 0 ? episodes[0].id : null;
-
-      if (firstEpisodeId) {
-        // Use the first episode to get available servers
-        const servers = await streamingService.getServers(
-          tv_id.toString(),
-          firstEpisodeId.toString()
-        );
-
-        if (servers && servers.length > 0) {
-          setSources(servers);
-          setSelectedSource(
-            servers.find((s: any) => s.name === "Vidcloud") || servers[0]
-          );
-        }
-      }
-    } catch (error) {
-      console.error("Error fetching servers:", error);
-    }
-  }, [tv_id, episodes, isFromBackend]);
-
   // Fetch episodes based on source
   const fetchEpisodes = useCallback(async () => {
     try {
@@ -181,13 +155,6 @@ export default function EpisodeListScreen() {
   useEffect(() => {
     fetchEpisodes();
   }, [fetchEpisodes]);
-
-  // Fetch servers once episodes are loaded
-  useEffect(() => {
-    if (episodes.length > 0 && isFromBackend) {
-      fetchServers();
-    }
-  }, [episodes, fetchServers, isFromBackend]);
 
   const onRefresh = () => {
     setRefreshing(true);
