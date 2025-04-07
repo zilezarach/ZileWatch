@@ -1,87 +1,190 @@
 import axios from "axios";
 import Constants from "expo-constants";
 
-const API_BASE = Constants.expoConfig?.extra?.API_Backend;
-// e.g. "http://localhost:7474"
+// Replace with your API base URL
+const BASE_URL = Constants.expoConfig?.extra?.API_Backend;
 
 export interface SearchItem {
+  id: string;
   title: string;
-  id: number;
-  stats?: any;
-  overview?: string;
-  poster?: string;
+  poster: string;
+  stats: {
+    year?: string;
+    duration?: string;
+    rating?: string;
+    seasons?: string;
+  };
+  type: "movie" | "series";
 }
+
 export interface StreamingInfo {
   streamUrl: string;
-  selectedServer?: { id: string; name: string };
-  subtitles?: Array<{ file: string; label?: string }>;
+  subtitles: { file: string; label: string; kind: string; default?: boolean }[];
+  selectedServer: { id: string; name: string };
 }
-export interface SeriesInfo {
-  details: {
-    title: string;
-    overview: string;
-    poster?: string;
-    stats?: { rating?: string };
-  };
-  seasons: Array<{
-    id: number;
-    number: number;
-    name?: string;
-    episode_count?: number;
-  }>;
+
+export interface Episode {
+  id: string;
+  number: number;
+  title: string;
+  description?: string;
+  img?: string;
+}
+
+export interface Season {
+  id: string;
+  number: number;
+}
+
+// Search for content
+async function searchContent(query: string, contentType?: "movie" | "series"): Promise<SearchItem[]> {
+  try {
+    const response = await axios.get(`${BASE_URL}/content`, {
+      params: { q: query }
+    });
+
+    const items = response.data.items.map((item: any) => ({
+      id: item.id,
+      title: item.title,
+      poster: item.poster,
+      stats: item.stats,
+      type: item.stats.seasons ? "series" : "movie"
+    }));
+
+    // Filter based on contentType if provided
+    return contentType ? items.filter((item: SearchItem) => item.type === contentType) : items;
+  } catch (error) {
+    console.error("Search error:", error);
+    throw error;
+  }
+}
+
+// Get movie streaming URL
+async function getMovieStreamingUrl(movieId: string): Promise<StreamingInfo> {
+  try {
+    // Get movie details
+    const details = await axios.get(`${BASE_URL}/movie/${movieId}`);
+    const episodeId = details.data.episodeId;
+
+    // Get servers
+    const serversRes = await axios.get(`${BASE_URL}/movie/${movieId}/servers`, {
+      params: { episodeId }
+    });
+
+    const servers = serversRes.data.servers;
+    const selectedServer = servers.find((s: any) => s.name === "Vidcloud") || servers[0];
+
+    if (!selectedServer) throw new Error("No servers available");
+
+    // Get sources
+    const sourcesRes = await axios.get(`${BASE_URL}/movie/${movieId}/sources`, {
+      params: { serverId: selectedServer.id }
+    });
+
+    const { sources, tracks } = sourcesRes.data;
+
+    return {
+      streamUrl: sources[0].file,
+      subtitles: tracks || [],
+      selectedServer
+    };
+  } catch (error) {
+    console.error("Movie streaming error:", error);
+    throw error;
+  }
+}
+
+// Get series seasons
+async function getSeasons(seriesId: string): Promise<Season[]> {
+  try {
+    const response = await axios.get(`${BASE_URL}/movie/${seriesId}/seasons`);
+    return response.data.seasons;
+  } catch (error) {
+    console.error("Seasons fetch error:", error);
+    throw error;
+  }
+}
+
+// Get episodes for a season
+async function getEpisodesForSeason(seriesId: string, seasonId: string): Promise<{ episodes: Episode[] }> {
+  try {
+    const response = await axios.get(`${BASE_URL}/movie/${seriesId}/episodes`, {
+      params: { seasonId }
+    });
+
+    return {
+      episodes: response.data.episodes.map((ep: any) => ({
+        id: ep.id,
+        number: ep.number,
+        title: ep.title,
+        description: ep.description,
+        img: ep.img
+      }))
+    };
+  } catch (error) {
+    console.error("Episodes fetch error:", error);
+    throw error;
+  }
+}
+
+// Get episode streaming sources
+async function getEpisodeSources(seriesId: string, episodeId: string): Promise<{ servers: any[] }> {
+  try {
+    const serversRes = await axios.get(`${BASE_URL}/movie/${seriesId}/servers`, {
+      params: { episodeId }
+    });
+
+    return {
+      servers: serversRes.data.servers
+    };
+  } catch (error) {
+    console.error("Episode sources error:", error);
+    throw error;
+  }
+}
+
+// Get episode streaming URL
+async function getEpisodeStreamingUrl(seriesId: string, episodeId: string, serverId?: string): Promise<StreamingInfo> {
+  try {
+    // Get servers
+    const serversRes = await axios.get(`${BASE_URL}/movie/${seriesId}/servers`, {
+      params: { episodeId }
+    });
+
+    const servers = serversRes.data.servers;
+    const selectedServer = serverId
+      ? servers.find((s: any) => s.id === serverId)
+      : servers.find((s: any) => s.name === "Vidcloud") || servers[0];
+
+    if (!selectedServer) throw new Error("No servers available");
+
+    // Get sources
+    const sourcesRes = await axios.get(`${BASE_URL}/movie/${seriesId}/sources`, {
+      params: { serverId: selectedServer.id }
+    });
+
+    const { sources, tracks } = sourcesRes.data;
+
+    if (!sources || sources.length === 0) {
+      throw new Error("No sources available");
+    }
+
+    return {
+      streamUrl: sources[0].file,
+      subtitles: tracks || [],
+      selectedServer
+    };
+  } catch (error) {
+    console.error("Episode streaming error:", error);
+    throw error;
+  }
 }
 
 export default {
-  // 1) search your backend
-  async searchContent(
-    q: string,
-    type: "movie" | "series"
-  ): Promise<SearchItem[]> {
-    const resp = await axios.get<SearchItem[]>(`${API_BASE}/content`, {
-      params: { q },
-    });
-    return resp.data;
-  },
-
-  // 2) movie HLS
-  async getMovieStreamingInfo(movieId: string): Promise<StreamingInfo> {
-    const { data } = await axios.get<{ hls: string }>(
-      `${API_BASE}/movie/${movieId}/stream`
-    );
-    return {
-      streamUrl: data.hls,
-      selectedServer: { id: "auto", name: "vidcloud" },
-      subtitles: [],
-    };
-  },
-
-  // 3) episode HLS
-  async getEpisodeStreamingInfo(
-    tvId: string,
-    episodeId: string
-  ): Promise<StreamingInfo> {
-    const { data } = await axios.get<{ hls: string }>(
-      `${API_BASE}/movie/${tvId}/stream`,
-      { params: { episodeId } }
-    );
-    return {
-      streamUrl: data.hls,
-      selectedServer: { id: "auto", name: "vidcloud" },
-      subtitles: [],
-    };
-  },
-
-  // 4) series details + seasons
-  async getSeriesInfo(tvId: string): Promise<SeriesInfo> {
-    const { data } = await axios.get<SeriesInfo>(`${API_BASE}/series/${tvId}`);
-    return data;
-  },
-
-  // 5) season→episodes
-  async getSeasonWithEpisodes(tvId: string, seasonId: string) {
-    const { data } = await axios.get<{ episodes: any[] }>(
-      `${API_BASE}/series/${tvId}/season/${seasonId}`
-    );
-    return data;
-  },
+  searchContent,
+  getMovieStreamingUrl,
+  getSeasons,
+  getEpisodesForSeason,
+  getEpisodeSources,
+  getEpisodeStreamingUrl
 };

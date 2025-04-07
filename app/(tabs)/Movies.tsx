@@ -11,7 +11,7 @@ import {
   Alert,
   Dimensions,
   Switch,
-  Modal,
+  Modal
 } from "react-native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -19,7 +19,6 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useNavigation, RouteProp, useRoute } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import Constants from "expo-constants";
-import { Ionicons } from "@expo/vector-icons";
 import streamingService, { SearchItem } from "@/utils/streamingService";
 
 const { width } = Dimensions.get("window");
@@ -51,7 +50,7 @@ interface Series extends BaseMedia {
 type NavigationProp = RouteProp<RootStackParamList, "MovieDetail">;
 
 export default function Movies(): JSX.Element {
-  const [movies, setMovies] = useState<Movie[]>([]);
+  const [movies, setMovies] = useState<SearchItem[]>([]);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(false);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
@@ -70,101 +69,27 @@ export default function Movies(): JSX.Element {
   }, []);
 
   // Fix: Make sure to properly type the navigation
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<NavigationProp>();
 
   // Fetch movies/series by search query (with caching)
-  const fetchMovies = async (query: string) => {
+  const fetchContent = async (query: string) => {
     try {
       setIsSearching(true);
       setLoading(true);
-
-      // Check cache first
       const cacheKey = `${query}_${contentType}`;
-      const cachedMovies = await AsyncStorage.getItem(cacheKey);
-
+      const cachedData = await AsyncStorage.getItem(cacheKey);
       if (!isMounted.current) return;
-
-      if (cachedMovies) {
-        setMovies(JSON.parse(cachedMovies));
+      if (cachedData) {
+        setMovies(JSON.parse(cachedData));
       } else {
-        // Try to search from our streaming service first
-        try {
-          const streamResults = await streamingService.searchContent(
-            query,
-            contentType
-          );
-
-          if (streamResults && streamResults.length > 0) {
-            // Format results to match our Movie interface
-            const formattedResults = streamResults.map((item: any) => ({
-              Title: item.title || "Unknown",
-              Year: item.stats?.year || "N/A",
-              Genre: item.stats?.genre || "N/A",
-              Plot: item.overview || "No description available.",
-              Poster: item.poster || "https://via.placeholder.com/100x150",
-              imdbID: item.id.toString(),
-              imdbRating: item.stats?.rating || "N/A",
-              category: contentType === "series" ? "Series" : "Movie",
-              // Store original data for direct streaming
-              originalId: item.id,
-              duration: item.stats?.duration || "N/A",
-            }));
-
-            if (!isMounted.current) return;
-            setMovies(formattedResults);
-            await AsyncStorage.setItem(
-              cacheKey,
-              JSON.stringify(formattedResults)
-            );
-            return;
-          }
-        } catch (err) {
-          console.warn(
-            "Streaming service search failed, falling back to TMDB:",
-            err
-          );
-        }
-
-        // Fallback to TMDB
-        const url =
-          contentType === "series"
-            ? `${TMDB_API_URL}/search/tv`
-            : `${TMDB_API_URL}/search/movie`;
-
-        const res = await axios.get(url, {
-          params: { api_key: TMDB_API_KEY, query, language: "en-US" },
-        });
-
+        const results = await streamingService.searchContent(query, contentType);
         if (!isMounted.current) return;
-
-        const data = res.data.results.map((item: any) => ({
-          Title: contentType === "series" ? item.name : item.title,
-          Year:
-            (contentType === "series"
-              ? item.first_air_date
-              : item.release_date
-            )?.split("-")[0] || "N/A",
-          Genre: item.genres?.[0]?.name || "N/A",
-          Plot: item.overview || "No description available.",
-          Poster: item.poster_path
-            ? `https://image.tmdb.org/t/p/w500${item.poster_path}`
-            : "https://via.placeholder.com/100x150",
-          imdbID: item.id.toString(),
-          // Add tv_id for series to make it easier to navigate
-          ...(contentType === "series" && { tv_id: item.id }),
-          imdbRating: item.vote_average?.toString() || "N/A",
-          category: contentType === "series" ? "Series" : "Movie",
-        }));
-
-        if (!isMounted.current) return;
-        setMovies(data);
-        await AsyncStorage.setItem(cacheKey, JSON.stringify(data));
+        setMovies(results);
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(results));
       }
     } catch (error) {
-      console.error("Error fetching search results:", error);
-      Alert.alert("Error", "Failed to fetch search results.");
+      console.error("Error fetching content", error);
     } finally {
       if (isMounted.current) {
         setLoading(false);
@@ -172,27 +97,19 @@ export default function Movies(): JSX.Element {
       }
     }
   };
-
   // Fetch popular movies or series from TMDB based on contentType.
   const fetchPopular = async () => {
     try {
       setLoading(true);
-      const url =
-        contentType === "series"
-          ? `${TMDB_API_URL}/tv/popular`
-          : `${TMDB_API_URL}/movie/popular`;
+      const url = contentType === "series" ? `${TMDB_API_URL}/tv/popular` : `${TMDB_API_URL}/movie/popular`;
 
       const res = await axios.get(url, {
-        params: { api_key: TMDB_API_KEY, language: "en-US", page: 1 },
+        params: { api_key: TMDB_API_KEY, language: "en-US", page: 1 }
       });
 
       const data = res.data.results.map((item: any) => ({
         Title: contentType === "series" ? item.name : item.title,
-        Year:
-          (contentType === "series"
-            ? item.first_air_date
-            : item.release_date
-          )?.split("-")[0] || "N/A",
+        Year: (contentType === "series" ? item.first_air_date : item.release_date)?.split("-")[0] || "N/A",
         Genre: item.genres?.[0]?.name || "N/A",
         Plot: item.overview || "No description available.",
         Poster: item.poster_path
@@ -202,7 +119,7 @@ export default function Movies(): JSX.Element {
         // Add tv_id for series to make it easier to navigate
         ...(contentType === "series" && { tv_id: item.id }),
         imdbRating: item.vote_average?.toString() || "N/A",
-        category: contentType === "series" ? "Series" : "Movie",
+        category: contentType === "series" ? "Series" : "Movie"
       }));
 
       setMovies(data);
@@ -216,85 +133,55 @@ export default function Movies(): JSX.Element {
     }
   };
 
-  // New function to handle "Watch Now" directly
+  // function to handle "Watch Now" directly
   const handleWatchNow = async (item: SearchItem) => {
     try {
       setStreamLoading(true);
-
-      // Check if this is a direct streaming item from our service
-      if (item.id) {
-        // Directly navigate to streaming with all required data
-        const movieId = item.id.toString();
-
-        // Get streaming info in one call
-        const streamInfo = await streamingService.getMovieStreamingInfo(
-          item.id.toString()
-        );
+      if (contentType === "movie") {
+        const streamInfo = await streamingService.getMovieStreamingUrl(item.id);
         navigation.navigate("Stream", {
           mediaType: "movie",
           id: item.id,
           videoTitle: item.title,
           streamUrl: streamInfo.streamUrl,
           subtitles: streamInfo.subtitles,
-          sourceName: streamInfo.selectedServer?.name,
+          sourceName: streamInfo.selectedServer.name
         });
       } else {
-        // Fall back to regular navigation flow for TMDB items
-        if (contentType === "series") {
-          const tvId = item.id;
-          navigation.navigate("SeriesDetail", {
-            tv_id: tvId,
-            title: item.title,
-          });
-        } else {
-          navigation.navigate("Stream", {
-            mediaType: "movie",
-            id: item.id,
-            videoTitle: item.title,
-            // Default values since we don't have streaming info yet
-            season: "0",
-            episode: "0",
-          });
-        }
+        navigation.navigate("SeriesDetail", {
+          tv_id: item.id,
+          title: item.title
+        });
       }
     } catch (error) {
-      console.error("Stream setup error:", error);
-      Alert.alert(
-        "Streaming Error",
-        "Failed to set up streaming. Please try again."
-      );
+      console.error("Error Setting up Streams", error);
+      Alert.alert("Error", "Fetching Streams");
     } finally {
       setStreamLoading(false);
     }
   };
-
   // render series and Movies
-  const MemoizedMovieItem = React.memo(({ item }: { item: any }) => (
+  const MemoizedMovieItem = React.memo(({ item }: { item: SearchItem }) => (
     <View style={styles.movieCard}>
       <Image
-        source={{ uri: item.Poster }}
+        source={{ uri: item.poster }}
         style={styles.movieImage}
         // Add default image fallback
         defaultSource={require("../../assets/images/Original.png")}
       />
       <View style={styles.movieDetails}>
-        <Text style={styles.movieTitle}>{item.Title}</Text>
+        <Text style={styles.movieTitle}>{item.title}</Text>
         <Text style={styles.movieDescription} numberOfLines={3}>
-          {item.Plot}
+          {item.stats.year || item.stats.seasons || "No description available"};
         </Text>
-        <Text style={styles.movieRating}>IMDb Rating: {item.imdbRating}</Text>
+        <Text style={styles.movieRating}>IMDb Rating: {item.stats.rating}</Text>
 
         {/* Show loading indicator when streaming is being set up */}
         {streamLoading ? (
           <ActivityIndicator size="small" color="#FF5722" />
         ) : (
-          <TouchableOpacity
-            style={styles.button}
-            onPress={() => handleWatchNow(item)}
-          >
-            <Text style={styles.buttonText}>
-              {contentType === "series" ? "View Seasons" : "Watch Now"}
-            </Text>
+          <TouchableOpacity style={styles.button} onPress={() => handleWatchNow(item)}>
+            <Text style={styles.buttonText}>{contentType === "series" ? "View Seasons" : "Watch Now"}</Text>
           </TouchableOpacity>
         )}
       </View>
@@ -302,15 +189,10 @@ export default function Movies(): JSX.Element {
   ));
 
   //RenderItem
-  const renderItem = ({ item }: { item: any }) => (
-    <MemoizedMovieItem item={item} />
-  );
+  const renderItem = ({ item }: { item: SearchItem }) => <MemoizedMovieItem item={item} />;
 
   //flatlist optimizations
-  const keyExtractor = React.useCallback(
-    (item: any) => item.imdbID + item.Title,
-    []
-  );
+  const keyExtractor = (item: SearchItem) => item.id;
 
   useEffect(() => {
     fetchPopular();
@@ -327,21 +209,13 @@ export default function Movies(): JSX.Element {
       {/* Content Type Toggle */}
       <View style={styles.typeToggleContainer}>
         <TouchableOpacity
-          style={[
-            styles.typeButton,
-            contentType === "movie" && styles.activeType,
-          ]}
-          onPress={() => setContentType("movie")}
-        >
+          style={[styles.typeButton, contentType === "movie" && styles.activeType]}
+          onPress={() => setContentType("movie")}>
           <Text style={styles.typeButtonText}>Movies</Text>
         </TouchableOpacity>
         <TouchableOpacity
-          style={[
-            styles.typeButton,
-            contentType === "series" && styles.activeType,
-          ]}
-          onPress={() => setContentType("series")}
-        >
+          style={[styles.typeButton, contentType === "series" && styles.activeType]}
+          onPress={() => setContentType("series")}>
           <Text style={styles.typeButtonText}>Series</Text>
         </TouchableOpacity>
       </View>
@@ -352,14 +226,13 @@ export default function Movies(): JSX.Element {
         placeholder="Search for a title..."
         placeholderTextColor="#AAA"
         value={searchQuery}
-        onChangeText={(text) => {
+        onChangeText={text => {
           setSearchQuery(text);
           if (!text.trim()) {
-            setMovies([]);
             fetchPopular();
           }
         }}
-        onSubmitEditing={() => fetchMovies(searchQuery)}
+        onSubmitEditing={() => fetchContent(searchQuery)}
       />
 
       {/* List of Movies/Series */}
@@ -372,9 +245,7 @@ export default function Movies(): JSX.Element {
           renderItem={renderItem}
           ListHeaderComponent={
             <Text style={styles.sectionTitle}>
-              {isSearching
-                ? "Search Results"
-                : "Popular " + (contentType === "series" ? "Series" : "Movies")}
+              {isSearching ? "Search Results" : "Popular " + (contentType === "series" ? "Series" : "Movies")}
             </Text>
           }
           removeClippedSubviews={true}
@@ -384,7 +255,7 @@ export default function Movies(): JSX.Element {
           getItemLayout={(data, index) => ({
             length: 170,
             offset: 170 * index,
-            index,
+            index
           })}
         />
       )}
@@ -398,19 +269,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 10
   },
   toggleLabel: { fontSize: 16, color: "#FFF" },
   typeToggleContainer: {
     flexDirection: "row",
     justifyContent: "center",
-    marginBottom: 10,
+    marginBottom: 10
   },
   typeButton: {
     padding: 10,
     backgroundColor: "#7d0b02",
     borderRadius: 5,
-    marginHorizontal: 5,
+    marginHorizontal: 5
   },
   activeType: { backgroundColor: "#FF5722" },
   typeButtonText: { color: "#FFF", fontWeight: "bold" },
@@ -419,13 +290,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     color: "#FFF",
-    marginBottom: 20,
+    marginBottom: 20
   },
   sectionTitle: {
     color: "#FFF",
     fontSize: 18,
     fontWeight: "bold",
-    marginVertical: 10,
+    marginVertical: 10
   },
   movieCard: {
     flexDirection: "row",
@@ -433,7 +304,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     marginVertical: 10,
-    elevation: 5,
+    elevation: 5
   },
   movieImage: { width: 100, height: 150, borderRadius: 10 },
   movieDetails: { flex: 1, marginLeft: 10 },
@@ -444,8 +315,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF5722",
     borderRadius: 10,
     padding: 10,
-    marginTop: 5,
+    marginTop: 5
   },
   buttonText: { color: "#FFF", fontSize: 16 },
-  darkMode: { backgroundColor: "#121212" },
+  darkMode: { backgroundColor: "#121212" }
 });
