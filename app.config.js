@@ -60,7 +60,7 @@ export default {
     },
     extra: {
       youtubeApiKey: process.env.YOUTUBE_API_KEY,
-      API_Backend: process.env.API_KEY || "https://api.0xzile.sbs",
+      API_Backend: process.env.API_KEY || "http://localhost:7474",
       TMBD_KEY: process.env.TMBD_KEY,
       TMBD_URL: "https://api.themoviedb.org/3",
       eas: {

@@ -1,3 +1,4 @@
+// utils/streamingService.ts
 import axios from "axios";
 import Constants from "expo-constants";
 
@@ -59,33 +60,50 @@ export async function searchContent(
 export async function getMovieStreamingUrl(
   movieId: string
 ): Promise<StreamingInfo> {
-  // detail → episodeId
+  // 2.1) get episodeId
   const detail = await axios.get<any>(`${BASE_URL}/movie/${movieId}`, {
     timeout: TIMEOUT,
   });
   const episodeId = detail.data.episodeId;
+  if (!episodeId) throw new Error(`No episodeId for movie ${movieId}`);
 
-  // servers
+  // 2.2) get servers
   const srv = await axios.get<{ servers: any[] }>(
     `${BASE_URL}/movie/${movieId}/servers`,
     { params: { episodeId }, timeout: TIMEOUT }
   );
-  const servers = srv.data.servers;
+  const servers = srv.data.servers || [];
+  if (!servers.length) throw new Error(`No servers for movie ${movieId}`);
+
   const selectedServer =
     servers.find((s) => s.name === "Vidcloud") || servers[0];
-  if (!selectedServer) throw new Error("No servers available");
+  if (!selectedServer?.id) throw new Error("Invalid server selected");
 
-  // sources
+  // 2.3) get sources
   const src = await axios.get<any>(`${BASE_URL}/movie/${movieId}/sources`, {
-    params: { serverId: selectedServer.id },
+    params: { serverId: selectedServer.id, episodeId },
     timeout: TIMEOUT,
   });
+  const sources = src.data.sources;
+  if (!sources?.length) throw new Error("No sources available");
 
   return {
-    streamUrl: src.data.sources[0].file,
+    streamUrl: sources[0].file,
     subtitles: src.data.tracks || [],
     selectedServer,
   };
+}
+
+// 2a) Just fetch server list for an episode
+export async function getEpisodeSources(
+  seriesId: string,
+  episodeId: string
+): Promise<{ servers: any[] }> {
+  const res = await axios.get<{ servers: any[] }>(
+    `${BASE_URL}/movie/${seriesId}/servers`,
+    { params: { episodeId }, timeout: TIMEOUT }
+  );
+  return { servers: res.data.servers || [] };
 }
 
 // 3) Series: seasons list
@@ -94,7 +112,7 @@ export async function getSeasons(seriesId: string): Promise<Season[]> {
     `${BASE_URL}/movie/${seriesId}/seasons`,
     { timeout: TIMEOUT }
   );
-  return res.data.seasons;
+  return res.data.seasons || [];
 }
 
 // 4) Series: episodes list
@@ -104,10 +122,7 @@ export async function getEpisodesForSeason(
 ): Promise<Episode[]> {
   const res = await axios.get<{ episodes: any[] }>(
     `${BASE_URL}/movie/${seriesId}/episodes`,
-    {
-      params: { seasonId },
-      timeout: TIMEOUT,
-    }
+    { params: { seasonId }, timeout: TIMEOUT }
   );
   return res.data.episodes.map((ep) => ({
     id: ep.id,
@@ -124,29 +139,25 @@ export async function getEpisodeStreamingUrl(
   episodeId: string,
   serverId?: string
 ): Promise<StreamingInfo> {
-  // servers
-  const srv = await axios.get<{ servers: any[] }>(
-    `${BASE_URL}/movie/${seriesId}/servers`,
-    {
-      params: { episodeId },
-      timeout: TIMEOUT,
-    }
-  );
-  const servers = srv.data.servers;
+  // 5.1) get servers
+  const { servers } = await getEpisodeSources(seriesId, episodeId);
+  if (!servers.length) throw new Error("No servers available");
+
   const selectedServer = serverId
     ? servers.find((s) => s.id === serverId)
     : servers.find((s) => s.name === "Vidcloud") || servers[0];
-  if (!selectedServer) throw new Error("No servers available");
+  if (!selectedServer?.id) throw new Error("Invalid server selected");
 
-  // sources
+  // 5.2) get sources
   const src = await axios.get<any>(`${BASE_URL}/movie/${seriesId}/sources`, {
-    params: { serverId: selectedServer.id },
+    params: { serverId: selectedServer.id, episodeId },
     timeout: TIMEOUT,
   });
-  if (!src.data.sources?.length) throw new Error("No sources available");
+  const sources = src.data.sources;
+  if (!sources?.length) throw new Error("No sources available");
 
   return {
-    streamUrl: src.data.sources[0].file,
+    streamUrl: sources[0].file,
     subtitles: src.data.tracks || [],
     selectedServer,
   };
@@ -155,6 +166,7 @@ export async function getEpisodeStreamingUrl(
 export default {
   searchContent,
   getMovieStreamingUrl,
+  getEpisodeSources,
   getSeasons,
   getEpisodesForSeason,
   getEpisodeStreamingUrl,

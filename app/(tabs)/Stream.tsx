@@ -9,7 +9,7 @@ import {
   Platform,
   Dimensions,
   StatusBar,
-  ScrollView
+  ScrollView,
 } from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import axios from "axios";
@@ -37,10 +37,9 @@ const StreamVideo = () => {
     mediaType = "movie",
     id,
     videoTitle,
-    episodeId,
+    episodeId: episodeId,
     streamUrl: directStreamUrl,
     sourceName: directSourceName,
-    subtitles: directSubtitles
   } = route.params;
 
   const [availableSources, setAvailableSources] = useState<StreamSource[]>([]);
@@ -48,16 +47,16 @@ const StreamVideo = () => {
   const [streamUrl, setStreamUrl] = useState<string>(directStreamUrl || "");
   const [streamType, setStreamType] = useState<string>("m3u8");
   const [headers, setHeaders] = useState<Record<string, string>>({
-    "User-Agent": "ExoPlayerDemo/1.0 (Linux;Android 11) ExoPlayerLib/2.14.0"
+    "User-Agent": "ExoPlayerDemo/1.0 (Linux;Android 11) ExoPlayerLib/2.14.0",
   });
-  const [subtitles, setSubtitles] = useState<any[]>(directSubtitles || []);
+  //const [subtitles, setSubtitles] = useState<any[]>(directSubtitles || []);
   const [isLoading, setLoading] = useState<boolean>(!directStreamUrl);
   const [isPlaying, setPlaying] = useState<boolean>(true);
   const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const [isBuffering, setIsBuffering] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState<number>(0);
-
+  const BASE_URL = Constants.expoConfig?.extra?.API_Backend;
   // Map API type/url → container hint
   const determineStreamType = (url: string, apiType?: string): string => {
     const lower = url.toLowerCase();
@@ -71,23 +70,26 @@ const StreamVideo = () => {
   // Fetch servers list
   const fetchSources = async () => {
     try {
-      const resp = await axios.get(`${Constants.expoConfig?.extra?.API_Backend}/movie/${id}/servers`, {
-        params: { episodeId },
-        timeout: 10000
-      });
+      // Don't include episodeId for movies
+      const endpoint =
+        mediaType === "movie"
+          ? `${Constants.expoConfig?.extra?.API_Backend}/movie/${id}/servers`
+          : `${Constants.expoConfig?.extra?.API_Backend}/movie/${id}/servers?episodeId=${episodeId}`;
+
+      const resp = await axios.get(endpoint, { timeout: 10000 });
       const servers: StreamSource[] = resp.data.servers || [];
       setAvailableSources(servers);
 
       // Auto‑select Vidcloud if present
-      const vid = servers.find(s => s.name.toLowerCase() === "vidcloud");
+      const vid = servers.find((s) => s.name.toLowerCase() === "vidcloud");
       if (vid) {
         changeSource(vid.id, vid.name);
       }
     } catch (e) {
       console.warn("Failed to fetch sources", e);
+      setError("Failed to load streaming sources. Please try again.");
     }
   };
-
   // Setup or re‑setup the stream
   const setupStream = async () => {
     if (directStreamUrl) {
@@ -125,16 +127,26 @@ const StreamVideo = () => {
   };
 
   // Change to a new source by ID
+
   const changeSource = async (newSourceId: string, newSourceName?: string) => {
     setLoading(true);
     setError(null);
     setPlaying(false);
 
     try {
-      const resp = await axios.get(`${Constants.expoConfig?.extra?.API_Backend}/movie/${id}/sources`, {
-        params: { serverId: newSourceId },
-        timeout: 10000
-      });
+      // Build params based on media type
+      const params =
+        mediaType === "movie"
+          ? { serverId: newSourceId }
+          : { serverId: newSourceId, episodeId };
+
+      const resp = await axios.get(
+        `${Constants.expoConfig?.extra?.API_Backend}/movie/${id}/sources`,
+        {
+          params,
+          timeout: 10000,
+        }
+      );
 
       const info = resp.data.sources?.[0];
       if (!info?.file) throw new Error("No stream URL returned");
@@ -145,11 +157,10 @@ const StreamVideo = () => {
       setStreamUrl(url);
       setStreamType(type);
       setSourceName(newSourceName || resp.data.serverName || "");
-      setSubtitles(resp.data.tracks || []);
 
       // Add Referer header if needed
       const origin = new URL(url).origin;
-      setHeaders(h => ({ ...h, Referer: origin }));
+      setHeaders((h) => ({ ...h, Referer: origin }));
 
       setPlaying(true);
     } catch (e: any) {
@@ -163,7 +174,7 @@ const StreamVideo = () => {
   // Retry logic
   const retryStream = () => {
     if (retryCount < 2) {
-      setRetryCount(c => c + 1);
+      setRetryCount((c) => c + 1);
       setupStream();
     } else {
       setError("Unable to play video after multiple attempts.");
@@ -181,13 +192,16 @@ const StreamVideo = () => {
   }, [id, episodeId]);
 
   useEffect(() => {
-    const sub = ScreenOrientation.addOrientationChangeListener(evt => {
+    const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
       const o = evt.orientationInfo.orientation;
       const isLand =
-        o === ScreenOrientation.Orientation.LANDSCAPE_LEFT || o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+        o === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+        o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
       setIsLandscape(isLand);
       if (Platform.OS === "ios" && videoRef.current) {
-        isLand ? videoRef.current.presentFullscreenPlayer() : videoRef.current.dismissFullscreenPlayer();
+        isLand
+          ? videoRef.current.presentFullscreenPlayer()
+          : videoRef.current.dismissFullscreenPlayer();
       }
     });
     return () => ScreenOrientation.removeOrientationChangeListener(sub);
@@ -203,13 +217,19 @@ const StreamVideo = () => {
     retryStream();
   };
 
-  const videoStyle = Platform.OS === "android" && isLandscape ? [styles.video, styles.fullscreenVideo] : styles.video;
+  const videoStyle =
+    Platform.OS === "android" && isLandscape
+      ? [styles.video, styles.fullscreenVideo]
+      : styles.video;
 
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.headerButton}>
+        <TouchableOpacity
+          onPress={() => navigation.goBack()}
+          style={styles.headerButton}
+        >
           <Ionicons name="chevron-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.titleText} numberOfLines={1}>
@@ -219,18 +239,34 @@ const StreamVideo = () => {
 
       {/* Server selector */}
       <View style={styles.sourceInfo}>
-        <Text style={styles.sourceText}>{sourceName ? `Source: ${sourceName}` : "Loading sources..."}</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.sourceScrollView}>
-          {availableSources.map(s => {
+        <Text style={styles.sourceText}>
+          {sourceName ? `Source: ${sourceName}` : "Loading sources..."}
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.sourceScrollView}
+        >
+          {availableSources.map((s) => {
             const isActive = s.name === sourceName;
             const isVid = s.name.toLowerCase() === "vidcloud";
             return (
               <TouchableOpacity
                 key={s.id}
-                style={[styles.sourceButton, isVid && styles.recommendedButton, isActive && styles.activeSourceButton]}
+                style={[
+                  styles.sourceButton,
+                  isVid && styles.recommendedButton,
+                  isActive && styles.activeSourceButton,
+                ]}
                 onPress={() => changeSource(s.id, s.name)}
-                disabled={isLoading || isActive}>
-                <Text style={[styles.sourceButtonText, isActive && styles.activeSourceButtonText]}>
+                disabled={isLoading || isActive}
+              >
+                <Text
+                  style={[
+                    styles.sourceButtonText,
+                    isActive && styles.activeSourceButtonText,
+                  ]}
+                >
                   {s.name}
                   {isVid ? " (Recommended)" : ""}
                 </Text>
@@ -258,7 +294,15 @@ const StreamVideo = () => {
         <View style={styles.videoContainer}>
           <Video
             ref={videoRef}
-            source={{ uri: streamUrl, type: streamType, headers }}
+            source={{
+              uri: `${BASE_URL}proxy?url=${encodeURIComponent(streamUrl)}`,
+              type: streamType,
+              headers: {
+                "User-Agent":
+                  "ExoPlayerDemo/1.0 (Linux;Android 11) ExoPlayerLib/2.14.0",
+                Referer: "https://flixhq.to",
+              },
+            }}
             style={videoStyle}
             controls
             paused={!isPlaying}
@@ -268,13 +312,12 @@ const StreamVideo = () => {
             onLoad={() => setIsBuffering(false)}
             onProgress={() => {}}
             fullscreen={isLandscape}
-            //textTracks={subtitles}
             minLoadRetryCount={5}
             bufferConfig={{
               minBufferMs: 15000,
               maxBufferMs: 60000,
               bufferForPlaybackMs: 2500,
-              bufferForPlaybackAfterRebufferMs: 5000
+              bufferForPlaybackAfterRebufferMs: 5000,
             }}
           />
           {isBuffering && (
@@ -295,15 +338,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     padding: 16,
-    backgroundColor: "#121212"
+    backgroundColor: "#121212",
   },
   headerButton: { padding: 8 },
-  titleText: { flex: 1, fontSize: 18, fontWeight: "bold", color: "#fff", marginLeft: 8 },
+  titleText: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#fff",
+    marginLeft: 8,
+  },
   sourceInfo: {
     backgroundColor: "#121212",
     padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#333"
+    borderBottomColor: "#333",
   },
   sourceText: { color: "#aaa", fontSize: 14 },
   sourceScrollView: { marginTop: 8 },
@@ -312,36 +361,54 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     marginRight: 8,
-    backgroundColor: "#2c2c2c"
+    backgroundColor: "#2c2c2c",
   },
   recommendedButton: {
     borderWidth: 1,
-    borderColor: "#FF5722"
+    borderColor: "#FF5722",
   },
   activeSourceButton: { backgroundColor: "#FF5722" },
   sourceButtonText: { color: "#ddd", fontSize: 12 },
   activeSourceButtonText: { color: "#fff", fontWeight: "bold" },
   loadingContainer: { flex: 1, justifyContent: "center", alignItems: "center" },
   loadingText: { marginTop: 12, color: "#fff" },
-  errorContainer: { flex: 1, justifyContent: "center", alignItems: "center", padding: 20 },
-  errorText: { color: "#ff6b6b", fontSize: 16, textAlign: "center", marginVertical: 16 },
+  errorContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  errorText: {
+    color: "#ff6b6b",
+    fontSize: 16,
+    textAlign: "center",
+    marginVertical: 16,
+  },
   retryButton: {
     backgroundColor: "#FF5722",
     paddingVertical: 12,
     paddingHorizontal: 32,
-    borderRadius: 8
+    borderRadius: 8,
   },
   retryButtonText: { color: "#fff", fontSize: 16, fontWeight: "bold" },
   videoContainer: { flex: 1, backgroundColor: "#000" },
   video: { flex: 1 },
-  fullscreenVideo: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0, width, height },
+  fullscreenVideo: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width,
+    height,
+  },
   bufferOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
   },
-  bufferText: { color: "#fff", marginTop: 8 }
+  bufferText: { color: "#fff", marginTop: 8 },
 });
 
 export default StreamVideo;
