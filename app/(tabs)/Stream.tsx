@@ -61,7 +61,7 @@ const StreamVideo = () => {
   // Map API type/url → container hint
   const determineStreamType = (url: string, apiType?: string): string => {
     const lower = url.toLowerCase();
-    if (apiType === "hls" || lower.endsWith(".m3u8")) return "m3u8";
+    if (apiType === "hls" || lower.endsWith(".m3u8")) return "hls";
     if (lower.endsWith(".mp4")) return "mp4";
     if (lower.endsWith(".mkv")) return "mkv";
     if (lower.endsWith(".webm")) return "webm";
@@ -268,7 +268,7 @@ const StreamVideo = () => {
             onLoad={() => setIsBuffering(false)}
             onProgress={() => {}}
             fullscreen={isLandscape}
-            textTracks={subtitles}
+            //textTracks={subtitles}
             minLoadRetryCount={5}
             bufferConfig={{
               minBufferMs: 15000,
