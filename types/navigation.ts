@@ -3,12 +3,18 @@ export type RootStackParamList = {
   Search: undefined;
   Settings: undefined;
   MovieDetail: {
-    movie_id: number | string;
+    movie_id: string;
     title?: string;
     isFromBackend?: boolean;
+    poster: string;
+    stats?: {
+      year?: string;
+      duration?: string;
+      rating?: string;
+    };
   };
   SeriesDetail: {
-    tv_id: number | string;
+    tv_id: string;
     title?: string;
     isFromBackend?: boolean;
   };
@@ -21,7 +27,7 @@ export type RootStackParamList = {
     isFromBackend?: boolean;
   };
   Stream: {
-    mediaType: "movie" | "show";
+    mediaType: "movie" | "tvSeries";
     id: number | string;
     sourceId?: string;
     episodeId?: string;

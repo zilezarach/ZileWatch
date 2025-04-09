@@ -25,19 +25,12 @@ interface ErrorBoundaryProps {
 
 type DownloadContextType = {
   activeDownloads: Record<string, ActiveDownload>;
-  setActiveDownloads: React.Dispatch<
-    React.SetStateAction<Record<string, ActiveDownload>>
-  >;
+  setActiveDownloads: React.Dispatch<React.SetStateAction<Record<string, ActiveDownload>>>;
   completeDownloads: CompletedDownload[];
-  setCompleteDownloads: React.Dispatch<
-    React.SetStateAction<CompletedDownload[]>
-  >;
+  setCompleteDownloads: React.Dispatch<React.SetStateAction<CompletedDownload[]>>;
 };
 //Create errorBoundary components
-class ErrorBoundary extends React.Component<
-  ErrorBoundaryProps,
-  ErrorBoundaryState
-> {
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
   constructor(props: any) {
     super(props);
     this.state = { hasError: false };
@@ -59,21 +52,17 @@ class ErrorBoundary extends React.Component<
             flex: 1,
             justifyContent: "center",
             alignItems: "center",
-            padding: 20,
-          }}
-        >
-          <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>
-            Something went wrong!
-          </Text>
+            padding: 20
+          }}>
+          <Text style={{ fontSize: 18, fontWeight: "bold", marginBottom: 10 }}>Something went wrong!</Text>
           <TouchableOpacity
             style={{
               backgroundColor: "#7d0b02",
               padding: 10,
               borderRadius: 5,
-              marginTop: 20,
+              marginTop: 20
             }}
-            onPress={() => this.setState({ hasError: false })}
-          >
+            onPress={() => this.setState({ hasError: false })}>
             <Text style={{ color: "#fff", fontSize: 16 }}>Try Again</Text>
           </TouchableOpacity>
         </View>
@@ -92,23 +81,19 @@ const DownloadContext = createContext<DownloadContextType>({
   completeDownloads: [],
   setCompleteDownloads: () => {
     console.warn("setCompleteDownloads is not initialized!");
-  },
+  }
 });
 
 export default function Layout() {
-  const [activeDownloads, setActiveDownloads] = useState<
-    Record<string, ActiveDownload>
-  >({});
-  const [completeDownloads, setCompleteDownloads] = useState<
-    CompletedDownload[]
-  >([]);
+  const [activeDownloads, setActiveDownloads] = useState<Record<string, ActiveDownload>>({});
+  const [completeDownloads, setCompleteDownloads] = useState<CompletedDownload[]>([]);
 
   const DownloadContextValue = React.useMemo(
     () => ({
       activeDownloads,
       setActiveDownloads,
       completeDownloads,
-      setCompleteDownloads,
+      setCompleteDownloads
     }),
     [activeDownloads, completeDownloads]
   );
@@ -125,12 +110,8 @@ export default function Layout() {
                 options={{
                   title: "Home",
                   tabBarIcon: ({ focused, color, size }) => (
-                    <MaterialIcons
-                      name="home"
-                      size={size}
-                      color={focused ? "#7d0b02" : color}
-                    />
-                  ),
+                    <MaterialIcons name="home" size={size} color={focused ? "#7d0b02" : color} />
+                  )
                 }}
               />
               {/* Games Tab */}
@@ -139,13 +120,9 @@ export default function Layout() {
                 options={{
                   title: "Games",
                   tabBarIcon: ({ focused, color, size }) => (
-                    <FontAwesome5
-                      name="gamepad"
-                      size={size}
-                      color={focused ? "#7d0b02" : color}
-                    />
+                    <FontAwesome5 name="gamepad" size={size} color={focused ? "#7d0b02" : color} />
                   ),
-                  href: null,
+                  href: null
                 }}
               />
               {/* Movies Tab */}
@@ -154,12 +131,8 @@ export default function Layout() {
                 options={{
                   title: "Movies",
                   tabBarIcon: ({ focused, color, size }) => (
-                    <MaterialIcons
-                      name="movie"
-                      size={size}
-                      color={focused ? "#7d0b02" : color}
-                    />
-                  ),
+                    <MaterialIcons name="movie" size={size} color={focused ? "#7d0b02" : color} />
+                  )
                 }}
               />
               <Tabs.Screen
@@ -167,16 +140,9 @@ export default function Layout() {
                 options={{
                   title: "Me",
                   tabBarIcon: ({ focused, color, size }) => (
-                    <FontAwesome5
-                      name="user"
-                      size={size}
-                      color={focused ? "#7d0b02" : color}
-                    />
+                    <FontAwesome5 name="user" size={size} color={focused ? "#7d0b02" : color} />
                   ),
-                  tabBarBadge:
-                    Object.keys(activeDownloads).length > 0
-                      ? Object.keys(activeDownloads).length
-                      : undefined,
+                  tabBarBadge: Object.keys(activeDownloads).length > 0 ? Object.keys(activeDownloads).length : undefined
                 }}
               />
               <Tabs.Screen name="index" options={{ href: null }} />
@@ -184,6 +150,7 @@ export default function Layout() {
               <Tabs.Screen name="Stream" options={{ href: null }} />
               <Tabs.Screen name="SeriesDetail" options={{ href: null }} />
               <Tabs.Screen name="EpisodeList" options={{ href: null }} />
+              <Tabs.Screen name="MovieDetail" options={{ href: null }} />
             </Tabs>
             {/* Persistent MiniPlayer, visible on all screens */}
             <MiniPlayer />
@@ -197,14 +164,14 @@ export default function Layout() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#121212"
   },
   headerContainer: {
     flex: 1,
     alignItems: "center",
     flexDirection: "row",
-    justifyContent: "center",
-  },
+    justifyContent: "center"
+  }
 });
 
 export { DownloadContext };

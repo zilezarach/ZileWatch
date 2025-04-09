@@ -10,9 +10,8 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
-  Switch,
   StatusBar,
-  SafeAreaView,
+  SafeAreaView
 } from "react-native";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -28,24 +27,32 @@ const ITEM_WIDTH = width * 0.28;
 const SPOTLIGHT_WIDTH = width * 0.85;
 
 interface HomeData {
-  spotlight: any[];
-  trending: { movies: any[]; tvSeries: any[] };
-  latestMovies: any[];
-  latestTvSeries: any[];
+  spotlight: Array<{
+    id: string;
+    title: string;
+    banner: string;
+    poster: string;
+    rating: string;
+    year: string;
+  }>;
+  trending: {
+    movies: SearchItem[];
+    tvSeries: SearchItem[]; // Was "tvSeries"
+  };
+  latestMovies: SearchItem[];
+  latestTvSeries: SearchItem[];
 }
-
 export default function Movies(): JSX.Element {
   const [homeInfo, setHomeInfo] = useState<HomeData | null>(null);
   const [movies, setMovies] = useState<SearchItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSearching, setIsSearching] = useState(false);
-  const [contentType, setContentType] = useState<"movie" | "series">("movie");
+  const [contentType, setContentType] = useState<"movie" | "tvSeries">("movie");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const isMounted = useRef(true);
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const searchInputRef = useRef<TextInput>(null);
 
   // Cleanup on unmount
@@ -64,9 +71,7 @@ export default function Movies(): JSX.Element {
     if (loading) return;
     try {
       setLoading(true);
-      const res = await axios.get(
-        `${Constants.expoConfig?.extra?.API_Backend}/info`
-      );
+      const res = await axios.get<HomeData>(`${Constants.expoConfig?.extra?.API_Backend}/info`);
       if (isMounted.current) {
         setHomeInfo(res.data);
         setLoading(false);
@@ -98,10 +103,7 @@ export default function Movies(): JSX.Element {
       if (cached) {
         setMovies(JSON.parse(cached));
       } else {
-        const results = await streamingService.searchContent(
-          query,
-          contentType
-        );
+        const results = await streamingService.searchContent(query, contentType);
         if (!isMounted.current) return;
         setMovies(results);
         await AsyncStorage.setItem(key, JSON.stringify(results));
@@ -116,39 +118,92 @@ export default function Movies(): JSX.Element {
     }
   };
 
-  // Handle watch action
+  // Determine item type accurately
+  const determineItemType = (item: any): "movie" | "tvSeries" => {
+    // First check if type is explicitly provided
+    if (item.type === "movie" || item.type === "tvSeries") {
+      return item.type === "movie" ? "movie" : "tvSeries";
+    }
 
-  const handleWatchNow = async (item: SearchItem) => {
+    // Check stats for series indicators (seasons)
+    if (item.stats && item.stats.seasons) {
+      return "tvSeries";
+    }
+
+    // Check stats paths
+    if (Array.isArray(item.stats)) {
+      const hasSeasonsInfo = item.stats.some((stat: any) => stat.name === "seasons" || stat.name === "Seasons");
+      if (hasSeasonsInfo) return "tvSeries";
+    }
+
+    // Default to movie if unable to determine
+    return "movie";
+  };
+
+  // Handle item press - FIXED
+  const handleItemPress = (item: any) => {
+    // Validate item data
+    if (!item || !item.id || !item.title) {
+      console.error("Invalid item:", item);
+      Alert.alert("Error", "Invalid content item");
+      return;
+    }
+
+    const itemType = determineItemType(item);
+    console.log(`Pressing ${itemType} item: ${item.id} - ${item.title}`);
+
+    // Navigate to appropriate detail screen based on content type
+    if (itemType === "tvSeries") {
+      navigation.navigate("SeriesDetail", {
+        tv_id: item.id,
+        title: item.title,
+        isFromBackend: true
+      });
+    } else {
+      // Navigate to MovieDetail instead of immediately watching
+      navigation.navigate("MovieDetail", {
+        movie_id: item.id,
+        title: item.title,
+        poster: item.poster,
+        stats: item.stats
+      });
+    }
+  };
+
+  // Handle direct watch now action
+  const handleWatchNow = async (item: any) => {
     try {
+      console.log("Setting up streaming for:", item.id, item.title);
       setActionLoading(item.id);
-      // Check if the item type is explicitly set
-      const itemType = item.type || contentType;
 
-      if (itemType === "movie") {
+      try {
+        console.log("Getting movie streaming URL for:", item.id);
         const info = await streamingService.getMovieStreamingUrl(item.id);
+        console.log("Stream info received:", info.streamUrl);
 
         navigation.navigate("Stream", {
-          mediaType: "movie", // Explicitly set as movie
+          mediaType: "movie",
           id: item.id,
           videoTitle: item.title,
           streamUrl: info.streamUrl,
           sourceName: info.selectedServer.name,
+          subtitles: info.subtitles
         });
-      } else {
-        navigation.navigate("SeriesDetail", {
-          tv_id: item.id,
-          title: item.title,
-        });
+      } catch (error) {
+        console.error("Error getting movie stream:", error);
+        Alert.alert("Streaming Error", "Unable to get movie streaming information.");
       }
     } catch (e) {
+      console.error("Watch error:", e);
       Alert.alert("Error", "Failed to set up streaming.");
     } finally {
       setActionLoading(null);
     }
   };
+
   // Toggle content type
   const toggleContentType = () => {
-    const newType = contentType === "movie" ? "series" : "movie";
+    const newType = contentType === "movie" ? "tvSeries" : "movie";
     setContentType(newType);
     if (searchQuery.trim()) {
       handleSearch(searchQuery);
@@ -156,27 +211,15 @@ export default function Movies(): JSX.Element {
   };
 
   // Poster component
-  const PosterItem = ({
-    item,
-    size = "normal",
-  }: {
-    item: any;
-    size?: "normal" | "large";
-  }) => (
+  const PosterItem = ({ item, size = "normal" }: { item: any; size?: "normal" | "large" }) => (
     <TouchableOpacity
-      style={[
-        styles.posterContainer,
-        size === "large" && styles.largePosterContainer,
-      ]}
-      onPress={() => handleWatchNow(item)}
+      style={[styles.posterContainer, size === "large" && styles.largePosterContainer]}
+      onPress={() => handleItemPress(item)}
       activeOpacity={0.7}
-    >
+      testID={`poster-item-${item.id}`}>
       <Image
         source={{ uri: item.poster }}
-        style={[
-          styles.posterImage,
-          size === "large" && styles.largePosterImage,
-        ]}
+        style={[styles.posterImage, size === "large" && styles.largePosterImage]}
         defaultSource={require("../../assets/images/Original.png")}
       />
       {actionLoading === item.id && (
@@ -184,13 +227,7 @@ export default function Movies(): JSX.Element {
           <ActivityIndicator color="#FF5722" size="large" />
         </View>
       )}
-      <Text
-        style={[
-          styles.posterTitle,
-          size === "large" && styles.largePosterTitle,
-        ]}
-        numberOfLines={1}
-      >
+      <Text style={[styles.posterTitle, size === "large" && styles.largePosterTitle]} numberOfLines={1}>
         {item.title}
       </Text>
       {size === "large" && item.stats?.rating && (
@@ -206,17 +243,9 @@ export default function Movies(): JSX.Element {
   const SpotlightItem = ({ item }: { item: any }) => (
     <TouchableOpacity
       style={styles.spotlightContainer}
-      onPress={() =>
-        handleWatchNow({
-          id: item.id,
-          title: item.title,
-          poster: item.poster,
-          stats: { year: item.year, rating: item.rating },
-          type: item.mediaType || contentType,
-        })
-      }
+      onPress={() => handleItemPress(item)}
       activeOpacity={0.8}
-    >
+      testID={`spotlight-item-${item.id}`}>
       <Image
         source={{ uri: item.banner || item.poster }}
         style={styles.spotlightImage}
@@ -243,13 +272,7 @@ export default function Movies(): JSX.Element {
   );
 
   // Section header component
-  const SectionHeader = ({
-    title,
-    onPress,
-  }: {
-    title: string;
-    onPress?: () => void;
-  }) => (
+  const SectionHeader = ({ title, onPress }: { title: string; onPress?: () => void }) => (
     <View style={styles.sectionHeader}>
       <Text style={styles.sectionTitle}>{title}</Text>
       {onPress && (
@@ -261,27 +284,17 @@ export default function Movies(): JSX.Element {
   );
 
   // Horizontal poster list
-  const PosterRow = ({
-    title,
-    data,
-    onSeeAll,
-  }: {
-    title: string;
-    data: any[];
-    onSeeAll?: () => void;
-  }) => (
+  const PosterRow = ({ title, data, onSeeAll }: { title: string; data: any[]; onSeeAll?: () => void }) => (
     <View style={styles.posterRowContainer}>
       <SectionHeader title={title} onPress={onSeeAll} />
       <FlatList
         horizontal
         showsHorizontalScrollIndicator={false}
         data={data || []}
-        keyExtractor={(item) => item.id}
+        keyExtractor={(item, index) => `${title}_${item.id || index}`}
         renderItem={({ item }) => <PosterItem item={item} />}
         contentContainerStyle={styles.posterRowContent}
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>No content available</Text>
-        }
+        ListEmptyComponent={<Text style={styles.emptyText}>No content available</Text>}
       />
     </View>
   );
@@ -291,78 +304,62 @@ export default function Movies(): JSX.Element {
     <View style={styles.tabsContainer}>
       <TouchableOpacity
         style={[styles.tab, contentType === "movie" && styles.activeTab]}
-        onPress={() => setContentType("movie")}
-      >
-        <Text
-          style={[
-            styles.tabText,
-            contentType === "movie" && styles.activeTabText,
-          ]}
-        >
-          Movies
-        </Text>
+        onPress={() => setContentType("movie")}>
+        <Text style={[styles.tabText, contentType === "movie" && styles.activeTabText]}>Movies</Text>
       </TouchableOpacity>
       <TouchableOpacity
-        style={[styles.tab, contentType === "series" && styles.activeTab]}
-        onPress={() => setContentType("series")}
-      >
-        <Text
-          style={[
-            styles.tabText,
-            contentType === "series" && styles.activeTabText,
-          ]}
-        >
-          TV Series
-        </Text>
+        style={[styles.tab, contentType === "tvSeries" && styles.activeTab]}
+        onPress={() => setContentType("tvSeries")}>
+        <Text style={[styles.tabText, contentType === "tvSeries" && styles.activeTabText]}>TV Series</Text>
       </TouchableOpacity>
     </View>
   );
 
   // Search result item
-  const SearchResultItem = ({ item }: { item: SearchItem }) => (
-    <TouchableOpacity
-      style={styles.searchResultItem}
-      onPress={() => handleWatchNow(item)}
-      activeOpacity={0.7}
-    >
-      <Image
-        source={{ uri: item.poster }}
-        style={styles.searchResultImage}
-        defaultSource={require("../../assets/images/Original.png")}
-      />
-      <View style={styles.searchResultDetails}>
-        <Text style={styles.searchResultTitle} numberOfLines={1}>
-          {item.title}
-        </Text>
-        <View style={styles.searchResultMeta}>
-          {item.stats?.year && (
-            <Text style={styles.searchResultYear}>{item.stats.year}</Text>
-          )}
-          {item.stats?.rating && (
-            <View style={styles.ratingContainer}>
-              <FontAwesome name="star" size={12} color="#FFD700" />
-              <Text style={styles.ratingText}>{item.stats.rating}</Text>
-            </View>
-          )}
-          <Text style={styles.mediaTypeLabel}>
-            {item.type === "movie" ? "Movie" : "TV Series"}
+  const SearchResultItem = ({ item }: { item: SearchItem }) => {
+    const itemType = determineItemType(item);
+
+    return (
+      <TouchableOpacity
+        style={styles.searchResultItem}
+        onPress={() => handleItemPress(item)}
+        activeOpacity={0.7}
+        testID={`search-item-${item.id}`}>
+        <Image
+          source={{ uri: item.poster }}
+          style={styles.searchResultImage}
+          defaultSource={require("../../assets/images/Original.png")}
+        />
+        <View style={styles.searchResultDetails}>
+          <Text style={styles.searchResultTitle} numberOfLines={1}>
+            {item.title}
           </Text>
+          <View style={styles.searchResultMeta}>
+            {item.stats?.year && <Text style={styles.searchResultYear}>{item.stats.year}</Text>}
+            {item.stats?.rating && (
+              <View style={styles.ratingContainer}>
+                <FontAwesome name="star" size={12} color="#FFD700" />
+                <Text style={styles.ratingText}>{item.stats.rating}</Text>
+              </View>
+            )}
+            <Text style={styles.mediaTypeLabel}>{itemType === "movie" ? "Movie" : "TV Series"}</Text>
+          </View>
+          {actionLoading === item.id ? (
+            <ActivityIndicator size="small" color="#FF5722" />
+          ) : (
+            <TouchableOpacity
+              style={styles.watchButton}
+              onPress={e => {
+                e.stopPropagation(); // Prevent triggering the parent TouchableOpacity
+                handleItemPress(item);
+              }}>
+              <Text style={styles.watchButtonText}>{itemType === "tvSeries" ? "View Seasons" : "View Details"}</Text>
+            </TouchableOpacity>
+          )}
         </View>
-        {actionLoading === item.id ? (
-          <ActivityIndicator size="small" color="#FF5722" />
-        ) : (
-          <TouchableOpacity
-            style={styles.watchButton}
-            onPress={() => handleWatchNow(item)}
-          >
-            <Text style={styles.watchButtonText}>
-              {item.type === "series" ? "View Seasons" : "Watch Now"}
-            </Text>
-          </TouchableOpacity>
-        )}
-      </View>
-    </TouchableOpacity>
-  );
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <SafeAreaView style={styles.container}>
@@ -370,9 +367,7 @@ export default function Movies(): JSX.Element {
 
       {/* Header with search */}
       <View style={styles.header}>
-        <Text style={styles.appTitle}>
-          {isSearching ? "Search" : "MovieStream"}
-        </Text>
+        <Text style={styles.appTitle}>{isSearching ? "Search" : "MovieStream"}</Text>
         <View style={styles.searchContainer}>
           <TextInput
             ref={searchInputRef}
@@ -390,15 +385,11 @@ export default function Movies(): JSX.Element {
               onPress={() => {
                 setSearchQuery("");
                 setIsSearching(false);
-              }}
-            >
+              }}>
               <FontAwesome name="times" size={16} color="#888" />
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity
-              style={styles.searchIconButton}
-              onPress={() => searchInputRef.current?.focus()}
-            >
+            <TouchableOpacity style={styles.searchIconButton} onPress={() => searchInputRef.current?.focus()}>
               <FontAwesome name="search" size={16} color="#888" />
             </TouchableOpacity>
           )}
@@ -415,16 +406,14 @@ export default function Movies(): JSX.Element {
       ) : isSearching ? (
         <FlatList
           data={movies}
-          keyExtractor={(item) => item.id}
+          keyExtractor={(item, index) => `search_${item.id || index}`}
           renderItem={({ item }) => <SearchResultItem item={item} />}
           contentContainerStyle={styles.searchResultsContainer}
           ListEmptyComponent={
             loading ? (
               <ActivityIndicator size="large" color="#FF5722" />
             ) : (
-              <Text style={styles.emptyText}>
-                No results found for "{searchQuery}"
-              </Text>
+              <Text style={styles.emptyText}>No results found for "{searchQuery}"</Text>
             )
           }
         />
@@ -444,7 +433,7 @@ export default function Movies(): JSX.Element {
                     pagingEnabled
                     showsHorizontalScrollIndicator={false}
                     data={homeInfo.spotlight}
-                    keyExtractor={(item) => `spotlight_${item.id}`}
+                    keyExtractor={(item, index) => `spotlight_${item.id || index}`}
                     renderItem={({ item }) => <SpotlightItem item={item} />}
                     snapToInterval={SPOTLIGHT_WIDTH + 16}
                     decelerationRate="fast"
@@ -456,28 +445,16 @@ export default function Movies(): JSX.Element {
               {/* Trending Section */}
               {homeInfo?.trending && (
                 <PosterRow
-                  title={`Trending ${
-                    contentType === "movie" ? "Movies" : "Shows"
-                  }`}
-                  data={
-                    contentType === "movie"
-                      ? homeInfo.trending.movies
-                      : homeInfo.trending.tvSeries
-                  }
+                  title={`Trending ${contentType === "movie" ? "Movies" : "Shows"}`}
+                  data={contentType === "movie" ? homeInfo.trending.movies : homeInfo.trending.tvSeries}
                 />
               )}
 
               {/* Latest Section */}
               {homeInfo && (
                 <PosterRow
-                  title={`Latest ${
-                    contentType === "movie" ? "Movies" : "Shows"
-                  }`}
-                  data={
-                    contentType === "movie"
-                      ? homeInfo.latestMovies
-                      : homeInfo.latestTvSeries
-                  }
+                  title={`Latest ${contentType === "movie" ? "Movies" : "Shows"}`}
+                  data={contentType === "movie" ? homeInfo.latestMovies : homeInfo.latestTvSeries}
                 />
               )}
             </>
@@ -493,17 +470,17 @@ export default function Movies(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#121212"
   },
   header: {
     padding: 16,
-    paddingTop: 8,
+    paddingTop: 8
   },
   appTitle: {
     color: "#FFF",
     fontSize: 24,
     fontWeight: "bold",
-    marginBottom: 12,
+    marginBottom: 12
   },
   searchContainer: {
     flexDirection: "row",
@@ -511,21 +488,21 @@ const styles = StyleSheet.create({
     backgroundColor: "#1E1E1E",
     borderRadius: 8,
     paddingHorizontal: 12,
-    height: 44,
+    height: 44
   },
   searchInput: {
     flex: 1,
     color: "#FFF",
     fontSize: 15,
-    height: "100%",
+    height: "100%"
   },
   searchIconButton: {
-    padding: 6,
+    padding: 6
   },
   loaderContainer: {
     flex: 1,
     justifyContent: "center",
-    alignItems: "center",
+    alignItems: "center"
   },
   tabsContainer: {
     flexDirection: "row",
@@ -533,42 +510,42 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderRadius: 8,
     backgroundColor: "#1E1E1E",
-    padding: 4,
+    padding: 4
   },
   tab: {
     flex: 1,
     alignItems: "center",
     paddingVertical: 10,
-    borderRadius: 6,
+    borderRadius: 6
   },
   activeTab: {
-    backgroundColor: "#FF5722",
+    backgroundColor: "#FF5722"
   },
   tabText: {
     color: "#BBB",
-    fontWeight: "500",
+    fontWeight: "500"
   },
   activeTabText: {
     color: "#FFF",
-    fontWeight: "600",
+    fontWeight: "600"
   },
   spotlightSection: {
-    marginBottom: 24,
+    marginBottom: 24
   },
   spotlightContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 16
   },
   spotlightContainer: {
     width: SPOTLIGHT_WIDTH,
     height: 180,
     marginRight: 16,
     borderRadius: 12,
-    overflow: "hidden",
+    overflow: "hidden"
   },
   spotlightImage: {
     width: "100%",
     height: "100%",
-    borderRadius: 12,
+    borderRadius: 12
   },
   spotlightGradient: {
     position: "absolute",
@@ -578,120 +555,120 @@ const styles = StyleSheet.create({
     height: "50%",
     padding: 12,
     justifyContent: "flex-end",
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.6)"
   },
   spotlightTitle: {
     color: "#FFF",
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: "bold"
   },
   spotlightDetails: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 4,
+    marginTop: 4
   },
   spotlightYear: {
     color: "#DDD",
     fontSize: 12,
-    marginRight: 8,
+    marginRight: 8
   },
   spotlightRating: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "center"
   },
   spotlightRatingText: {
     color: "#FFD700",
     fontSize: 12,
-    marginLeft: 4,
+    marginLeft: 4
   },
   sectionHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     paddingHorizontal: 16,
-    marginVertical: 12,
+    marginVertical: 12
   },
   sectionTitle: {
     color: "#FFF",
     fontSize: 18,
-    fontWeight: "bold",
+    fontWeight: "bold"
   },
   seeAllText: {
     color: "#FF5722",
-    fontSize: 14,
+    fontSize: 14
   },
   posterRowContainer: {
-    marginBottom: 24,
+    marginBottom: 24
   },
   posterRowContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 16
   },
   posterContainer: {
     width: ITEM_WIDTH,
-    marginRight: 12,
+    marginRight: 12
   },
   largePosterContainer: {
-    width: ITEM_WIDTH * 1.2,
+    width: ITEM_WIDTH * 1.2
   },
   posterImage: {
     width: "100%",
     height: ITEM_WIDTH * 1.5,
-    borderRadius: 8,
+    borderRadius: 8
   },
   largePosterImage: {
-    height: ITEM_WIDTH * 1.8,
+    height: ITEM_WIDTH * 1.8
   },
   posterTitle: {
     color: "#FFF",
     fontSize: 12,
-    marginTop: 6,
+    marginTop: 6
   },
   largePosterTitle: {
-    fontSize: 14,
+    fontSize: 14
   },
   ratingContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 4,
+    marginTop: 4
   },
   ratingText: {
     color: "#FFD700",
     fontSize: 12,
-    marginLeft: 4,
+    marginLeft: 4
   },
   searchResultsContainer: {
-    padding: 16,
+    padding: 16
   },
   searchResultItem: {
     flexDirection: "row",
     backgroundColor: "#1E1E1E",
     borderRadius: 8,
     marginBottom: 12,
-    overflow: "hidden",
+    overflow: "hidden"
   },
   searchResultImage: {
     width: 80,
-    height: 120,
+    height: 120
   },
   searchResultDetails: {
     flex: 1,
     padding: 12,
-    justifyContent: "space-between",
+    justifyContent: "space-between"
   },
   searchResultTitle: {
     color: "#FFF",
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "600"
   },
   searchResultMeta: {
     flexDirection: "row",
     alignItems: "center",
-    marginVertical: 8,
+    marginVertical: 8
   },
   searchResultYear: {
     color: "#BBB",
     fontSize: 13,
-    marginRight: 8,
+    marginRight: 8
   },
   mediaTypeLabel: {
     color: "#888",
@@ -700,31 +677,31 @@ const styles = StyleSheet.create({
     backgroundColor: "#2A2A2A",
     paddingHorizontal: 6,
     paddingVertical: 2,
-    borderRadius: 4,
+    borderRadius: 4
   },
   watchButton: {
     backgroundColor: "#FF5722",
     borderRadius: 6,
     paddingVertical: 8,
-    alignItems: "center",
+    alignItems: "center"
   },
   watchButtonText: {
     color: "#FFF",
     fontWeight: "500",
-    fontSize: 14,
+    fontSize: 14
   },
   homeContent: {
-    paddingBottom: 24,
+    paddingBottom: 24
   },
   emptyText: {
     color: "#888",
     textAlign: "center",
-    padding: 20,
+    padding: 20
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
-    alignItems: "center",
-  },
+    alignItems: "center"
+  }
 });
