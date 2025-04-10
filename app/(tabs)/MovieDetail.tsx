@@ -42,12 +42,12 @@ type MovieDetailScreenRouteProp = RouteProp<RootStackParamList, "MovieDetail">;
 export default function MovieDetail(): JSX.Element {
   const route = useRoute<MovieDetailScreenRouteProp>();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { movie_id, title: initialTitle, poster: initialPoster } = route.params;
 
+  const { movie_id, slug: initialSlug, title: initialTitle, poster: initialPoster } = route.params;
   const [loading, setLoading] = useState(true);
   const [streamLoading, setStreamLoading] = useState(false);
   const [movieDetails, setMovieDetails] = useState<MovieDetails | null>(null);
-
+  const { slugify } = streamingService;
   useEffect(() => {
     fetchMovieDetails();
   }, [movie_id]);
@@ -55,7 +55,7 @@ export default function MovieDetail(): JSX.Element {
   const fetchMovieDetails = async () => {
     try {
       setLoading(true);
-      const response = await axios.get(`${Constants.expoConfig?.extra?.API_Backend}/movie/${movie_id}`);
+      const response = await axios.get(`${Constants.expoConfig?.extra?.API_Backend}/movie/${initialSlug}-${movie_id}`);
       setMovieDetails(response.data);
     } catch (error) {
       console.error("Failed to fetch movie details:", error);
@@ -67,23 +67,25 @@ export default function MovieDetail(): JSX.Element {
 
   const handleWatchNow = async () => {
     try {
+      const slug = initialSlug || slugify(movieDetails?.title) || "";
       setStreamLoading(true);
-      console.log("Getting streaming URL for movie:", movie_id);
+      console.log("Getting streaming URL for movie:", movie_id, "slug:", slug);
 
-      const info = await streamingService.getMovieStreamingUrl(movie_id);
+      const info = await streamingService.getMovieStreamingUrl(movie_id, slug);
       console.log("Stream info received:", info.streamUrl);
 
       navigation.navigate("Stream", {
-        mediaType: "movie" as const, // Explicitly type as 'movie'
-        id: String(movie_id), // Ensure string type
+        mediaType: "movie" as const,
+        id: String(movie_id),
         videoTitle: movieDetails?.title || initialTitle || "Untitled", // Fallback for undefined
         streamUrl: info.streamUrl,
         sourceName: info.selectedServer.name,
+        slug: slug,
         subtitles: info.subtitles?.map(sub => ({
           file: sub.file,
           label: sub.label,
           kind: sub.kind
-        })) // Remove default property if exists
+        }))
       });
     } catch (error) {
       console.error("Error getting movie stream:", error);
@@ -134,11 +136,13 @@ export default function MovieDetail(): JSX.Element {
                   navigation.navigate("SeriesDetail", {
                     tv_id: item.id,
                     title: item.title,
+                    slug: item.slug,
                     isFromBackend: true
                   });
                 } else {
                   navigation.navigate("MovieDetail", {
                     movie_id: item.id,
+                    slug: item.slug,
                     title: item.title,
                     poster: item.poster
                   });

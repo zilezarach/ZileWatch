@@ -50,7 +50,7 @@ interface ServerResponse {
 }
 
 interface SourcesResponse {
-  sources: Array<{ src: string; type: string }>;
+  sources: Array<{ file: string; type: string }>;
   tracks?: Array<{ file: string; label: string; kind: string; default?: boolean }>;
 }
 //slug format
@@ -83,38 +83,53 @@ export async function searchContent(query: string, contentType?: "movie" | "tvSe
 }
 
 // 2) Movie streaming flow
-export async function getMovieStreamingUrl(movieId: string): Promise<StreamingInfo> {
+
+export async function getMovieStreamingUrl(movieId: string, incomingSlug?: string): Promise<StreamingInfo> {
   try {
-    // Get movie details with slug
-    const detail = await axios.get<MovieDetailResponse>(`${BASE_URL}/movie/${movieId}`);
-    if (!detail.data.episodeId) throw new Error(`No episodeId found for movie ${movieId}`);
+    // 1) Fetch detail
+    const detail = await axios.get<MovieDetailResponse>(`${BASE_URL}/movie/${incomingSlug}-${movieId}`, {
+      timeout: TIMEOUT
+    });
+    const { title, slug: returnedSlug, episodeId } = detail.data;
+    if (!episodeId) throw new Error(`No episodeId found for movie ${movieId}`);
 
-    // Validate and generate slug
-    const slug = detail.data.slug || slugify(detail.data.title);
+    // 2) Build “watch-” slug
+    const baseSlug = incomingSlug || returnedSlug || slugify(title);
+    const slug = baseSlug.startsWith("watch-") ? baseSlug : `watch-${baseSlug}`;
 
-    // Fetch servers with required parameters
-    const srv = await axios.get<{ servers: ServerResponse[] }>(`${BASE_URL}/movie/${movieId}/servers`, {
-      params: { episodeId: detail.data.episodeId }
+    // 3) Log exactly what we’re calling
+    console.log("→ GET servers:", {
+      slug: slug,
+      movieId: movieId,
+      url: `${BASE_URL}/movie/${slug}-${movieId}/servers`,
+      params: { episodeId }
     });
 
+    // 4) Fetch servers
+    const srv = await axios.get<{ servers: ServerResponse[] }>(`${BASE_URL}/movie/${slug}-${movieId}/servers`, {
+      params: { episodeId },
+      timeout: TIMEOUT
+    });
     if (!srv.data.servers?.length) throw new Error("No streaming servers available");
 
-    // Select server (priority to Vidcloud)
+    // 5) Pick server
     const selectedServer = srv.data.servers.find(s => s.name.toLowerCase().includes("vidcloud")) || srv.data.servers[0];
-    if (!selectedServer) throw new Error("Failed to select a valid server");
 
-    // Get streaming sources
-    const src = await axios.get<SourcesResponse>(`${BASE_URL}/sources`, {
-      params: {
-        serverId: selectedServer.id,
-        episodeId: detail.data.episodeId
-      }
+    // 6) Log sources call
+    console.log("→ GET sources:", {
+      url: `${BASE_URL}/movie/${slug}-${movieId}/sources`,
+      params: { serverId: selectedServer.id, episodeId }
     });
 
+    // 7) Fetch sources
+    const src = await axios.get<SourcesResponse>(`${BASE_URL}/movie/${slug}-${movieId}/sources`, {
+      params: { episodeId, serverId: selectedServer.id },
+      timeout: TIMEOUT
+    });
     if (!src.data.sources?.length) throw new Error("No playable sources found");
 
     return {
-      streamUrl: src.data.sources[0].src, // Use direct source URL
+      streamUrl: src.data.sources[0].file,
       subtitles:
         src.data.tracks?.map(track => ({
           file: track.file,
@@ -186,9 +201,9 @@ export async function getEpisodeStreamingUrl(
     });
 
     if (!src.data.sources?.length) throw new Error("No sources available");
-
+    const decodedStreamUrl = decodeURIComponent(src.data.sources[0].file);
     return {
-      streamUrl: src.data.sources[0].src, // Use API-provided URL
+      streamUrl: decodedStreamUrl,
       subtitles:
         src.data.tracks?.map(track => ({
           file: track.file,

@@ -7,6 +7,7 @@ export type RootStackParamList = {
     title?: string;
     isFromBackend?: boolean;
     poster: string;
+    slug: string;
     stats?: {
       year?: string;
       duration?: string;
@@ -16,6 +17,7 @@ export type RootStackParamList = {
   SeriesDetail: {
     tv_id: string;
     title?: string;
+    slug: string;
     isFromBackend?: boolean;
   };
   EpisodeList: {
@@ -35,6 +37,7 @@ export type RootStackParamList = {
     season?: string;
     episode?: string;
     streamUrl?: string;
+    slug: string;
     subtitles?: Array<{
       file: string;
       label?: string;

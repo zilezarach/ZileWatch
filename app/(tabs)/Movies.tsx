@@ -42,6 +42,9 @@ interface HomeData {
   latestMovies: SearchItem[];
   latestTvSeries: SearchItem[];
 }
+interface Spotlight {
+  item: any;
+}
 export default function Movies(): JSX.Element {
   const [homeInfo, setHomeInfo] = useState<HomeData | null>(null);
   const [movies, setMovies] = useState<SearchItem[]>([]);
@@ -157,6 +160,7 @@ export default function Movies(): JSX.Element {
       navigation.navigate("SeriesDetail", {
         tv_id: item.id,
         title: item.title,
+        slug: item.slug,
         isFromBackend: true
       });
     } else {
@@ -164,40 +168,10 @@ export default function Movies(): JSX.Element {
       navigation.navigate("MovieDetail", {
         movie_id: item.id,
         title: item.title,
+        slug: item.slug,
         poster: item.poster,
         stats: item.stats
       });
-    }
-  };
-
-  // Handle direct watch now action
-  const handleWatchNow = async (item: any) => {
-    try {
-      console.log("Setting up streaming for:", item.id, item.title);
-      setActionLoading(item.id);
-
-      try {
-        console.log("Getting movie streaming URL for:", item.id);
-        const info = await streamingService.getMovieStreamingUrl(item.id);
-        console.log("Stream info received:", info.streamUrl);
-
-        navigation.navigate("Stream", {
-          mediaType: "movie",
-          id: item.id,
-          videoTitle: item.title,
-          streamUrl: info.streamUrl,
-          sourceName: info.selectedServer.name,
-          subtitles: info.subtitles
-        });
-      } catch (error) {
-        console.error("Error getting movie stream:", error);
-        Alert.alert("Streaming Error", "Unable to get movie streaming information.");
-      }
-    } catch (e) {
-      console.error("Watch error:", e);
-      Alert.alert("Error", "Failed to set up streaming.");
-    } finally {
-      setActionLoading(null);
     }
   };
 
@@ -240,37 +214,47 @@ export default function Movies(): JSX.Element {
   );
 
   // Spotlight Banner component
-  const SpotlightItem = ({ item }: { item: any }) => (
-    <TouchableOpacity
-      style={styles.spotlightContainer}
-      onPress={() => handleItemPress(item)}
-      activeOpacity={0.8}
-      testID={`spotlight-item-${item.id}`}>
-      <Image
-        source={{ uri: item.banner || item.poster }}
-        style={styles.spotlightImage}
-        defaultSource={require("../../assets/images/Original.png")}
-      />
-      <View style={styles.spotlightGradient}>
-        <Text style={styles.spotlightTitle}>{item.title}</Text>
-        <View style={styles.spotlightDetails}>
-          {item.year && <Text style={styles.spotlightYear}>{item.year}</Text>}
-          {item.rating && (
-            <View style={styles.spotlightRating}>
-              <FontAwesome name="star" size={12} color="#FFD700" />
-              <Text style={styles.spotlightRatingText}>{item.rating}</Text>
-            </View>
-          )}
-        </View>
-      </View>
-      {actionLoading === item.id && (
-        <View style={styles.loadingOverlay}>
-          <ActivityIndicator color="#FF5722" size="large" />
-        </View>
-      )}
-    </TouchableOpacity>
-  );
+  const SpotlightItem = ({ item }: Spotlight) => {
+    const itemType = determineItemType(item);
 
+    return (
+      <TouchableOpacity
+        style={styles.spotlightContainer}
+        onPress={() => handleItemPress(item)} // handleItemPress now knows type
+        activeOpacity={0.8}
+        testID={`spotlight-item-${item.id}`}>
+        <Image
+          source={{ uri: item.banner || item.poster }}
+          style={styles.spotlightImage}
+          defaultSource={require("../../assets/images/Original.png")}
+        />
+
+        {/* optional badge */}
+        <View style={styles.spotlightBadge}>
+          <Text style={styles.spotlightBadgeText}>{itemType === "tvSeries" ? "TV" : "Movie"}</Text>
+        </View>
+
+        <View style={styles.spotlightGradient}>
+          <Text style={styles.spotlightTitle}>{item.title}</Text>
+          <View style={styles.spotlightDetails}>
+            {item.year && <Text style={styles.spotlightYear}>{item.year}</Text>}
+            {item.rating && (
+              <View style={styles.spotlightRating}>
+                <FontAwesome name="star" size={12} color="#FFD700" />
+                <Text style={styles.spotlightRatingText}>{item.rating}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {actionLoading === item.id && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator color="#FF5722" size="large" />
+          </View>
+        )}
+      </TouchableOpacity>
+    );
+  };
   // Section header component
   const SectionHeader = ({ title, onPress }: { title: string; onPress?: () => void }) => (
     <View style={styles.sectionHeader}>
@@ -471,6 +455,20 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#121212"
+  },
+  spotlightBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4
+  },
+  spotlightBadgeText: {
+    color: "#FFF",
+    fontSize: 10,
+    fontWeight: "bold"
   },
   header: {
     padding: 16,

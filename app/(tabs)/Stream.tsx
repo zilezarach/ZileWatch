@@ -19,6 +19,7 @@ import Constants from "expo-constants";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import streamingService, { SearchItem } from "@/utils/streamingService";
+import { title } from "process";
 const { slugify } = streamingService;
 const { width, height } = Dimensions.get("window");
 
@@ -61,13 +62,14 @@ const StreamVideo = () => {
 
   const {
     mediaType = "movie",
-    id,
+    id: movieId,
     videoTitle,
+    slug,
     episodeId: episodeId,
     streamUrl: directStreamUrl,
     sourceName: directSourceName
   } = route.params;
-
+  const refererUrl = `https://vidstream.to/watch-movie/${slug}-${movieId}${episodeId ? `/${episodeId}` : ""}`;
   const [availableSources, setAvailableSources] = useState<StreamSource[]>([]);
   const [sourceName, setSourceName] = useState<string>(directSourceName || "");
   const [streamUrl, setStreamUrl] = useState<string>("");
@@ -75,6 +77,7 @@ const StreamVideo = () => {
   const [headers, setHeaders] = useState<Record<string, string>>({
     "User-Agent": "ExoPlayerDemo/1.0 (Linux;Android 11) ExoPlayerLib/2.14.0"
   });
+  const decodedUrl = decodeURIComponent(streamUrl);
   //const [subtitles, setSubtitles] = useState<any[]>(directSubtitles || []);
   const [isLoading, setLoading] = useState<boolean>(!directStreamUrl);
   const [isPlaying, setPlaying] = useState<boolean>(true);
@@ -92,11 +95,13 @@ const StreamVideo = () => {
   // Fetch servers list
   const fetchSources = async () => {
     try {
+      //construct the slug
+      const slug = route.params.slug || slugify(title);
       // Don't include episodeId for movies
       const endpoint =
         mediaType === "movie"
-          ? `${Constants.expoConfig?.extra?.API_Backend}/movie/${id}/servers`
-          : `${Constants.expoConfig?.extra?.API_Backend}/movie/${id}/servers?episodeId=${episodeId}`;
+          ? `${Constants.expoConfig?.extra?.API_Backend}/movie/watch-${slug}-${movieId}/servers`
+          : `${Constants.expoConfig?.extra?.API_Backend}/movie/watch-${slug}-${movieId}/servers?episodeId=${episodeId}`;
 
       const resp = await axios.get(endpoint, { timeout: 10000 });
       const servers: StreamSource[] = resp.data.servers || [];
@@ -156,16 +161,20 @@ const StreamVideo = () => {
     setPlaying(false);
 
     try {
+      const slug = route.params.slug || slugify(title);
       // Build params based on media type
       const params = mediaType === "movie" ? { serverId: newSourceId } : { serverId: newSourceId, episodeId };
 
-      const resp = await axios.get<SourcesResponse>(`${BASE_URL}/movie/${id}/sources`, { params, timeout: 10000 });
+      const resp = await axios.get<SourcesResponse>(`${BASE_URL}/movie/${slug}-${movieId}/sources`, {
+        params,
+        timeout: 10000
+      });
       const info = resp.data.sources?.[0];
       const source = resp.data.sources?.[0];
       if (!source?.src) throw new Error("No source URL returned");
       setStreamUrl(source.src);
       setStreamType(determineStreamType(source.src, source.type));
-      setSourceName(newSourceName || resp.data.serverName || "");
+      setSourceName(newSourceName || "");
 
       // Add Referer header if needed
       const origin = new URL(streamUrl).origin;
@@ -198,7 +207,7 @@ const StreamVideo = () => {
     return () => {
       ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
     };
-  }, [id, episodeId]);
+  }, [movieId, episodeId]);
 
   useEffect(() => {
     const sub = ScreenOrientation.addOrientationChangeListener(evt => {
@@ -279,11 +288,15 @@ const StreamVideo = () => {
           <Video
             ref={videoRef}
             source={{
-              uri: `${BASE_URL}proxy?url=${encodeURIComponent(streamUrl)}`,
+              uri: streamUrl,
               type: streamType,
               headers: {
-                "User-Agent": "ExoPlayerDemo/1.0 (Linux;Android 11) ExoPlayerLib/2.14.0",
-                Referer: "https://flixhq.to"
+                "User-Agent":
+                  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/99.0.4692.71 Safari/537.36",
+                Referer: refererUrl,
+                "Accept-Encoding": "gzip, deflate, br",
+                Accept:
+                  "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"
               }
             }}
             style={videoStyle}
