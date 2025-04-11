@@ -2,339 +2,530 @@ import React, { useState, useEffect, useCallback } from "react";
 import {
   View,
   Text,
-  FlatList,
+  Image,
+  ScrollView,
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  Image,
   RefreshControl,
-  StyleSheet
+  StyleSheet,
+  SafeAreaView,
+  StatusBar,
 } from "react-native";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
-import { RootStackParamList } from "@/types/navigation";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import streamingService from "@/utils/streamingService";
-import Constants from "expo-constants";
 import axios from "axios";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { RootStackParamList } from "@/types/navigation";
+import Constants from "expo-constants";
+import { FontAwesome } from "@expo/vector-icons";
+import streamingService from "@/utils/streamingService";
 
-const TMDB_URL = Constants.expoConfig?.extra?.TMBD_URL || "https://api.themoviedb.org/3";
-
-const TMDB_API_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
 type SeriesDetailRouteProp = RouteProp<RootStackParamList, "SeriesDetail">;
+
+interface FlatSeriesPayload {
+  title: string;
+  description: string;
+  type: "tvSeries";
+  stats: Array<{ name: string; value: string | string[] }>;
+  poster?: string;
+  episodeId?: string | null;
+  related: Array<{
+    id: string;
+    title: string;
+    poster: string;
+    stats: {
+      seasons?: string;
+      rating?: string;
+      year?: string;
+      duration?: string;
+    };
+  }>;
+  slug: string;
+}
 
 export default function SeriesDetail(): JSX.Element {
   const route = useRoute<SeriesDetailRouteProp>();
-  // Destructure with defaults to prevent undefined errors
-  const { tv_id = 0, title = "Unknown Series", isFromBackend = false } = route.params || {};
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const {
+    tv_id,
+    title: initialTitle,
+    slug: initialSlug,
+    poster: initialPoster,
+  } = route.params;
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  const [seriesData, setSeriesData] = useState<any>(null);
-  const [seasons, setSeasons] = useState<any[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [data, setData] = useState<FlatSeriesPayload | null>(null);
+  const [seasons, setSeasons] = useState<{ id: string; number: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const cacheFile = `series_${tv_id}`;
-  // Fetch series details
-  const fetchSeriesDetails = useCallback(async () => {
+
+  const detailsCacheKey = `backend_series_${tv_id}`;
+  const seasonsCacheKey = `backend_seasons_${tv_id}-${
+    initialSlug || streamingService.slugify(initialTitle || "")
+  }`;
+
+  // Fetch details + related
+
+  const fetchDetails = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      if (!tv_id) {
-        throw new Error("Invalid series ID");
-      }
-
-      // Different handling based on source
-      if (isFromBackend) {
-        // Use our backend API through streamingService
-        const cacheKey = `backend_series_${tv_id}`;
-        try {
-          // Try from cache first
-          const cachedData = await AsyncStorage.getItem(cacheKey);
-
-          if (cachedData) {
-            const parsedData = JSON.parse(cachedData);
-            setSeriesData(parsedData.details || parsedData);
-            setSeasons(parsedData.seasons || []);
-          } else {
-            // Fetch from API
-            const seasonsData = await streamingService.getSeasons(tv_id.toString());
-            const seriesInfo = {
-              title,
-              id: tv_id,
-              seasons: seasonsData
-            };
-
-            setSeriesData(seriesInfo);
-            setSeasons(seasonsData);
-
-            // Save to cache
-            await AsyncStorage.setItem(
-              cacheKey,
-              JSON.stringify({
-                details: seriesInfo,
-                seasons: seasonsData
-              })
-            );
-          }
-        } catch (error) {
-          console.error("Backend series fetch error:", error);
-          throw new Error("Failed to fetch series from backend");
-        }
+      // Try cache first
+      const cached = await AsyncStorage.getItem(detailsCacheKey);
+      if (cached) {
+        setData(JSON.parse(cached));
       } else {
-        console.log(`Making API request to: ${TMDB_URL}/tv/${tv_id}`);
-        const response = await axios.get(`${TMDB_URL}/tv/${tv_id}`, {
-          params: { api_key: TMDB_API_KEY, language: "en-US" }
-        });
-
-        console.log("API response received:", response.status);
-
-        setSeriesData(response.data);
-
-        await AsyncStorage.setItem(cacheFile, JSON.stringify(response.data));
+        // 1) Fetch the flat payload
+        const resp = await axios.get<FlatSeriesPayload>(
+          `${Constants.expoConfig?.extra?.API_Backend}/movie/${initialSlug}-${tv_id}`
+        );
+        const flat = resp.data;
+        setData(flat);
+        await AsyncStorage.setItem(detailsCacheKey, JSON.stringify(flat));
       }
-    } catch (error: any) {
-      console.error("Series Details Error:", error);
-      setError(error.message || "Failed to fetch series details");
-      Alert.alert("Error", "Failed to fetch series details.");
+    } catch (err: any) {
+      console.error("Series detail error:", err);
+      setError("Failed to load series details");
+      Alert.alert("Error", "Failed to load series details.");
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
-  }, [tv_id, isFromBackend, title]);
+  }, [tv_id]);
+
+  // Fetch seasons using streamingService instead of direct axios call
+  const fetchSeasons = useCallback(async () => {
+    try {
+      setError(null);
+      //normalizedTitle
+      const normalizedTitle = initialTitle?.replace(/^watch-/i, "") || "";
+      const effectiveSlug =
+        initialSlug || streamingService.slugify(normalizedTitle);
+      // Try cache
+      const cached = await AsyncStorage.getItem(seasonsCacheKey);
+      if (cached) {
+        setSeasons(JSON.parse(cached));
+      } else {
+        // Use streamingService to get seasons
+        const seasonsData = await streamingService.getSeasons(
+          tv_id,
+          effectiveSlug
+        );
+        if (seasonsData.length > 0) {
+          setSeasons(seasonsData);
+          await AsyncStorage.setItem(
+            seasonsCacheKey,
+            JSON.stringify(seasonsData)
+          );
+        } else {
+          console.warn("No seasons found for series:", tv_id);
+        }
+      }
+    } catch (err: any) {
+      console.error("Seasons fetch error:", err);
+      Alert.alert("Error", "Failed to load seasons.");
+    }
+  }, [tv_id, initialTitle]);
+
+  const onRefresh = useCallback(() => {
+    setRefreshing(true);
+    Promise.all([fetchDetails(), fetchSeasons()])
+      .catch((err) => {
+        console.error("Refresh error:", err);
+      })
+      .finally(() => {
+        setRefreshing(false);
+      });
+  }, [fetchDetails, fetchSeasons]);
 
   useEffect(() => {
-    fetchSeriesDetails();
-  }, [fetchSeriesDetails]);
+    fetchDetails();
+    fetchSeasons();
+  }, [fetchDetails, fetchSeasons]);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchSeriesDetails();
+  const navigateToEpisodeList = useCallback(
+    (season: { id: string; number: number }) => {
+      if (!data?.title) {
+        Alert.alert("Error", "Series information not available");
+        return;
+      }
+
+      navigation.navigate("EpisodeList", {
+        tv_id,
+        slug: initialSlug || streamingService.slugify(data.title),
+        season_number: season.number,
+        seasonName: `Season ${season.number}`,
+        seriesTitle: data.title || initialTitle,
+        isFromBackend: true,
+      });
+    },
+    [data, tv_id, navigation, initialSlug, initialTitle]
+  );
+
+  if (loading && !data) {
+    return (
+      <View style={styles.center}>
+        <ActivityIndicator size="large" color="#FF5722" />
+        <Text style={styles.loadingText}>Loading series…</Text>
+      </View>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <View style={styles.center}>
+        <Text style={styles.errorText}>{error || "No data available."}</Text>
+        <TouchableOpacity style={styles.retryBtn} onPress={onRefresh}>
+          <Text style={styles.retryText}>Retry</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  const { title, description, related, stats, poster } = data;
+  const getRating = () => {
+    if (!stats) return null;
+    const ratingObj = stats.find(
+      (stat) => stat.name === "Rating" || stat.name === "rating"
+    );
+    return ratingObj ? ratingObj.value : null;
   };
 
-  // Show loading state
-  if (loading && !seriesData) {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#7d0b02" />
-        <Text style={styles.loadingText}>Loading series details...</Text>
-      </View>
-    );
-  }
+  const renderStats = () => {
+    if (!stats) return null;
 
-  // Show error state
-  if (error || !seriesData) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>{error || "No series data available."}</Text>
-        <TouchableOpacity onPress={fetchSeriesDetails} style={styles.retryButton}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.goBack()} style={[styles.retryButton, { marginTop: 10 }]}>
-          <Text style={styles.retryButtonText}>Go Back</Text>
-        </TouchableOpacity>
+      <View style={styles.statsContainer}>
+        {stats.map((stat, index) => (
+          <View key={index} style={styles.statItem}>
+            <Text style={styles.statLabel}>{stat.name}</Text>
+            <Text style={styles.statValue}>
+              {Array.isArray(stat.value) ? stat.value.join(", ") : stat.value}
+            </Text>
+          </View>
+        ))}
       </View>
     );
-  }
+  };
 
   return (
-    <View style={styles.container}>
-      {/* Header: Series Poster and Info */}
-      <View style={styles.seriesHeader}>
-        {isFromBackend && seriesData.poster ? (
-          <Image
-            source={{ uri: seriesData.poster }}
-            style={styles.seriesPoster}
-            defaultSource={require("../../assets/images/Original.png")}
-          />
-        ) : seriesData.poster_path ? (
+    <SafeAreaView style={styles.container}>
+      <StatusBar barStyle="light-content" backgroundColor="#121212" />
+
+      {/* Back button */}
+      <TouchableOpacity
+        style={styles.backButton}
+        onPress={() => navigation.goBack()}
+      >
+        <FontAwesome name="arrow-left" size={20} color="#FFF" />
+      </TouchableOpacity>
+
+      <ScrollView
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {/* Series poster and overlay */}
+        <View style={styles.posterContainer}>
           <Image
             source={{
-              uri: `https://image.tmdb.org/t/p/w300${seriesData.poster_path}`
+              uri: poster || initialPoster,
             }}
-            style={styles.seriesPoster}
+            style={styles.posterImage}
             defaultSource={require("../../assets/images/Original.png")}
           />
-        ) : (
-          <View style={styles.placeholderPoster}>
-            <Text style={styles.placeholderText}>No Image</Text>
+          <View style={styles.posterGradient}>
+            <Text style={styles.seriesTitle}>{title || initialTitle}</Text>
+            {getRating() && (
+              <View style={styles.ratingContainer}>
+                <FontAwesome name="star" size={14} color="#FFD700" />
+                <Text style={styles.ratingText}>{getRating()}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        {/* Description */}
+        {description && (
+          <View style={styles.descriptionContainer}>
+            <Text style={styles.sectionTitle}>Description</Text>
+            <Text style={styles.descriptionText}>{description}</Text>
           </View>
         )}
-        <View style={styles.seriesInfo}>
-          <Text style={styles.seriesTitle}>{seriesData.title || seriesData.name || title}</Text>
-          <Text style={styles.seriesOverview} numberOfLines={3}>
-            {seriesData.overview || seriesData.description || "No description available."}
-          </Text>
-          {seriesData.stats && <Text style={styles.seriesStats}>Rating: {seriesData.stats.rating || "N/A"}</Text>}
+
+        {/* Stats information */}
+        <View style={styles.infoSection}>
+          <Text style={styles.sectionTitle}>Details</Text>
+          {renderStats()}
         </View>
-      </View>
 
-      <Text style={styles.sectionTitle}>Seasons</Text>
-
-      {isFromBackend ? (
-        // Render backend seasons
-        seasons && seasons.length > 0 ? (
-          <FlatList
-            data={seasons}
-            keyExtractor={item => item.id.toString()}
-            renderItem={({ item }) => (
+        {/* Seasons */}
+        <View style={styles.seasonsSection}>
+          <Text style={styles.sectionTitle}>Seasons</Text>
+          {seasons.length > 0 ? (
+            <View style={styles.seasonsList}>
+              {seasons.map((season) => (
+                <TouchableOpacity
+                  key={season.id}
+                  style={styles.seasonItem}
+                  onPress={() => navigateToEpisodeList(season)}
+                >
+                  <Text style={styles.seasonText}>Season {season.number}</Text>
+                  <FontAwesome name="chevron-right" size={14} color="#888" />
+                </TouchableOpacity>
+              ))}
+            </View>
+          ) : (
+            <View style={styles.noSeasonsContainer}>
+              <Text style={styles.noSeasons}>No seasons available</Text>
               <TouchableOpacity
-                style={styles.seasonItem}
-                onPress={() => {
-                  navigation.navigate("EpisodeList", {
-                    tv_id: tv_id,
-                    season_id: item.id,
-                    season_number: item.number,
-                    seasonName: `Season ${item.number}`,
-                    seriesTitle: seriesData.title || title,
-                    isFromBackend: true
-                  });
-                }}>
-                <Text style={styles.seasonText}>Season {item.number}</Text>
-                {/* We don't have episode count from the backend, so we omit it */}
+                style={styles.retryBtnSmall}
+                onPress={fetchSeasons}
+              >
+                <Text style={styles.retryText}>Retry</Text>
               </TouchableOpacity>
-            )}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          />
-        ) : (
-          <Text style={styles.noSeasonsText}>No seasons available</Text>
-        )
-      ) : // Your existing TMDB seasons render code
-      seriesData.seasons && seriesData.seasons.length > 0 ? (
-        <FlatList
-          data={seriesData.seasons}
-          keyExtractor={item => (item.id ? item.id.toString() : item.season_number.toString())}
-          renderItem={({ item }) => (
-            <TouchableOpacity
-              style={styles.seasonItem}
-              onPress={() => {
-                navigation.navigate("EpisodeList", {
-                  tv_id,
-                  season_number: item.season_number,
-                  seasonName: item.name,
-                  seriesTitle: seriesData.name,
-                  isFromBackend: false
-                });
-              }}>
-              <Text style={styles.seasonText}>
-                Season {item.season_number}: {item.name}
-              </Text>
-              <Text style={styles.episodeCount}>{item.episode_count} episodes</Text>
-            </TouchableOpacity>
+            </View>
           )}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        />
-      ) : (
-        <Text style={styles.noSeasonsText}>No seasons available</Text>
-      )}
-    </View>
+        </View>
+
+        {/* Related Content */}
+        {related && related.length > 0 && (
+          <View style={styles.relatedSection}>
+            <Text style={styles.sectionTitle}>You May Also Like</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+              {related.map((item, index) => {
+                const itemSlug = streamingService.slugify(item.title);
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={styles.relatedItem}
+                    onPress={() =>
+                      navigation.navigate(
+                        stats.seasons ? "SeriesDetail" : "MovieDetail",
+                        stats.seasons
+                          ? {
+                              tv_id: item.id,
+                              title: item.title,
+                              slug: itemSlug,
+                              poster: item.poster,
+                            }
+                          : {
+                              movie_id: item.id,
+                              title: item.title,
+                              slug: itemSlug,
+                              poster: item.poster,
+                            }
+                      )
+                    }
+                  >
+                    <Image
+                      source={{ uri: item.poster }}
+                      style={styles.relatedPoster}
+                      defaultSource={require("../../assets/images/Original.png")}
+                    />
+                    <Text style={styles.relatedTitle} numberOfLines={1}>
+                      {item.title}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+      </ScrollView>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
-    backgroundColor: "#121212"
+    backgroundColor: "#121212",
   },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#121212"
+    backgroundColor: "#121212",
   },
   loadingText: {
-    marginTop: 10,
-    color: "#fff",
-    fontSize: 16
+    color: "#FFF",
+    marginTop: 8,
   },
   errorText: {
-    fontSize: 16,
     color: "#ff6b6b",
     textAlign: "center",
-    marginHorizontal: 20
+    margin: 16,
   },
-  retryButton: {
-    marginTop: 20,
-    backgroundColor: "#7d0b02",
+  retryBtn: {
+    backgroundColor: "#FF5722",
     padding: 12,
     borderRadius: 8,
-    minWidth: 120,
-    alignItems: "center"
   },
-  retryButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold"
-  },
-  seriesHeader: {
-    flexDirection: "row",
-    marginBottom: 20
-  },
-  seriesPoster: {
-    width: 100,
-    height: 150,
-    borderRadius: 8
-  },
-  placeholderPoster: {
-    width: 100,
-    height: 150,
+  retryBtnSmall: {
+    backgroundColor: "#FF5722",
+    paddingVertical: 8,
+    paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: "#2c2c2c",
+    marginTop: 8,
+  },
+  retryText: {
+    color: "#FFF",
+    fontWeight: "bold",
+  },
+  backButton: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    zIndex: 10,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    borderRadius: 20,
+    width: 40,
+    height: 40,
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
   },
-  placeholderText: {
-    color: "#777",
-    fontSize: 14
+  posterContainer: {
+    height: 300,
+    position: "relative",
   },
-  seriesInfo: {
-    flex: 1,
-    marginLeft: 15
+  posterImage: {
+    width: "100%",
+    height: "100%",
+  },
+  posterGradient: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    padding: 16,
+    paddingTop: 60,
+    backgroundColor: "rgba(0,0,0,0.7)",
+    justifyContent: "flex-end",
   },
   seriesTitle: {
-    fontSize: 22,
+    color: "#FFF",
+    fontSize: 24,
     fontWeight: "bold",
-    marginBottom: 10,
-    color: "#fff"
   },
-  seriesOverview: {
-    fontSize: 14,
-    color: "#aaa"
+  ratingContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 8,
   },
-  seriesStats: {
-    marginTop: 10,
+  ratingText: {
+    color: "#FFD700",
     fontSize: 14,
-    color: "#FFD700"
+    marginLeft: 6,
+  },
+  actionContainer: {
+    padding: 16,
+    backgroundColor: "#1A1A1A",
+  },
+  watchButton: {
+    backgroundColor: "#FF5722",
+    borderRadius: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+  },
+  playIcon: {
+    marginRight: 8,
+  },
+  watchButtonText: {
+    color: "#FFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  descriptionContainer: {
+    padding: 16,
   },
   sectionTitle: {
-    fontSize: 20,
+    color: "#FFF",
+    fontSize: 18,
     fontWeight: "bold",
-    marginBottom: 15,
-    color: "#fff"
+    marginBottom: 12,
   },
-  seasonItem: {
-    padding: 15,
+  descriptionText: {
+    color: "#DDD",
+    fontSize: 15,
+    lineHeight: 22,
+  },
+  infoSection: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+  },
+  statsContainer: {
+    backgroundColor: "#1E1E1E",
+    borderRadius: 8,
+    padding: 12,
+  },
+  statItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 8,
     borderBottomWidth: 1,
     borderBottomColor: "#333",
-    backgroundColor: "#1e1e1e",
-    marginBottom: 8,
-    borderRadius: 8
+  },
+  statLabel: {
+    color: "#BBB",
+    fontSize: 14,
+  },
+  statValue: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  seasonsSection: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+  },
+  seasonsList: {
+    backgroundColor: "#1E1E1E",
+    borderRadius: 8,
+  },
+  seasonItem: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: "#333",
   },
   seasonText: {
-    fontSize: 18,
-    color: "#fff"
-  },
-  episodeCount: {
-    fontSize: 14,
-    color: "#aaa",
-    marginTop: 4
-  },
-  noSeasonsText: {
-    textAlign: "center",
-    color: "#aaa",
+    color: "#FFF",
     fontSize: 16,
-    marginTop: 20
-  }
+  },
+  noSeasonsContainer: {
+    alignItems: "center",
+    padding: 16,
+  },
+  noSeasons: {
+    color: "#AAA",
+    textAlign: "center",
+  },
+  relatedSection: {
+    padding: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#333",
+  },
+  relatedItem: {
+    width: 120,
+    marginRight: 12,
+  },
+  relatedPoster: {
+    width: 120,
+    height: 180,
+    borderRadius: 8,
+  },
+  relatedTitle: {
+    color: "#FFF",
+    fontSize: 12,
+    marginTop: 6,
+  },
 });

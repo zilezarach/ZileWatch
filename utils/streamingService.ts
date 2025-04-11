@@ -1,10 +1,79 @@
 // utils/streamingService.ts
-import axios from "axios";
+import axios, { AxiosError, AxiosRequestConfig } from "axios";
 import Constants from "expo-constants";
 
+// Configuration
 const BASE_URL = Constants.expoConfig?.extra?.API_Backend;
-const TIMEOUT = 10_000;
+const DEFAULT_TIMEOUT = 15_000; // Extended from 10s to 15s
+const MAX_RETRIES = 3;
+const RETRY_DELAY = 1000;
 
+// Define extended request config type with retry properties
+interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
+  _retry?: number;
+  skipRetry?: boolean;
+}
+
+// Enhanced axios instance with retry logic
+const api = axios.create({
+  baseURL: BASE_URL,
+  timeout: DEFAULT_TIMEOUT,
+  headers: {
+    "Content-Type": "application/json",
+    Accept: "application/json",
+  },
+});
+
+// Add retry interceptor
+api.interceptors.response.use(undefined, async (error: AxiosError) => {
+  const config = error.config as ExtendedAxiosRequestConfig;
+
+  // Skip retry if explicitly marked or config is missing
+  if (!config || config?.skipRetry) {
+    return Promise.reject(error);
+  }
+
+  // Initialize retry counter
+  if (config._retry === undefined) {
+    config._retry = 0;
+  }
+
+  // Determine if we should retry
+  const shouldRetry =
+    config._retry < MAX_RETRIES &&
+    (error.code === "ETIMEDOUT" ||
+      error.code === "ENETUNREACH" ||
+      error.code === "ECONNABORTED" ||
+      error.code === "ECONNRESET" ||
+      (error.response &&
+        (error.response.status >= 500 ||
+          error.response.status === 429 ||
+          error.response.status === 408)));
+
+  if (shouldRetry) {
+    config._retry += 1;
+
+    // Exponential backoff with jitter
+    const delay =
+      RETRY_DELAY *
+      Math.pow(1.5, config._retry - 1) *
+      (0.75 + Math.random() * 0.5);
+    console.log(
+      `[API] Retry ${config._retry}/${MAX_RETRIES} for ${
+        config.url
+      } after ${delay.toFixed(0)}ms`
+    );
+
+    // Wait before retrying
+    await new Promise((resolve) => setTimeout(resolve, delay));
+
+    return api(config);
+  }
+
+  return Promise.reject(error);
+});
+
+// Type definitions
 export interface SearchItem {
   id: string;
   title: string;
@@ -42,18 +111,61 @@ interface MovieDetailResponse {
   title: string;
   episodeId?: string;
   slug?: string;
+  type?: "movie" | "tvSeries";
 }
 
 interface ServerResponse {
   id: string;
   name: string;
+  isVidstream?: boolean;
 }
 
 interface SourcesResponse {
   sources: Array<{ file: string; type: string }>;
-  tracks?: Array<{ file: string; label: string; kind: string; default?: boolean }>;
+  tracks?: Array<{
+    file: string;
+    label: string;
+    kind: string;
+    default?: boolean;
+  }>;
+  success?: boolean;
 }
-//slug format
+
+interface SearchResponse {
+  items: Array<{
+    id: string;
+    title: string;
+    poster?: string;
+    slug?: string;
+    stats?: {
+      year?: string;
+      duration?: string;
+      rating?: string;
+      seasons?: string;
+    };
+    type?: "movie" | "tvSeries";
+  }>;
+}
+
+interface SeasonResponse {
+  seasons: Season[];
+  success?: boolean;
+  slug?: string;
+  title: string;
+}
+
+interface EpisodeResponse {
+  episodes: Array<{
+    id: string;
+    number: number;
+    title?: string;
+    description?: string;
+    img?: string;
+  }>;
+  success?: boolean;
+}
+
+// Utility function for slug formatting
 export function slugify(title: string): string {
   return title
     .toLowerCase()
@@ -62,115 +174,256 @@ export function slugify(title: string): string {
     .replace(/^-+|-+$/g, ""); // Trim hyphens
 }
 
-// 1) Search /content
+// Ensure slug has proper "watch-" prefix for API calls
+function formatWatchSlug(slug: string): string {
+  return slug.startsWith("watch-") ? slug : `watch-${slug}`;
+}
 
-export async function searchContent(query: string, contentType?: "movie" | "tvSeries"): Promise<SearchItem[]> {
-  const res = await axios.get<{ items: any[] }>(`${BASE_URL}/content`, {
-    params: { q: query },
-    timeout: TIMEOUT
-  });
+// Utility function to handle axios errors consistently
+function handleApiError(error: unknown, customMessage: string): never {
+  if (axios.isAxiosError(error)) {
+    const status = error.response?.status;
+    const serverMessage =
+      error.response?.data?.message || error.response?.data?.error;
 
-  const items: SearchItem[] = res.data.items.map((item: any) => ({
-    id: item.id,
-    title: item.title,
-    slug: slugify(item.title), // Add slug
-    poster: item.poster,
-    stats: item.stats,
-    type: item.stats.seasons ? "tvSeries" : "movie"
-  }));
+    if (status === 404) {
+      throw new Error(
+        `Content not found: ${serverMessage || "Resource not available"}`
+      );
+    } else if (status === 429) {
+      throw new Error("Too many requests. Please try again later.");
+    } else if (status === 500) {
+      throw new Error(`Server error (${status}): Please try again later.`);
+    } else if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
+      throw new Error(
+        "Connection timed out. Please check your internet connection."
+      );
+    }
 
-  return contentType ? items.filter(i => i.type === contentType) : items;
+    throw new Error(
+      `${customMessage}: ${
+        serverMessage || error.message || "Unknown API error"
+      }`
+    );
+  }
+
+  throw new Error(
+    `${customMessage}: ${
+      error instanceof Error ? error.message : "Unknown error"
+    }`
+  );
+}
+
+// 1) Search content
+export async function searchContent(
+  query: string,
+  contentType?: "movie" | "tvSeries"
+): Promise<SearchItem[]> {
+  try {
+    if (!query?.trim()) {
+      return [];
+    }
+
+    const res = await api.get<SearchResponse>("/content", {
+      params: { q: query },
+    });
+
+    if (!res.data?.items?.length) {
+      return [];
+    }
+
+    const items: SearchItem[] = res.data.items.map((item) => ({
+      id: item.id,
+      title: item.title,
+      slug: item.slug || slugify(item.title),
+      poster: item.poster || "",
+      stats: item.stats || {},
+      type: item.type || (item.stats?.seasons ? "tvSeries" : "movie"),
+    }));
+
+    return contentType ? items.filter((i) => i.type === contentType) : items;
+  } catch (error) {
+    console.error("Search error:", error);
+    // Return empty array instead of throwing for better UX during search
+    return [];
+  }
 }
 
 // 2) Movie streaming flow
-
-export async function getMovieStreamingUrl(movieId: string, incomingSlug?: string): Promise<StreamingInfo> {
+export async function getMovieStreamingUrl(
+  movieId: string,
+  incomingSlug?: string
+): Promise<StreamingInfo> {
   try {
-    // 1) Fetch detail
-    const detail = await axios.get<MovieDetailResponse>(`${BASE_URL}/movie/${incomingSlug}-${movieId}`, {
-      timeout: TIMEOUT
-    });
+    // 1) Fetch movie details
+    console.log(`[API] Fetching movie details for ID: ${movieId}`);
+    const detail = await api.get<MovieDetailResponse>(
+      `/movie/${incomingSlug ? `${incomingSlug}-${movieId}` : movieId}`
+    );
+
     const { title, slug: returnedSlug, episodeId } = detail.data;
-    if (!episodeId) throw new Error(`No episodeId found for movie ${movieId}`);
 
-    // 2) Build “watch-” slug
+    if (!episodeId) {
+      throw new Error(`No episode ID found for movie ${movieId} (${title})`);
+    }
+
+    // 2) Build slug for subsequent requests
     const baseSlug = incomingSlug || returnedSlug || slugify(title);
-    const slug = baseSlug.startsWith("watch-") ? baseSlug : `watch-${baseSlug}`;
+    const watchSlug = formatWatchSlug(baseSlug);
 
-    // 3) Log exactly what we’re calling
-    console.log("→ GET servers:", {
-      slug: slug,
-      movieId: movieId,
-      url: `${BASE_URL}/movie/${slug}-${movieId}/servers`,
-      params: { episodeId }
-    });
+    // 3) Fetch servers
+    console.log(
+      `[API] Fetching servers for movie: ${watchSlug}-${movieId}, episodeId: ${episodeId}`
+    );
+    const srv = await api.get<{ servers: ServerResponse[]; success?: boolean }>(
+      `/movie/${watchSlug}-${movieId}/servers`,
+      { params: { episodeId } }
+    );
 
-    // 4) Fetch servers
-    const srv = await axios.get<{ servers: ServerResponse[] }>(`${BASE_URL}/movie/${slug}-${movieId}/servers`, {
-      params: { episodeId },
-      timeout: TIMEOUT
-    });
-    if (!srv.data.servers?.length) throw new Error("No streaming servers available");
+    if (!srv.data.success || !srv.data.servers?.length) {
+      throw new Error("No streaming servers available for this movie");
+    }
 
-    // 5) Pick server
-    const selectedServer = srv.data.servers.find(s => s.name.toLowerCase().includes("vidcloud")) || srv.data.servers[0];
+    // 4) Select preferred server (VidCloud first, fallback to first available)
+    const servers = srv.data.servers;
+    const selectedServer =
+      servers.find((s) => s.isVidstream === true) ||
+      servers.find((s) => s.name.toLowerCase().includes("vidcloud")) ||
+      servers[0];
 
-    // 6) Log sources call
-    console.log("→ GET sources:", {
-      url: `${BASE_URL}/movie/${slug}-${movieId}/sources`,
-      params: { serverId: selectedServer.id, episodeId }
-    });
+    // 5) Fetch sources
+    console.log(
+      `[API] Fetching sources for movie: ${watchSlug}-${movieId}, server: ${selectedServer.name}`
+    );
+    const src = await api.get<SourcesResponse>(
+      `/movie/${watchSlug}-${movieId}/sources`,
+      { params: { episodeId, serverId: selectedServer.id } }
+    );
 
-    // 7) Fetch sources
-    const src = await axios.get<SourcesResponse>(`${BASE_URL}/movie/${slug}-${movieId}/sources`, {
-      params: { episodeId, serverId: selectedServer.id },
-      timeout: TIMEOUT
-    });
-    if (!src.data.sources?.length) throw new Error("No playable sources found");
+    if (!src.data.success || !src.data.sources?.length) {
+      throw new Error("No playable sources found for this movie");
+    }
 
+    // 6) Build streaming info response
     return {
       streamUrl: src.data.sources[0].file,
       subtitles:
-        src.data.tracks?.map(track => ({
+        src.data.tracks?.map((track) => ({
           file: track.file,
-          label: track.label,
-          kind: track.kind,
-          default: track.default
+          label: track.label || "Unknown",
+          kind: track.kind || "subtitles",
+          default: track.default,
         })) || [],
-      selectedServer
+      selectedServer,
     };
   } catch (error) {
-    throw new Error(`Stream setup failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    return handleApiError(error, "Stream setup failed");
   }
 }
-// 2a) Just fetch server list for an episode
-export async function getEpisodeSources(seriesId: string, episodeId: string): Promise<{ servers: ServerResponse[] }> {
-  const res = await axios.get<{ servers: any[] }>(`${BASE_URL}/movie/${seriesId}/servers`, {
-    params: { episodeId },
-    timeout: TIMEOUT
-  });
-  return { servers: res.data.servers || [] };
+
+// 2a) Fetch server list for an episode
+export async function getEpisodeSources(
+  seriesId: string,
+  episodeId: string,
+  slug?: string
+): Promise<{ servers: ServerResponse[] }> {
+  try {
+    // If slug is provided, format it properly, otherwise just use seriesId
+    const urlPath = slug
+      ? `/movie/${formatWatchSlug(slug)}-${seriesId}/servers`
+      : `/movie/${seriesId}/servers`;
+
+    const res = await api.get<{ servers: ServerResponse[]; success?: boolean }>(
+      urlPath,
+      {
+        params: { episodeId },
+      }
+    );
+
+    if (!res.data.success || !res.data.servers?.length) {
+      console.warn(`No servers returned for episode ${episodeId}`);
+      return { servers: [] };
+    }
+
+    return { servers: res.data.servers };
+  } catch (error) {
+    console.error("Error fetching episode servers:", error);
+    return { servers: [] };
+  }
 }
 
-// 3) Series: seasons list
-export async function getSeasons(seriesId: string): Promise<Season[]> {
-  const res = await axios.get<{ seasons: Season[] }>(`${BASE_URL}/movie/${seriesId}/seasons`, { timeout: TIMEOUT });
-  return res.data.seasons || [];
-}
+// 3) Get seasons list for a series
+export async function getSeasons(
+  seriesId: string,
+  incomingSlug?: string
+): Promise<Season[]> {
+  try {
+    if (!seriesId) {
+      console.error("Series ID is required");
+      return [];
+    }
 
-// 4) Series: episodes list
-export async function getEpisodesForSeason(seriesId: string, seasonId: string): Promise<Episode[]> {
-  const res = await axios.get<{ episodes: any[] }>(`${BASE_URL}/movie/${seriesId}/episodes`, {
-    params: { seasonId },
-    timeout: TIMEOUT
-  });
-  return res.data.episodes.map(ep => ({
-    id: ep.id,
-    number: ep.number,
-    title: ep.title,
-    description: ep.description,
-    img: ep.img
-  }));
+    // Validate and format the slug
+    let baseSlug = incomingSlug || "";
+    if (!baseSlug) {
+      throw new Error(
+        "Slug is required for season requests - provide slug or series title"
+      );
+    }
+
+    // Clean existing watch- prefix if present
+    baseSlug = baseSlug.replace(/^watch-/i, "");
+    const watchSlug = formatWatchSlug(baseSlug);
+
+    console.log(`[DEBUG] Fetching seasons at: ${watchSlug}-${seriesId}`);
+
+    const res = await api.get<SeasonResponse>(
+      `/movie/${watchSlug}-${seriesId}/seasons`
+    );
+
+    // Handle API response
+    if (!res.data?.seasons?.length) {
+      console.warn(`No seasons found for ${watchSlug}-${seriesId}`);
+      return [];
+    }
+
+    return res.data.seasons.sort((a, b) => a.number - b.number);
+  } catch (error) {
+    console.error("Season fetch error:", error);
+    return [];
+  }
+}
+// 4) Get episodes for a season
+export async function getEpisodesForSeason(
+  seriesId: string,
+  seasonId: string
+): Promise<Episode[]> {
+  try {
+    if (!seasonId) {
+      console.warn("Season ID is required");
+      return [];
+    }
+
+    const res = await api.get<EpisodeResponse>(`/movie/${seriesId}/episodes`, {
+      params: { seasonId },
+    });
+
+    if (!res.data.success || !res.data.episodes?.length) {
+      console.warn(`No episodes found for season ${seasonId}`);
+      return [];
+    }
+
+    return res.data.episodes.map((ep) => ({
+      id: ep.id,
+      number: ep.number,
+      title: ep.title || `Episode ${ep.number}`,
+      description: ep.description,
+      img: ep.img,
+    }));
+  } catch (error) {
+    console.error("Error fetching episodes:", error);
+    return [];
+  }
 }
 
 // 5) Episode → streaming flow
@@ -181,42 +434,77 @@ export async function getEpisodeStreamingUrl(
 ): Promise<StreamingInfo> {
   try {
     // Get series details for slug
-    const seriesDetail = await axios.get<MovieDetailResponse>(`${BASE_URL}/movie/${seriesId}`);
-    const slug = seriesDetail.data.slug || slugify(seriesDetail.data.title);
+    console.log(`[API] Fetching series details for ID: ${seriesId}`);
+    const seriesDetail = await api.get<MovieDetailResponse>(
+      `/movie/${seriesId}`
+    );
 
-    // Fetch servers with proper URL format
-    const { servers } = await getEpisodeSources(seriesId, episodeId);
-    if (!servers.length) throw new Error("No servers available");
+    if (!seriesDetail.data) {
+      throw new Error(`Series with ID ${seriesId} not found`);
+    }
 
-    // Server selection logic
+    const baseSlug =
+      seriesDetail.data.slug || slugify(seriesDetail.data.title || "");
+    const watchSlug = formatWatchSlug(baseSlug);
+
+    // Fetch servers
+    console.log(`[API] Fetching servers for episode ID: ${episodeId}`);
+    const { servers } = await getEpisodeSources(seriesId, episodeId, baseSlug);
+
+    if (!servers.length) {
+      throw new Error("No streaming servers available for this episode");
+    }
+
+    // Select server based on preference
     const selectedServer = serverId
-      ? servers.find(s => s.id === serverId)
-      : servers.find(s => s.name.toLowerCase().includes("vidcloud")) || servers[0];
+      ? servers.find((s) => s.id === serverId)
+      : servers.find((s) => s.isVidstream === true) ||
+        servers.find((s) => s.name.toLowerCase().includes("vidcloud")) ||
+        servers[0];
 
-    if (!selectedServer?.id) throw new Error("Invalid server selection");
+    if (!selectedServer?.id) {
+      throw new Error("Invalid server selection");
+    }
 
-    // Get sources with proper URL format
-    const src = await axios.get<SourcesResponse>(`${BASE_URL}/movie/${slug}-${seriesId}/sources`, {
-      params: { serverId: selectedServer.id, episodeId }
-    });
+    // Get sources
+    console.log(
+      `[API] Fetching sources for episode: ${episodeId}, server: ${selectedServer.name}`
+    );
+    const src = await api.get<SourcesResponse>(
+      `/movie/${watchSlug}-${seriesId}/sources`,
+      {
+        params: {
+          serverId: selectedServer.id,
+          episodeId,
+        },
+      }
+    );
 
-    if (!src.data.sources?.length) throw new Error("No sources available");
-    const decodedStreamUrl = decodeURIComponent(src.data.sources[0].file);
+    if (!src.data.success || !src.data.sources?.length) {
+      throw new Error("No playable sources found for this episode");
+    }
+
+    // Decode URL if necessary
+    const streamUrl = src.data.sources[0].file.includes("%")
+      ? decodeURIComponent(src.data.sources[0].file)
+      : src.data.sources[0].file;
+
     return {
-      streamUrl: decodedStreamUrl,
+      streamUrl,
       subtitles:
-        src.data.tracks?.map(track => ({
+        src.data.tracks?.map((track) => ({
           file: track.file,
-          label: track.label,
-          kind: track.kind,
-          default: track.default
+          label: track.label || "Unknown",
+          kind: track.kind || "subtitles",
+          default: track.default,
         })) || [],
-      selectedServer
+      selectedServer,
     };
   } catch (error) {
-    throw new Error(`Episode stream setup failed: ${error instanceof Error ? error.message : "Unknown error"}`);
+    return handleApiError(error, "Episode stream setup failed");
   }
 }
+
 export default {
   searchContent,
   getMovieStreamingUrl,
@@ -224,5 +512,5 @@ export default {
   getSeasons,
   getEpisodesForSeason,
   getEpisodeStreamingUrl,
-  slugify
+  slugify,
 };

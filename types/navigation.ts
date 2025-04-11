@@ -19,14 +19,20 @@ export type RootStackParamList = {
     title?: string;
     slug: string;
     isFromBackend?: boolean;
+    poster: string;
+    stats?: {
+      year?: string;
+      duration?: string;
+      rating?: string;
+    };
   };
   EpisodeList: {
-    tv_id: number | string;
+    tv_id: string;
     season_number?: number | string;
-    season_id?: number | string;
     seasonName?: string;
     seriesTitle?: string;
     isFromBackend?: boolean;
+    slug: string;
   };
   Stream: {
     mediaType: "movie" | "tvSeries";

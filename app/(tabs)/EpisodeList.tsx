@@ -15,145 +15,81 @@ import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import streamingService, { Episode } from "@/utils/streamingService";
-import Constants from "expo-constants";
+import streamingService from "@/utils/streamingService";
 import axios from "axios";
-
-const TMDB_URL =
-  Constants.expoConfig?.extra?.TMBD_URL || "https://api.themoviedb.org/3";
-const TMDB_API_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
-
-interface EpisodeItem {
-  id: number | string;
-  name?: string;
-  title?: string;
-  episode_number?: number;
-  number?: number;
-  overview?: string;
-  description?: string;
-  still_path?: string | null;
-  img?: string | null;
-}
+import Constants from "expo-constants";
 
 type EpisodeListRouteProp = RouteProp<RootStackParamList, "EpisodeList">;
 
-interface EpisodeItemProps {
-  item: EpisodeItem;
-  onPress: (episode: EpisodeItem) => void;
-  onSourcePress: () => void;
-  selectedSource: any;
+interface EpisodeItem {
+  id: string;
+  number: number;
+  name: string;
+  description?: string;
+  img?: string;
 }
 
 export default function EpisodeListScreen() {
   const route = useRoute<EpisodeListRouteProp>();
-  const {
-    tv_id,
-    season_number,
-    season_id,
-    seasonName,
-    seriesTitle,
-    isFromBackend = false,
-  } = route.params;
+  const { tv_id, season_number, seasonName, seriesTitle, slug } = route.params;
 
   const [episodes, setEpisodes] = useState<EpisodeItem[]>([]);
-  const [loading, setLoading] = useState<boolean>(true);
-  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [sources, setSources] = useState<any[]>([]);
-  const [selectedSource, setSelectedSource] = useState<any | null>(null);
+  const [selectedSource, setSelectedSource] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [currentEpisode, setCurrentEpisode] = useState<EpisodeItem | null>(
     null
   );
+  const [error, setError] = useState<string | null>(null);
 
-  const isMounted = useRef(true);
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  // Track component mount state for cleanup
-  useEffect(() => {
-    return () => {
-      isMounted.current = false;
-    };
-  }, []);
+  const cacheKey = `backend_episodes_${tv_id}_season_${tv_id}`;
 
-  // Error state handler
-  const [error, setError] = useState<string | null>(null);
-
-  // Fetch episodes based on source
+  // Fetch episodes from your backend
   const fetchEpisodes = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
 
-      if (isFromBackend) {
-        // Use our backend service
-        const cacheKey = `backend_episodes_${tv_id}_season_${
-          season_id || season_number
-        }`;
-        const cachedData = await AsyncStorage.getItem(cacheKey);
-
-        if (cachedData) {
-          setEpisodes(JSON.parse(cachedData));
-        } else {
-          const seasonData = await streamingService.getEpisodesForSeason(
-            tv_id.toString(),
-            (season_id || season_number || 1).toString()
-          );
-
-          if (seasonData && seasonData.episodes) {
-            // Normalize episode data
-            const formattedEpisodes = seasonData.episodes.map((ep) => ({
-              id: ep.id,
-              name: ep.title,
-              title: ep.title,
-              number: ep.number,
-              episode_number: ep.number,
-              overview: ep.description,
-              description: ep.description,
-              img: ep.img,
-              still_path: ep.img,
-            }));
-
-            setEpisodes(formattedEpisodes);
-            await AsyncStorage.setItem(
-              cacheKey,
-              JSON.stringify(formattedEpisodes)
-            );
-          }
-        }
-      } else {
-        // Use TMDB API
-        const cacheKey = `tmdb_episodes_${tv_id}_season_${season_number}`;
-        const cachedData = await AsyncStorage.getItem(cacheKey);
-
-        if (cachedData) {
-          setEpisodes(JSON.parse(cachedData));
-        } else {
-          const response = await axios.get(
-            `${TMDB_URL}/tv/${tv_id}/season/${season_number}`,
-            {
-              params: { api_key: TMDB_API_KEY, language: "en-US" },
-            }
-          );
-
-          if (response.data && response.data.episodes) {
-            setEpisodes(response.data.episodes);
-            await AsyncStorage.setItem(
-              cacheKey,
-              JSON.stringify(response.data.episodes)
-            );
-          }
-        }
+      // Try cache
+      const cached = await AsyncStorage.getItem(cacheKey);
+      if (cached) {
+        setEpisodes(JSON.parse(cached));
+        setLoading(false);
+        return;
       }
-    } catch (error: any) {
-      console.error("Episodes fetch error:", error);
-      setError(error.message || "Failed to fetch episodes");
-      Alert.alert("Error", "Failed to fetch episodes");
+
+      // Hit your new endpoint:
+      // GET /movie/:id/episodes?seasonId=<seasonId>
+      const resp = await axios.get<{
+        episodes: Array<{ id: string; number: number; title: string }>;
+      }>(
+        `${Constants.expoConfig?.extra?.API_Backend}/movie/${tv_id}/episodes`,
+        { params: { tv_id } }
+      );
+
+      // Normalize
+      const formatted = resp.data.episodes.map((e) => ({
+        id: e.id,
+        number: e.number,
+        name: e.title,
+      }));
+
+      setEpisodes(formatted);
+      await AsyncStorage.setItem(cacheKey, JSON.stringify(formatted));
+    } catch (err: any) {
+      console.error("Episodes fetch error:", err);
+      setError("Failed to load episodes");
+      Alert.alert("Error", "Failed to load episodes.");
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [tv_id, season_id, season_number, isFromBackend]);
+  }, [tv_id, cacheKey]);
 
   useEffect(() => {
     fetchEpisodes();
@@ -164,29 +100,23 @@ export default function EpisodeListScreen() {
     fetchEpisodes();
   };
 
-  // Fetch sources for a specific episode
+  // Fetch sources for a given episode
   const fetchSources = useCallback(
     async (episodeId: string) => {
       try {
         setLoading(true);
         const sourcesData = await streamingService.getEpisodeSources(
           tv_id.toString(),
-          episodeId.toString()
+          episodeId
         );
-
-        if (sourcesData && sourcesData.servers) {
-          setSources(sourcesData.servers);
-          // Set default source if available
-          const defaultSource =
-            sourcesData.servers.find((s) => s.name === "Vidcloud") ||
-            sourcesData.servers[0];
-          if (defaultSource) {
-            setSelectedSource(defaultSource);
-          }
-        }
-      } catch (error) {
-        console.error("Sources fetch error:", error);
-        Alert.alert("Error", "Failed to fetch sources");
+        setSources(sourcesData.servers);
+        const def =
+          sourcesData.servers.find((s) => s.name === "Vidcloud") ||
+          sourcesData.servers[0];
+        setSelectedSource(def || null);
+      } catch (err) {
+        console.error("Sources fetch error:", err);
+        Alert.alert("Error", "Failed to load sources.");
       } finally {
         setLoading(false);
       }
@@ -194,276 +124,158 @@ export default function EpisodeListScreen() {
     [tv_id]
   );
 
-  // Handle episode selection with debounce to prevent double taps
-  const debounceTimeout = useRef<NodeJS.Timeout | null>(null);
+  // Debounce guard
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const handleEpisodePress = (ep: EpisodeItem) => {
+    if (debounceRef.current) return;
+    setCurrentEpisode(ep);
 
-  const handleEpisodePressWithDebounce = useCallback(
-    async (episode: EpisodeItem) => {
-      if (debounceTimeout.current) return;
-
-      // Get episode number and ID based on available properties
-      const episodeNumber = episode.number || episode.episode_number;
-      const episodeId = episode.id;
-
-      if (!episodeNumber || !episodeId) {
-        Alert.alert("Error", "Invalid episode information");
-        return;
-      }
-
-      setCurrentEpisode(episode);
-
-      debounceTimeout.current = setTimeout(async () => {
-        try {
-          if (isFromBackend) {
-            // For backend content, fetch sources first
-            await fetchSources(episodeId.toString());
-
-            // If in auto-play mode or we already have a selected source, proceed to streaming
-            if (selectedSource) {
-              startStreaming(episode);
-            } else {
-              // Show source selection modal
-              setModalVisible(true);
-            }
-          } else {
-            // For TMDB content, just navigate to Stream screen
-            navigation.navigate("Stream", {
-              mediaType: "show",
-              id: tv_id,
-              season: season_number?.toString() || "1",
-              episode: episodeNumber.toString(),
-              videoTitle: `${seriesTitle} S${
-                season_number || 1
-              }E${episodeNumber} - ${episode.name || episode.title}`,
-            });
-          }
-        } catch (error) {
-          console.error("Episode selection error:", error);
-          Alert.alert("Error", "Failed to process episode selection");
-        } finally {
-          debounceTimeout.current = null;
-        }
-      }, 300);
-    },
-    [
-      tv_id,
-      season_number,
-      seriesTitle,
-      selectedSource,
-      isFromBackend,
-      navigation,
-      fetchSources,
-    ]
-  );
-
-  const startStreaming = useCallback(
-    async (episode: EpisodeItem) => {
-      if (!episode || !selectedSource) {
-        Alert.alert("Error", "Episode or source not selected");
-        return;
-      }
-
+    debounceRef.current = setTimeout(async () => {
       try {
-        setLoading(true);
-        const episodeNumber = episode.number || episode.episode_number;
-
-        // Get streaming URL
-        const streamingInfo = await streamingService.getEpisodeStreamingUrl(
-          tv_id.toString(),
-          episode.id.toString(),
-          selectedSource.id
-        );
-
-        if (streamingInfo && streamingInfo.streamUrl) {
-          // Navigate to Stream screen with all info
-          navigation.navigate("Stream", {
-            mediaType: "show",
-            id: tv_id,
-            sourceId: selectedSource.id,
-            episodeId: episode.id.toString(),
-            season: season_number?.toString() || "1",
-            episode: episodeNumber?.toString(),
-            videoTitle: `${seriesTitle} S${
-              season_number || 1
-            }E${episodeNumber} - ${episode.name || episode.title}`,
-            // Direct stream info
-            streamUrl: streamingInfo.streamUrl,
-            subtitles: streamingInfo.subtitles,
-            sourceName: selectedSource.name,
-          });
+        await fetchSources(ep.id);
+        // if we got a default source, start immediately
+        if (selectedSource) {
+          startStreaming(ep);
         } else {
-          throw new Error("No stream URL available");
+          setModalVisible(true);
         }
-      } catch (error) {
-        console.error("Stream setup error:", error);
-        Alert.alert(
-          "Streaming Error",
-          "Failed to set up streaming. Please try again."
-        );
-      } finally {
-        setLoading(false);
-      }
-    },
-    [tv_id, season_number, seriesTitle, selectedSource, navigation]
+      } catch {}
+      debounceRef.current = null;
+    }, 300);
+  };
+
+  const startStreaming = async (ep: EpisodeItem) => {
+    if (!selectedSource) {
+      Alert.alert("Error", "No source selected");
+      return;
+    }
+    try {
+      setLoading(true);
+      const info = await streamingService.getEpisodeStreamingUrl(
+        tv_id.toString(),
+        ep.id,
+        selectedSource.id
+      );
+      navigation.navigate("Stream", {
+        mediaType: "tvSeries",
+        id: tv_id,
+        episode: ep.number.toString(),
+        videoTitle: `${seriesTitle} S${season_number}E${ep.number} - ${ep.name}`,
+        slug,
+        streamUrl: info.streamUrl,
+        sourceName: selectedSource.name,
+        subtitles: info.subtitles,
+      });
+    } catch (err) {
+      console.error("Stream error:", err);
+      Alert.alert("Error", "Failed to start stream");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSourceSelect = (src: any) => {
+    setSelectedSource(src);
+    setModalVisible(false);
+    if (currentEpisode) startStreaming(currentEpisode);
+  };
+
+  const EpisodeRow = ({ item }: { item: EpisodeItem }) => (
+    <TouchableOpacity
+      style={styles.episodeItem}
+      onPress={() => handleEpisodePress(item)}
+    >
+      <View style={styles.episodeRow}>
+        <View style={styles.episodeThumbnail}>
+          {item.img ? (
+            <Image source={{ uri: item.img }} style={styles.episodeImage} />
+          ) : (
+            <View style={styles.episodePlaceholder}>
+              <Text style={styles.episodePlaceholderText}>
+                Ep {item.number}
+              </Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.episodeInfo}>
+          <Text style={styles.episodeTitle}>
+            {item.number}. {item.name}
+          </Text>
+          <TouchableOpacity
+            style={styles.sourceButton}
+            onPress={() => {
+              setCurrentEpisode(item);
+              fetchSources(item.id);
+              setModalVisible(true);
+            }}
+          >
+            <Text style={styles.sourceButtonText}>
+              Source: {selectedSource?.name || "Select"}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </TouchableOpacity>
   );
 
-  // Handle source selection
-  const handleSourceSelect = useCallback(
-    (source: any) => {
-      setSelectedSource(source);
-      setModalVisible(false);
-
-      // If we have a current episode, start streaming with the new source
-      if (currentEpisode) {
-        startStreaming(currentEpisode);
-      }
-    },
-    [currentEpisode, startStreaming]
-  );
-
-  // Episode item component
-  const EpisodeItem = ({
-    item,
-    onPress,
-    onSourcePress,
-    selectedSource,
-  }: EpisodeItemProps) => {
-    const episodeNumber = item.number || item.episode_number;
-
-    return (
-      <TouchableOpacity
-        style={styles.episodeItem}
-        onPress={() => onPress(item)}
-        activeOpacity={0.7}
-      >
-        <View style={styles.episodeRow}>
-          <View style={styles.episodeThumbnail}>
-            {item.still_path || item.img ? (
-              <Image
-                source={{
-                  uri:
-                    item.img ||
-                    (item.still_path
-                      ? `https://image.tmdb.org/t/p/w300${item.still_path}`
-                      : undefined),
-                }}
-                style={styles.episodeImage}
-                defaultSource={require("../../assets/images/Original.png")}
-              />
-            ) : (
-              <View style={styles.episodePlaceholder}>
-                <Text style={styles.episodePlaceholderText}>
-                  Ep {episodeNumber}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <View style={styles.episodeInfo}>
-            <Text style={styles.episodeTitle}>
-              {episodeNumber}.{" "}
-              {item.name || item.title || `Episode ${episodeNumber}`}
-            </Text>
-            <Text style={styles.episodeOverview} numberOfLines={2}>
-              {item.overview || item.description || "No description available."}
-            </Text>
-
-            {isFromBackend && (
+  const SourceModal = () => (
+    <Modal
+      visible={modalVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Select Source</Text>
+          <FlatList
+            data={sources}
+            keyExtractor={(i) => i.id.toString()}
+            renderItem={({ item }) => (
               <TouchableOpacity
-                style={styles.sourceButton}
-                onPress={onSourcePress}
+                style={[
+                  styles.sourceItem,
+                  selectedSource?.id === item.id && styles.selectedSourceItem,
+                ]}
+                onPress={() => handleSourceSelect(item)}
               >
-                <Text style={styles.sourceButtonText}>
-                  Source: {selectedSource?.name || "Select Source"}
+                <Text
+                  style={[
+                    styles.sourceText,
+                    selectedSource?.id === item.id && styles.selectedSourceText,
+                  ]}
+                >
+                  {item.name}
                 </Text>
               </TouchableOpacity>
             )}
-          </View>
+          />
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => setModalVisible(false)}
+          >
+            <Text style={styles.closeText}>Close</Text>
+          </TouchableOpacity>
         </View>
-      </TouchableOpacity>
-    );
-  };
+      </View>
+    </Modal>
+  );
 
-  // Source selection modal
-  const SourceModal = () => {
-    return (
-      <Modal
-        visible={modalVisible}
-        transparent={true}
-        animationType="slide"
-        onRequestClose={() => setModalVisible(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Select Source</Text>
-
-            {sources.length === 0 ? (
-              <View style={styles.noSourcesContainer}>
-                <Text style={styles.noSourcesText}>No sources available</Text>
-              </View>
-            ) : (
-              <FlatList
-                data={sources}
-                keyExtractor={(item) => item.id.toString()}
-                renderItem={({ item }) => (
-                  <TouchableOpacity
-                    style={[
-                      styles.sourceItem,
-                      selectedSource?.id === item.id &&
-                        styles.selectedSourceItem,
-                    ]}
-                    onPress={() => handleSourceSelect(item)}
-                  >
-                    <Text
-                      style={[
-                        styles.sourceItemText,
-                        selectedSource?.id === item.id &&
-                          styles.selectedSourceText,
-                      ]}
-                    >
-                      {item.name}
-                    </Text>
-                  </TouchableOpacity>
-                )}
-                style={styles.sourcesList}
-              />
-            )}
-
-            <TouchableOpacity
-              style={styles.closeButton}
-              onPress={() => setModalVisible(false)}
-            >
-              <Text style={styles.closeButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    );
-  };
-
-  // Show loading state
   if (loading && !episodes.length) {
     return (
       <View style={styles.center}>
-        <ActivityIndicator size="large" color="#7d0b02" />
-        <Text style={styles.loadingText}>Loading episodes...</Text>
+        <ActivityIndicator size="large" color="#FF5722" />
+        <Text style={styles.loadingText}>Loading episodes…</Text>
       </View>
     );
   }
 
-  // Show error state
   if (error) {
     return (
       <View style={styles.center}>
         <Text style={styles.errorText}>{error}</Text>
-        <TouchableOpacity onPress={fetchEpisodes} style={styles.retryButton}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={[styles.retryButton, { marginTop: 10 }]}
-        >
-          <Text style={styles.retryButtonText}>Go Back</Text>
+        <TouchableOpacity onPress={fetchEpisodes} style={styles.retryBtn}>
+          <Text style={styles.retryText}>Retry</Text>
         </TouchableOpacity>
       </View>
     );
@@ -471,48 +283,22 @@ export default function EpisodeListScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.seasonTitle}>
-        {seriesTitle} - {seasonName}
+      <Text style={styles.headerTitle}>
+        {seriesTitle} — {seasonName}
       </Text>
-
-      {episodes.length === 0 ? (
-        <View style={styles.noEpisodesContainer}>
-          <Text style={styles.noEpisodesText}>No episodes available</Text>
-          <TouchableOpacity onPress={onRefresh} style={styles.retryButton}>
-            <Text style={styles.retryButtonText}>Refresh</Text>
-          </TouchableOpacity>
-        </View>
-      ) : (
-        <FlatList
-          data={episodes}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={({ item }) => (
-            <EpisodeItem
-              item={item}
-              onPress={handleEpisodePressWithDebounce}
-              onSourcePress={() => {
-                setCurrentEpisode(item);
-                fetchSources(item.id.toString()).then(() => {
-                  setModalVisible(true);
-                });
-              }}
-              selectedSource={selectedSource}
-            />
-          )}
-          refreshControl={
-            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-          }
-        />
-      )}
-
-      {/* Source selection modal */}
+      <FlatList
+        data={episodes}
+        keyExtractor={(i) => i.id}
+        renderItem={({ item }) => <EpisodeRow item={item} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      />
       <SourceModal />
-
-      {/* Loading overlay for stream setup */}
       {loading && episodes.length > 0 && (
         <View style={styles.loadingOverlay}>
-          <ActivityIndicator size="large" color="#fff" />
-          <Text style={styles.loadingOverlayText}>Setting up stream...</Text>
+          <ActivityIndicator size="large" color="#FFF" />
+          <Text style={styles.loadingOverlayText}>Setting up stream…</Text>
         </View>
       )}
     </View>
@@ -520,187 +306,105 @@ export default function EpisodeListScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#121212",
-    padding: 16,
-  },
+  container: { flex: 1, backgroundColor: "#121212", padding: 16 },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#121212",
   },
-  loadingText: {
-    marginTop: 10,
-    color: "#fff",
-    fontSize: 16,
-  },
-  errorText: {
-    fontSize: 16,
-    color: "#ff6b6b",
-    textAlign: "center",
-    marginHorizontal: 20,
-  },
-  retryButton: {
-    marginTop: 20,
-    backgroundColor: "#7d0b02",
+  loadingText: { color: "#FFF", marginTop: 8 },
+  errorText: { color: "#ff6b6b", textAlign: "center", margin: 16 },
+  retryBtn: {
+    backgroundColor: "#FF5722",
     padding: 12,
     borderRadius: 8,
-    minWidth: 120,
-    alignItems: "center",
+    marginTop: 12,
   },
-  retryButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
-  seasonTitle: {
+  retryText: { color: "#FFF", fontWeight: "bold" },
+
+  headerTitle: {
     fontSize: 22,
     fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 16,
+    color: "#FFF",
+    marginBottom: 12,
   },
+
   episodeItem: {
+    marginBottom: 12,
     backgroundColor: "#1e1e1e",
     borderRadius: 8,
-    marginBottom: 12,
     overflow: "hidden",
   },
-  episodeRow: {
-    flexDirection: "row",
-    padding: 12,
-  },
+  episodeRow: { flexDirection: "row", padding: 12 },
   episodeThumbnail: {
     width: 120,
     height: 68,
     borderRadius: 4,
     overflow: "hidden",
-  },
-  episodeImage: {
-    width: "100%",
-    height: "100%",
     backgroundColor: "#2c2c2c",
   },
+  episodeImage: { width: "100%", height: "100%" },
   episodePlaceholder: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#2c2c2c",
+    flex: 1,
     justifyContent: "center",
     alignItems: "center",
   },
-  episodePlaceholderText: {
-    color: "#777",
-    fontSize: 14,
-  },
-  episodeInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
-  episodeTitle: {
-    fontSize: 16,
-    fontWeight: "bold",
-    color: "#fff",
-    marginBottom: 6,
-  },
-  episodeOverview: {
-    fontSize: 14,
-    color: "#aaa",
-  },
+  episodePlaceholderText: { color: "#777" },
+  episodeInfo: { flex: 1, marginLeft: 12 },
+  episodeTitle: { color: "#FFF", fontSize: 16, fontWeight: "bold" },
   sourceButton: {
     marginTop: 8,
     backgroundColor: "#262626",
-    paddingVertical: 6,
-    paddingHorizontal: 12,
+    padding: 6,
     borderRadius: 4,
     alignSelf: "flex-start",
   },
-  sourceButtonText: {
-    color: "#ffcc66",
-    fontSize: 12,
-  },
-  noEpisodesContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  noEpisodesText: {
-    color: "#aaa",
-    fontSize: 16,
-    marginBottom: 16,
-  },
+  sourceButtonText: { color: "#ffcc66", fontSize: 12 },
+
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "center",
     alignItems: "center",
     padding: 24,
   },
   modalContent: {
     width: "90%",
+    maxHeight: "70%",
     backgroundColor: "#1e1e1e",
     borderRadius: 12,
     padding: 20,
-    maxHeight: "70%",
   },
   modalTitle: {
+    color: "#FFF",
     fontSize: 20,
     fontWeight: "bold",
-    color: "#fff",
     marginBottom: 16,
     textAlign: "center",
   },
-  sourcesList: {
-    marginBottom: 16,
-  },
-  sourceItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: "#333",
-  },
-  selectedSourceItem: {
-    backgroundColor: "#7d0b02",
-  },
-  sourceItemText: {
-    fontSize: 16,
-    color: "#fff",
-  },
-  selectedSourceText: {
-    fontWeight: "bold",
-  },
+  sourceItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: "#333" },
+  selectedSourceItem: { backgroundColor: "#7d0b02" },
+  sourceText: { color: "#FFF", fontSize: 16 },
+  selectedSourceText: { fontWeight: "bold" },
   closeButton: {
+    marginTop: 16,
     backgroundColor: "#333",
     padding: 12,
     borderRadius: 8,
     alignItems: "center",
   },
-  closeButtonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "bold",
-  },
+  closeText: { color: "#FFF", fontSize: 16 },
+
   loadingOverlay: {
     position: "absolute",
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "center",
     alignItems: "center",
   },
-  loadingOverlayText: {
-    color: "#fff",
-    marginTop: 12,
-    fontSize: 16,
-  },
-  noSourcesContainer: {
-    padding: 16,
-    alignItems: "center",
-  },
-  noSourcesText: {
-    color: "#aaa",
-    fontSize: 16,
-  },
+  loadingOverlayText: { color: "#FFF", marginTop: 12 },
 });
