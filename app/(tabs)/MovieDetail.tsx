@@ -79,7 +79,7 @@ export default function MovieDetail(): JSX.Element {
 
   const handleWatchNow = async () => {
     try {
-      const slug = initialSlug || slugify(movieDetails?.title) || "undefined";
+      const slug = initialSlug || "undefined";
       setStreamLoading(true);
       console.log("Getting streaming URL for movie:", movie_id, "slug:", slug);
 
@@ -152,6 +152,7 @@ export default function MovieDetail(): JSX.Element {
                     title: item.title,
                     slug: item.slug,
                     poster: item.poster,
+                    seasonId: item.seasonId,
                   });
                 } else {
                   navigation.navigate("MovieDetail", {

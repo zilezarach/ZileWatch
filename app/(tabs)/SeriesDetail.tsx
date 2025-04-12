@@ -48,6 +48,7 @@ export default function SeriesDetail(): JSX.Element {
   const route = useRoute<SeriesDetailRouteProp>();
   const {
     tv_id,
+    seasonId: seasonId,
     title: initialTitle,
     slug: initialSlug,
     poster: initialPoster,
@@ -127,7 +128,7 @@ export default function SeriesDetail(): JSX.Element {
       console.error("Seasons fetch error:", err);
       Alert.alert("Error", "Failed to load seasons.");
     }
-  }, [tv_id, initialTitle]);
+  }, [tv_id, initialSlug]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -154,14 +155,14 @@ export default function SeriesDetail(): JSX.Element {
 
       navigation.navigate("EpisodeList", {
         tv_id,
+        seasonId: season.id,
         slug: initialSlug || streamingService.slugify(data.title),
-        season_number: season.number,
         seasonName: `Season ${season.number}`,
         seriesTitle: data.title || initialTitle,
         isFromBackend: true,
       });
     },
-    [data, tv_id, navigation, initialSlug, initialTitle]
+    [data, tv_id, navigation, initialSlug, initialTitle, seasonId]
   );
 
   if (loading && !data) {

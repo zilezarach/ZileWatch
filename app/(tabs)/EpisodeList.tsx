@@ -31,7 +31,8 @@ interface EpisodeItem {
 
 export default function EpisodeListScreen() {
   const route = useRoute<EpisodeListRouteProp>();
-  const { tv_id, season_number, seasonName, seriesTitle, slug } = route.params;
+  const { tv_id, seasonName, season_number, seriesTitle, slug, seasonId } =
+    route.params;
 
   const [episodes, setEpisodes] = useState<EpisodeItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,6 +55,7 @@ export default function EpisodeListScreen() {
     try {
       setLoading(true);
       setError(null);
+      const cacheKey = `backend_episodes_${tv_id}_season_${seasonId}`;
 
       // Try cache
       const cached = await AsyncStorage.getItem(cacheKey);
@@ -68,8 +70,8 @@ export default function EpisodeListScreen() {
       const resp = await axios.get<{
         episodes: Array<{ id: string; number: number; title: string }>;
       }>(
-        `${Constants.expoConfig?.extra?.API_Backend}/movie/${tv_id}/episodes`,
-        { params: { tv_id } }
+        `${Constants.expoConfig?.extra?.API_Backend}/movie/${slug}-${tv_id}/episodes`,
+        { params: { seasonId: seasonId } }
       );
 
       // Normalize
@@ -89,7 +91,7 @@ export default function EpisodeListScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [tv_id, cacheKey]);
+  }, [tv_id, seasonId, slug]);
 
   useEffect(() => {
     fetchEpisodes();
@@ -107,7 +109,8 @@ export default function EpisodeListScreen() {
         setLoading(true);
         const sourcesData = await streamingService.getEpisodeSources(
           tv_id.toString(),
-          episodeId
+          episodeId,
+          slug
         );
         setSources(sourcesData.servers);
         const def =
@@ -121,7 +124,7 @@ export default function EpisodeListScreen() {
         setLoading(false);
       }
     },
-    [tv_id]
+    [tv_id, slug]
   );
 
   // Debounce guard
@@ -151,14 +154,33 @@ export default function EpisodeListScreen() {
     }
     try {
       setLoading(true);
+
+      // Add episode validation
+      if (!ep.id.match(/^\d+$/)) {
+        throw new Error("Invalid episode ID format");
+      }
+
+      // Make sure slug is defined and not empty
+      if (!slug) {
+        console.error("Slug is missing - cannot start streaming");
+        Alert.alert("Error", "Missing series information");
+        return;
+      }
+
+      console.log(
+        `Starting stream with slug: ${slug}, episode: ${ep.id}, server: ${selectedSource.id}`
+      );
+
       const info = await streamingService.getEpisodeStreamingUrl(
         tv_id.toString(),
         ep.id,
-        selectedSource.id
+        selectedSource.id,
+        slug
       );
+
       navigation.navigate("Stream", {
         mediaType: "tvSeries",
-        id: tv_id,
+        id: tv_id.toString(),
         episode: ep.number.toString(),
         videoTitle: `${seriesTitle} S${season_number}E${ep.number} - ${ep.name}`,
         slug,
@@ -168,7 +190,7 @@ export default function EpisodeListScreen() {
       });
     } catch (err) {
       console.error("Stream error:", err);
-      Alert.alert("Error", "Failed to start stream");
+      Alert.alert("Error", "Failed to start stream: ");
     } finally {
       setLoading(false);
     }

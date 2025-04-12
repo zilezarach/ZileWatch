@@ -25,9 +25,11 @@ export type RootStackParamList = {
       duration?: string;
       rating?: string;
     };
+    seasonId: string;
   };
   EpisodeList: {
     tv_id: string;
+    seasonId: string;
     season_number?: number | string;
     seasonName?: string;
     seriesTitle?: string;
@@ -55,5 +57,7 @@ export type RootStackParamList = {
   Profile: undefined;
   Login: undefined;
   Register: undefined;
+  VideoPlayer: undefined;
+  Movies: undefined;
   // Add more routes as needed
 };

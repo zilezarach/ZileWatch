@@ -1,4 +1,3 @@
-// utils/streamingService.ts
 import axios, { AxiosError, AxiosRequestConfig } from "axios";
 import Constants from "expo-constants";
 
@@ -396,7 +395,8 @@ export async function getSeasons(
 // 4) Get episodes for a season
 export async function getEpisodesForSeason(
   seriesId: string,
-  seasonId: string
+  seasonId: string,
+  slug?: string
 ): Promise<Episode[]> {
   try {
     if (!seasonId) {
@@ -404,9 +404,12 @@ export async function getEpisodesForSeason(
       return [];
     }
 
-    const res = await api.get<EpisodeResponse>(`/movie/${seriesId}/episodes`, {
-      params: { seasonId },
-    });
+    const res = await api.get<EpisodeResponse>(
+      `/movie/${slug}-${seriesId}/episodes`,
+      {
+        params: { seasonId },
+      }
+    );
 
     if (!res.data.success || !res.data.episodes?.length) {
       console.warn(`No episodes found for season ${seasonId}`);
@@ -430,22 +433,31 @@ export async function getEpisodesForSeason(
 export async function getEpisodeStreamingUrl(
   seriesId: string,
   episodeId: string,
-  serverId?: string
+  serverId?: string,
+  incomingSlug?: string
 ): Promise<StreamingInfo> {
   try {
+    if (!incomingSlug) {
+      throw new Error(
+        "Slug is required for season requests - provide slug or series title"
+      );
+    }
+
+    // Clean existing watch- prefix if present
+    const baseSlug = incomingSlug.replace(/^watch-/i, "");
+    const watchSlug = formatWatchSlug(baseSlug);
+
     // Get series details for slug
     console.log(`[API] Fetching series details for ID: ${seriesId}`);
     const seriesDetail = await api.get<MovieDetailResponse>(
-      `/movie/${seriesId}`
+      `/movie/${incomingSlug}-${seriesId}`
     );
 
     if (!seriesDetail.data) {
       throw new Error(`Series with ID ${seriesId} not found`);
     }
 
-    const baseSlug =
-      seriesDetail.data.slug || slugify(seriesDetail.data.title || "");
-    const watchSlug = formatWatchSlug(baseSlug);
+    //Enhanced server fetching
 
     // Fetch servers
     console.log(`[API] Fetching servers for episode ID: ${episodeId}`);
