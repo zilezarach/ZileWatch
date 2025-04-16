@@ -2,7 +2,7 @@
 
 > Stream and watch movies or videos online—for free!
 
-![ZileWatch Logo](./assets/logo.png)
+![ZileWatch Logo](./assets/images/Original.png)
 
 ## Table of Contents
 
