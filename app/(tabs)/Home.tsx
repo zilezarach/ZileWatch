@@ -11,12 +11,9 @@ import {
   Switch,
   Alert,
   Platform,
-  PlatformColor,
+  PlatformColor
 } from "react-native";
-import {
-  fetchPopularVids,
-  fetchYouTubeSearchResults,
-} from "@/utils/apiService";
+import { fetchPopularVids, fetchYouTubeSearchResults } from "@/utils/apiService";
 import VideoList from "@/components/videoList";
 import ModalPick from "@/components/DownloadPrompt";
 import axios from "axios";
@@ -68,13 +65,12 @@ export default function Home({ navigation }: any) {
   const [selectedVideo, setSelectedVideo] = useState<SelectedVideo>({
     url: "",
     title: "",
-    poster: "",
+    poster: ""
   });
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [isVisible, setVisible] = useState(false); // for paste link modal
   const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
-  const { setActiveDownloads, setCompleteDownloads } =
-    useContext(DownloadContext);
+  const { setActiveDownloads, setCompleteDownloads } = useContext(DownloadContext);
 
   // Helper: Persist a new download record in AsyncStorage and update state.
   const addDownloadRecord = async (newRecord: any) => {
@@ -83,61 +79,101 @@ export default function Home({ navigation }: any) {
       let existingRecords = recordsStr ? JSON.parse(recordsStr) : [];
       // Prepend new record so that the newest appears first.
       const updatedRecords = [newRecord, ...existingRecords];
-      await AsyncStorage.setItem(
-        "downloadedFiles",
-        JSON.stringify(updatedRecords)
-      );
+      await AsyncStorage.setItem("downloadedFiles", JSON.stringify(updatedRecords));
       // Optionally update local state if you want immediate feedback.
       // (If DownloadsScreen is separate, ensure it reloads on focus.)
     } catch (error) {
       console.error("Error saving download record:", error);
     }
   };
-  //function to request permissions at first launch
 
-  const checkForPermissions = async () => {
+  // Refactored permission handling function
+  const requestStoragePermissions = async () => {
     try {
-      // Use the same key as when saving permissions
-      const storedPermissions = await AsyncStorage.getItem(
-        "storagePermissions"
-      );
-      if (!storedPermissions && Platform.OS === "android") {
+      // Check if we already have permissions stored
+      const storedPermissions = await AsyncStorage.getItem("storagePermissions");
+
+      if (storedPermissions) {
+        const permissions = JSON.parse(storedPermissions);
+        if (permissions.granted && permissions.directoryUri) {
+          return permissions.directoryUri;
+        }
+      }
+
+      // No valid permissions found, need to request them
+      return new Promise(resolve => {
         Alert.alert(
-          "Storage permissions required",
+          "Storage Access Required",
           "The app requires storage permission for saving downloaded files on your phone",
           [
             {
-              text: "Setup Now",
+              text: "Select Folder",
               onPress: async () => {
                 try {
-                  const getPermissions =
-                    await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-                  if (getPermissions.granted) {
-                    // Save with the same key
-                    await AsyncStorage.setItem(
-                      "storagePermissions",
-                      JSON.stringify(getPermissions)
-                    );
-                    Alert.alert(
-                      "Permission Access Accepted",
-                      "You can now use the app"
-                    );
+                  const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+                  if (permissions.granted) {
+                    // Store the permissions for future use
+                    await AsyncStorage.setItem("storagePermissions", JSON.stringify(permissions));
+                    resolve(permissions.directoryUri);
                   } else {
-                    Alert.alert("Permission Denied", "User declined");
+                    // Use fallback if permission denied
+                    const fallbackDir = `${FileSystem.cacheDirectory}ZileWatch/`;
+                    await ensureDirectoryExists(fallbackDir);
+                    resolve(fallbackDir);
                   }
                 } catch (error) {
-                  console.error("Error during allowing permission", error);
-                  Alert.alert("Unable to allow permissions");
+                  console.error("Error requesting directory permissions:", error);
+                  const fallbackDir = `${FileSystem.cacheDirectory}ZileWatch/`;
+                  await ensureDirectoryExists(fallbackDir);
+                  resolve(fallbackDir);
                 }
-              },
+              }
             },
             {
               text: "Later",
               style: "cancel",
-            },
+              onPress: async () => {
+                const fallbackDir = `${FileSystem.cacheDirectory}ZileWatch/`;
+                await ensureDirectoryExists(fallbackDir);
+                resolve(fallbackDir);
+              }
+            }
           ]
         );
-      }
+      });
+    } catch (error) {
+      console.error("Error in requestStoragePermissions:", error);
+      // Fallback to app-specific storage
+      const fallbackDir = `${FileSystem.cacheDirectory}ZileWatch/`;
+      await ensureDirectoryExists(fallbackDir);
+      return fallbackDir;
+    }
+  };
+
+  // Helper function to ensure a directory exists
+  const ensureDirectoryExists = async (directory: string) => {
+    const directoryInfo = await FileSystem.getInfoAsync(directory);
+    if (!directoryInfo.exists) {
+      await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
+    }
+    return directory;
+  };
+
+  // Simplified getStorageDirectory function
+  const getStorageDirectory = async () => {
+    if (Platform.OS === "ios") {
+      // For iOS, create a dedicated directory
+      const directory = `${FileSystem.documentDirectory}ZileWatch/`;
+      return ensureDirectoryExists(directory);
+    } else {
+      // For Android, properly handle permissions with our refactored function
+      return requestStoragePermissions();
+    }
+  };
+  //function to request permissions at first launch
+  const checkForPermissions = async () => {
+    try {
+      // Only request media permissions here, storage permissions are handled separately
       if (Platform.OS === "android") {
         const mediaPermission = await MediaLibrary.getPermissionsAsync();
         if (mediaPermission.status === "granted") {
@@ -150,7 +186,7 @@ export default function Home({ navigation }: any) {
         }
       }
     } catch (error) {
-      console.error("Error Checking File permissions", error);
+      console.error("Error checking media permissions", error);
     }
   };
   //Loading the downloads when permission is made
@@ -167,10 +203,7 @@ export default function Home({ navigation }: any) {
         if (status === "granted") {
           setHasMediaPermission(true);
         } else {
-          Alert.alert(
-            "Permission Denied",
-            "Cannot save files to gallery without permission."
-          );
+          Alert.alert("Permission Denied", "Cannot save files to gallery without permission.");
         }
       }
     })();
@@ -179,8 +212,7 @@ export default function Home({ navigation }: any) {
   const handleSearch = async () => {
     if (!searchQuery) return;
     setLoading(true);
-    const isURL =
-      searchQuery.startsWith("http://") || searchQuery.startsWith("https://");
+    const isURL = searchQuery.startsWith("http://") || searchQuery.startsWith("https://");
     if (isURL) {
       await fetchByUrl(searchQuery);
     } else {
@@ -198,7 +230,7 @@ export default function Home({ navigation }: any) {
   const fetchByUrl = async (url: string) => {
     try {
       const res = await axios.get(`${DOWNLOADER_API}/download-videos`, {
-        params: { url },
+        params: { url }
       });
       console.log("Response", res.data);
       let formatsArray = [];
@@ -214,7 +246,7 @@ export default function Home({ navigation }: any) {
         Title: res.data.title,
         Plot: "Download",
         Poster: res.data.thumbnail,
-        Formats: formatsArray,
+        Formats: formatsArray
       };
     } catch (error) {
       console.error("Unable to Fetch Video", error);
@@ -238,100 +270,9 @@ export default function Home({ navigation }: any) {
   }, []);
 
   // When a video is selected for download from VideoList, open the download modal.
-  const handleDownload = (video: {
-    url: string;
-    title: string;
-    poster: string;
-  }) => {
+  const handleDownload = (video: { url: string; title: string; poster: string }) => {
     setSelectedVideo(video);
     setModalVisible(true);
-  };
-  // Helper function to determine the proper storage directory
-
-  const getStorageDirectory = async () => {
-    if (Platform.OS === "ios") {
-      // For iOS, create a dedicated directory
-      const directory = `${FileSystem.documentDirectory}ZileWatch/`;
-      const directoryInfo = await FileSystem.getInfoAsync(directory);
-      if (!directoryInfo.exists) {
-        await FileSystem.makeDirectoryAsync(directory, { intermediates: true });
-      }
-      return directory;
-    } else {
-      try {
-        // For Android, check for existing permissions first
-        const storedPermissions = await AsyncStorage.getItem(
-          "storagePermissions"
-        );
-        if (storedPermissions) {
-          const permissions = JSON.parse(storedPermissions);
-          if (permissions.directoryUri) {
-            return permissions.directoryUri;
-          }
-        }
-
-        // If no valid permissions found or it's the first launch, request them
-        Alert.alert(
-          "Storage Access Required",
-          "Please select a folder where your downloads will be saved.",
-          [
-            {
-              text: "Select Folder",
-              onPress: async () => {
-                try {
-                  const permissions =
-                    await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-                  if (permissions.granted) {
-                    // Store the permissions for future use
-                    await AsyncStorage.setItem(
-                      "storagePermissions",
-                      JSON.stringify(permissions)
-                    );
-                    return permissions.directoryUri;
-                  }
-                } catch (error) {
-                  console.error(
-                    "Error requesting directory permissions:",
-                    error
-                  );
-                }
-
-                // Fallback to app storage if permissions not granted
-                const directory = `${FileSystem.cacheDirectory}ZileWatch/`;
-                const directoryInfo = await FileSystem.getInfoAsync(directory);
-                if (!directoryInfo.exists) {
-                  await FileSystem.makeDirectoryAsync(directory, {
-                    intermediates: true,
-                  });
-                }
-                return directory;
-              },
-            },
-          ]
-        );
-
-        // Default fallback while waiting for user selection
-        const directory = `${FileSystem.cacheDirectory}ZileWatch/`;
-        const directoryInfo = await FileSystem.getInfoAsync(directory);
-        if (!directoryInfo.exists) {
-          await FileSystem.makeDirectoryAsync(directory, {
-            intermediates: true,
-          });
-        }
-        return directory;
-      } catch (error) {
-        console.log("Error accessing storage directory:", error);
-        // Fallback to app-specific storage
-        const directory = `${FileSystem.cacheDirectory}ZileWatch/`;
-        const directoryInfo = await FileSystem.getInfoAsync(directory);
-        if (!directoryInfo.exists) {
-          await FileSystem.makeDirectoryAsync(directory, {
-            intermediates: true,
-          });
-        }
-        return directory;
-      }
-    }
   };
   // Save file to the device gallery (for video files)
   const saveFileToGallery = async (fileUri: string): Promise<string> => {
@@ -398,9 +339,7 @@ export default function Home({ navigation }: any) {
 
     // Check permissions - both storage write and media library permissions
     if (Platform.OS === "android") {
-      const storedPermissions = await AsyncStorage.getItem(
-        "storagePermissions"
-      );
+      const storedPermissions = await AsyncStorage.getItem("storagePermissions");
 
       if (!storedPermissions) {
         Alert.alert(
@@ -421,7 +360,7 @@ export default function Home({ navigation }: any) {
     const downloadId = `${Date.now()}-${selectedVideo.url}`;
     const formatMapping: Record<string, string> = {
       video: "best",
-      audio: "bestaudio",
+      audio: "bestaudio"
     };
     const selectedFormat = formatMapping[option];
 
@@ -430,10 +369,7 @@ export default function Home({ navigation }: any) {
       if (Platform.OS === "android") {
         const storagePermission = await MediaLibrary.requestPermissionsAsync();
         if (!storagePermission.granted) {
-          Alert.alert(
-            "Permission Required",
-            "Storage permission is needed to save files."
-          );
+          Alert.alert("Permission Required", "Storage permission is needed to save files.");
           return;
         }
       }
@@ -441,7 +377,7 @@ export default function Home({ navigation }: any) {
       // Add to active downloads context
       setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
         ...prev,
-        [downloadId]: { title: selectedVideo.title, progress: 0 },
+        [downloadId]: { title: selectedVideo.title, progress: 0 }
       }));
 
       // Create directory before attempting to download
@@ -452,7 +388,7 @@ export default function Home({ navigation }: any) {
         const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
         if (!directoryInfo.exists) {
           await FileSystem.makeDirectoryAsync(downloadDir, {
-            intermediates: true,
+            intermediates: true
           });
         }
       }
@@ -465,16 +401,16 @@ export default function Home({ navigation }: any) {
         responseType: "arraybuffer",
         headers: {
           "Content-Type": "application/json",
-          Accept: "application/octet-stream",
+          Accept: "application/octet-stream"
         },
-        onDownloadProgress: (progressEvent) => {
+        onDownloadProgress: progressEvent => {
           const total = progressEvent.total || 1;
           const progress = Math.round((progressEvent.loaded / total) * 100);
           setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
             ...prev,
-            [downloadId]: { ...prev[downloadId], progress },
+            [downloadId]: { ...prev[downloadId], progress }
           }));
-        },
+        }
       });
 
       // Check if response data exists and has length
@@ -496,14 +432,10 @@ export default function Home({ navigation }: any) {
         const mimeType = option === "audio" ? "audio/m4a" : "video/mp4";
         try {
           // Create a file with SAF
-          fileUri = await FileSystem.StorageAccessFramework.createFileAsync(
-            downloadDir,
-            fileName,
-            mimeType
-          );
+          fileUri = await FileSystem.StorageAccessFramework.createFileAsync(downloadDir, fileName, mimeType);
           // Write to the file
           await FileSystem.writeAsStringAsync(fileUri, fileData, {
-            encoding: FileSystem.EncodingType.Base64,
+            encoding: FileSystem.EncodingType.Base64
           });
           console.log("File saved to SAF URI:", fileUri);
         } catch (error) {
@@ -516,13 +448,9 @@ export default function Home({ navigation }: any) {
         fileUri = `${downloadDir}${fileName}`;
 
         // Write the file
-        await FileSystem.writeAsStringAsync(
-          fileUri,
-          Buffer.from(response.data).toString("base64"),
-          {
-            encoding: FileSystem.EncodingType.Base64,
-          }
-        );
+        await FileSystem.writeAsStringAsync(fileUri, Buffer.from(response.data).toString("base64"), {
+          encoding: FileSystem.EncodingType.Base64
+        });
         console.log("File saved to:", fileUri);
       }
 
@@ -533,10 +461,7 @@ export default function Home({ navigation }: any) {
           finalFileUri = await saveFileToGallery(fileUri);
           console.log("Video saved to gallery:", finalFileUri);
         } catch (error) {
-          console.error(
-            "Failed to save to gallery, using file URI instead:",
-            error
-          );
+          console.error("Failed to save to gallery, using file URI instead:", error);
         }
       }
 
@@ -548,17 +473,14 @@ export default function Home({ navigation }: any) {
         fileUri: finalFileUri,
         type: option,
         source: "direct",
-        downloadedAt: Date.now(),
+        downloadedAt: Date.now()
       };
 
       // Save to AsyncStorage
       await addDownloadRecord(newDownloadRecord);
 
       // Update UI state
-      setCompleteDownloads((prev) => [
-        ...prev,
-        { id: downloadId, title: `${option.toUpperCase()} Download Complete` },
-      ]);
+      setCompleteDownloads(prev => [...prev, { id: downloadId, title: `${option.toUpperCase()} Download Complete` }]);
       setActiveDownloads((prev: Record<string, ActiveDownload>) => {
         const { [downloadId]: removed, ...rest } = prev;
         return rest;
@@ -572,16 +494,14 @@ export default function Home({ navigation }: any) {
           onPress: async () => {
             console.log("Opening file:", finalFileUri);
             await openFile(finalFileUri);
-          },
-        },
+          }
+        }
       ]);
     } catch (error: any) {
       console.error("Download Error:", error);
       Alert.alert(
         "Download Failed",
-        error.response?.data?.message ||
-          error.message ||
-          "Failed to download. Please try again."
+        error.response?.data?.message || error.message || "Failed to download. Please try again."
       );
       setActiveDownloads((prev: Record<string, ActiveDownload>) => {
         const { [downloadId]: removed, ...rest } = prev;
@@ -597,7 +517,7 @@ export default function Home({ navigation }: any) {
     try {
       const response = await axios.post(`${DOWNLOADER_API}/download-videos`, {
         url: selectedVideo.url,
-        format: formatId, // Send the actual format ID instead of format name
+        format: formatId // Send the actual format ID instead of format name
       });
       // Handle download response...
     } catch (error) {
@@ -611,10 +531,7 @@ export default function Home({ navigation }: any) {
   return (
     <View style={[styles.contain, isDarkMode && styles.darkMode]}>
       <View style={styles.toggleContainer}>
-        <Image
-          source={require("../../assets/images/Original.png")}
-          style={{ width: 100, height: 100 }}
-        />
+        <Image source={require("../../assets/images/Original.png")} style={{ width: 100, height: 100 }} />
         <Switch value={isDarkMode} onValueChange={setIsDarkMode} />
       </View>
       <View style={styles.container}>
@@ -630,35 +547,14 @@ export default function Home({ navigation }: any) {
           <Text style={styles.buttonText}>🔍</Text>
         </TouchableOpacity>
       </View>
-      <VideoList
-        videos={videos}
-        onPlay={(videoUrl) => console.log("Play Video", videoUrl)}
-        onDownload={handleDownload}
-      />
-      <ModalPick
-        visable={isModalVisible}
-        onClose={() => setModalVisible(false)}
-        onSelect={handleSelectOption}
-      />
-      <TouchableOpacity
-        style={styles.toggleButton}
-        onPress={() => setVisible(!isVisible)}
-      >
-        <Text style={styles.toggleButtonText}>
-          {isVisible ? "Hide List" : "Show Paste Link"}
-        </Text>
+      <VideoList videos={videos} onPlay={videoUrl => console.log("Play Video", videoUrl)} onDownload={handleDownload} />
+      <ModalPick visable={isModalVisible} onClose={() => setModalVisible(false)} onSelect={handleSelectOption} />
+      <TouchableOpacity style={styles.toggleButton} onPress={() => setVisible(!isVisible)}>
+        <Text style={styles.toggleButtonText}>{isVisible ? "Hide List" : "Show Paste Link"}</Text>
       </TouchableOpacity>
-      <Modal
-        visible={isVisible}
-        animationType="slide"
-        transparent
-        onRequestClose={() => setVisible(false)}
-      >
+      <Modal visible={isVisible} animationType="slide" transparent onRequestClose={() => setVisible(false)}>
         <View style={styles.modalContainer}>
-          <TouchableOpacity
-            style={styles.button}
-            onPress={() => setVisible(false)}
-          >
+          <TouchableOpacity style={styles.button} onPress={() => setVisible(false)}>
             <Text style={styles.buttonText}>Close</Text>
           </TouchableOpacity>
           <FlatList
@@ -669,12 +565,8 @@ export default function Home({ navigation }: any) {
                 <Image source={{ uri: item.Poster }} style={styles.thumbnail} />
                 <Text style={styles.listTitle}>{item.Title}</Text>
                 {item.Formats.length > 0 ? (
-                  item.Formats.map((format) => (
-                    <TouchableOpacity
-                      key={format.id}
-                      style={styles.button}
-                      onPress={() => handleLinks(format.id)}
-                    >
+                  item.Formats.map(format => (
+                    <TouchableOpacity key={format.id} style={styles.button} onPress={() => handleLinks(format.id)}>
                       <Text style={styles.listTitle}>
                         {format.quality} ({format.size}) - {format.format}
                       </Text>
@@ -697,12 +589,12 @@ const styles = StyleSheet.create({
   Input: {
     flex: 1,
     padding: 10,
-    color: "#7d0b02",
+    color: "#7d0b02"
   },
   contain: {
     flex: 1,
     padding: 10,
-    borderWidth: 1,
+    borderWidth: 1
   },
   container: {
     flexDirection: "row",
@@ -711,67 +603,67 @@ const styles = StyleSheet.create({
     margin: 15,
     borderColor: "#7d0b02",
     borderRadius: 4,
-    overflow: "hidden",
+    overflow: "hidden"
   },
   button: {
     backgroundColor: "#7d0b02",
     borderRadius: 5,
     padding: 10,
     marginVertical: 5,
-    marginTop: 5,
+    marginTop: 5
   },
   buttonText: {
-    fontSize: 16,
+    fontSize: 16
   },
   toggleContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 10
   },
   darkMode: {
-    backgroundColor: "#121212",
+    backgroundColor: "#121212"
   },
   toggleButton: {
     backgroundColor: "#7d0b02",
     padding: 10,
     borderRadius: 5,
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: 10
   },
   toggleButtonText: {
     color: "#fff",
     fontSize: 16,
-    fontWeight: "bold",
+    fontWeight: "bold"
   },
   thumbnail: {
     height: 200,
     width: 200,
     borderRadius: 10,
-    marginBottom: 10,
+    marginBottom: 10
   },
   listContainer: {
-    padding: 15,
+    padding: 15
   },
   listItem: {
     backgroundColor: "#f9f9f9",
     borderRadius: 10,
     padding: 10,
     marginVertical: 10,
-    alignItems: "center",
+    alignItems: "center"
   },
   listTitle: {
     marginTop: 5,
-    marginBottom: 5,
+    marginBottom: 5
   },
   noFormatsText: {
-    backgroundColor: "#7d0b02",
+    backgroundColor: "#7d0b02"
   },
   modalContainer: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.8)",
     justifyContent: "center",
     alignItems: "center",
-    paddingTop: 40,
-  },
+    paddingTop: 40
+  }
 });
