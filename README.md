@@ -1,50 +1,73 @@
-# Welcome to your Expo app 👋
+# ZileWatch
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+> Stream and watch movies or videos online—for free!
 
-## Get started
+![ZileWatch Logo](./assets/images/Original.png)
 
-1. Install dependencies
+## Table of Contents
 
+- [About](#about)  
+- [Features](#features)  
+- [Tech Stack](#tech-stack)  
+- [Getting Started](#getting-started)  
+  - [Prerequisites](#prerequisites)  
+  - [Installation](#installation)  
+  - [Running the App](#running-the-app)  
+- [Screenshots](#screenshots)  
+- [Folder Structure](#folder-structure)  
+- [Contributing](#contributing)  
+- [License](#license)  
+- [Contact](#contact)  
+
+---
+
+## About
+
+ZileWatch is a React Native–powered mobile application that lets you **stream** or **download** your favorite videos and movies—**completely free**, with **no ads**, and with **blazing-fast** performance.
+
+---
+
+## Features
+
+- 🚀 **Fast Downloads**  
+  Optimized backend for rapid download speeds—even during peak hours.
+
+- 📺 **Seamless Streaming**  
+  Bufferless playback with zero ads.
+
+- 🎨 **User‑Friendly Interface**  
+  Clean, intuitive UI designed for quick navigation.
+
+- 📂 **Offline Mode**  
+  Downloaded videos are available offline.
+
+- 🔒 **Secure**  
+  No personal data collection; fully open-source.
+
+---
+
+## Tech Stack
+
+- **Frontend**: React Native  
+- **UI**: Tailwind CSS (via `tailwind-rn`)  
+- **Icons**: `react-icons`  
+- **Backend**: Node.js / Express (API for streaming & downloads)  
+- **Hosting**: Docker Compose on Ubuntu server  
+
+---
+
+## Getting Started
+
+### Prerequisites
+
+- **Node.js** ≥ 18  
+- **Yarn** or **npm**  
+- **Expo CLI** (if using the managed workflow)  
+- Android emulator or physical device
+
+### Installation
+
+1. **Clone the repo**  
    ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-    npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
-```
-
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
-
-## Learn more
-
-To learn more about developing your project with Expo, look at the following resources:
-
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
-
-## Join the community
-
-Join our community of developers creating universal apps.
-
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+   git clone https://github.com/zilezarach/ZileWatch.git
+   cd ZileWatch
