@@ -20,7 +20,7 @@ import * as ScreenOrientation from "expo-screen-orientation";
 import streamingService from "@/utils/streamingService";
 import { RootStackParamList } from "@/types/navigation";
 import { useFocusEffect } from "expo-router";
-
+import { useIsFocused } from "@react-navigation/native";
 const { width, height } = Dimensions.get("window");
 type StreamRouteProp = RouteProp<RootStackParamList, "Stream">;
 
@@ -28,7 +28,7 @@ export default function StreamVideo() {
   const route = useRoute<StreamRouteProp>();
   const navigation = useNavigation();
   const videoRef = useRef<Video>(null);
-
+  const isFocused = useIsFocused();
   const {
     mediaType = "movie",
     id: movieId,
@@ -49,6 +49,27 @@ export default function StreamVideo() {
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setIsLandscape] = useState<boolean>(false);
   const [shouldPlayVideo, setShouldPlayVideo] = useState<boolean>(true);
+  //handle clean up
+  const cleanupVideo = async () => {
+    if (videoRef.current) {
+      try {
+        await videoRef.current.pauseAsync();
+        await videoRef.current.unloadAsync();
+      } catch (err) {
+        console.warn("Failed to cleanup video:", err);
+      }
+      setShouldPlayVideo(false);
+    }
+  };
+  //handle the user
+
+  useEffect(() => {
+    if (!isFocused) {
+      cleanupVideo();
+    } else if (!shouldPlayVideo) {
+      setShouldPlayVideo(true);
+    }
+  }, [isFocused]);
   //handle harder backbutton
   useFocusEffect(
     React.useCallback(() => {
@@ -81,21 +102,27 @@ export default function StreamVideo() {
   // Clean up when component unmounts
   useEffect(() => {
     return () => {
-      // Stop and unload video when component unmounts
-      if (videoRef.current) {
-        videoRef.current.pauseAsync().catch(() => {});
-        videoRef.current.unloadAsync().catch(() => {});
-      }
+      cleanupVideo();
+      // Always ensure we return to portrait on unmount
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
     };
   }, []);
-  //handle back buttton press
-  const handleGoBack = () => {
-    if (videoRef.current) {
-      videoRef.current.pauseAsync().catch(() => {});
+
+  //Reset video
+  useEffect(() => {
+    if (!streamUrl && videoRef.current) {
       videoRef.current.unloadAsync().catch(() => {});
-      setShouldPlayVideo(false);
     }
-    ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
+  }, [streamUrl]);
+
+  //handle back buttton press
+  const handleGoBack = async () => {
+    await cleanupVideo();
+    try {
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
+    } catch (error) {
+      console.warn("Failed to lock orientation", error);
+    }
     navigation.goBack();
   };
   // Fetch available servers

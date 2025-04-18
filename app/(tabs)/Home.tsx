@@ -88,59 +88,11 @@ export default function Home({ navigation }: any) {
   };
 
   // Refactored permission handling function
+
   const requestStoragePermissions = async () => {
     try {
-      // Check if we already have permissions stored
-      const storedPermissions = await AsyncStorage.getItem("storagePermissions");
-
-      if (storedPermissions) {
-        const permissions = JSON.parse(storedPermissions);
-        if (permissions.granted && permissions.directoryUri) {
-          return permissions.directoryUri;
-        }
-      }
-
-      // No valid permissions found, need to request them
-      return new Promise(resolve => {
-        Alert.alert(
-          "Storage Access Required",
-          "The app requires storage permission for saving downloaded files on your phone",
-          [
-            {
-              text: "Select Folder",
-              onPress: async () => {
-                try {
-                  const permissions = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
-                  if (permissions.granted) {
-                    // Store the permissions for future use
-                    await AsyncStorage.setItem("storagePermissions", JSON.stringify(permissions));
-                    resolve(permissions.directoryUri);
-                  } else {
-                    // Use fallback if permission denied
-                    const fallbackDir = `${FileSystem.cacheDirectory}ZileWatch/`;
-                    await ensureDirectoryExists(fallbackDir);
-                    resolve(fallbackDir);
-                  }
-                } catch (error) {
-                  console.error("Error requesting directory permissions:", error);
-                  const fallbackDir = `${FileSystem.cacheDirectory}ZileWatch/`;
-                  await ensureDirectoryExists(fallbackDir);
-                  resolve(fallbackDir);
-                }
-              }
-            },
-            {
-              text: "Later",
-              style: "cancel",
-              onPress: async () => {
-                const fallbackDir = `${FileSystem.cacheDirectory}ZileWatch/`;
-                await ensureDirectoryExists(fallbackDir);
-                resolve(fallbackDir);
-              }
-            }
-          ]
-        );
-      });
+      const internalDir = `${FileSystem.cacheDirectory}ZileWatch/`;
+      await ensureDirectoryExists(internalDir);
     } catch (error) {
       console.error("Error in requestStoragePermissions:", error);
       // Fallback to app-specific storage
@@ -149,7 +101,6 @@ export default function Home({ navigation }: any) {
       return fallbackDir;
     }
   };
-
   // Helper function to ensure a directory exists
   const ensureDirectoryExists = async (directory: string) => {
     const directoryInfo = await FileSystem.getInfoAsync(directory);
@@ -159,17 +110,6 @@ export default function Home({ navigation }: any) {
     return directory;
   };
 
-  // Simplified getStorageDirectory function
-  const getStorageDirectory = async () => {
-    if (Platform.OS === "ios") {
-      // For iOS, create a dedicated directory
-      const directory = `${FileSystem.documentDirectory}ZileWatch/`;
-      return ensureDirectoryExists(directory);
-    } else {
-      // For Android, properly handle permissions with our refactored function
-      return requestStoragePermissions();
-    }
-  };
   //function to request permissions at first launch
   const checkForPermissions = async () => {
     try {
@@ -381,16 +321,13 @@ export default function Home({ navigation }: any) {
       }));
 
       // Create directory before attempting to download
-      const downloadDir = await getStorageDirectory();
+      const downloadDir = await requestStoragePermissions();
 
       // Ensure directory exists (important step)
-      if (!downloadDir.startsWith("content://")) {
-        const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
-        if (!directoryInfo.exists) {
-          await FileSystem.makeDirectoryAsync(downloadDir, {
-            intermediates: true
-          });
-        }
+      if (!downloadDir) {
+        const fallbackDir = `${FileSystem.cacheDirectory}ZileWatch/`;
+        await ensureDirectoryExists(fallbackDir);
+        return fallbackDir;
       }
 
       // Call the backend download endpoint
@@ -424,35 +361,14 @@ export default function Home({ navigation }: any) {
         .replace(/[^a-z0-9\s]/gi, "") // Remove special characters
         .replace(/\s+/g, "_"); // Replace spaces with underscores
 
-      let fileUri = "";
-      if (Platform.OS === "android" && downloadDir.startsWith("content://")) {
-        // For Android with SAF permissions
-        const fileData = Buffer.from(response.data).toString("base64");
-        const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
-        const mimeType = option === "audio" ? "audio/m4a" : "video/mp4";
-        try {
-          // Create a file with SAF
-          fileUri = await FileSystem.StorageAccessFramework.createFileAsync(downloadDir, fileName, mimeType);
-          // Write to the file
-          await FileSystem.writeAsStringAsync(fileUri, fileData, {
-            encoding: FileSystem.EncodingType.Base64
-          });
-          console.log("File saved to SAF URI:", fileUri);
-        } catch (error) {
-          console.error("Error writing to SAF:", error);
-          throw error;
-        }
-      } else {
-        // For iOS or Android fallback to app storage
-        const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
-        fileUri = `${downloadDir}${fileName}`;
+      const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
+      const fileUri = `${downloadDir}${fileName}`;
 
-        // Write the file
-        await FileSystem.writeAsStringAsync(fileUri, Buffer.from(response.data).toString("base64"), {
-          encoding: FileSystem.EncodingType.Base64
-        });
-        console.log("File saved to:", fileUri);
-      }
+      // Write the file
+      await FileSystem.writeAsStringAsync(fileUri, Buffer.from(response.data).toString("base64"), {
+        encoding: FileSystem.EncodingType.Base64
+      });
+      console.log("File saved to:", fileUri);
 
       // For video downloads, save to gallery
       let finalFileUri = fileUri;
