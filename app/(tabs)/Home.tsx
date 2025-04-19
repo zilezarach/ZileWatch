@@ -85,6 +85,7 @@ export default function Home({ navigation }: any) {
     try {
       const internalDir = `${FileSystem.cacheDirectory}ZileWatch/`;
       await ensureDirectoryExists(internalDir);
+      return internalDir;
     } catch (error) {
       console.error("Error in requestStoragePermissions:", error);
       // Fallback to app-specific storage
