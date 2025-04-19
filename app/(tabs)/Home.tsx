@@ -30,6 +30,7 @@ import FileViewer from "react-native-file-viewer";
 type Video = {
   Title: string;
   Plot: string;
+  url: string;
   Formats: Array<{
     id: string;
     quality: string;
@@ -173,13 +174,15 @@ export default function Home({ navigation }: any) {
           .map((line: string) => line.trim())
           .filter((line: string) => line.length > 0);
       }
-      const video: Video = {
+      const video: Video & { url: string } = {
+        url,
         Title: res.data.title,
         Plot: "Download",
         Poster: res.data.thumbnail,
         Formats: formatsArray
       };
       setDownloadVids([video]);
+      setSelectedVideo({ url, title: video.Title, poster: video.Poster });
     } catch (error) {
       console.error("Unable to Fetch Video", error);
       Alert.alert("Error", "Unable to fetch videos from Url");
@@ -363,17 +366,22 @@ export default function Home({ navigation }: any) {
               <View style={styles.listItem}>
                 <Image source={{ uri: item.Poster }} style={styles.thumbnail} />
                 <Text style={styles.listTitle}>{item.Title}</Text>
-                {item.Formats.length > 0 ? (
-                  item.Formats.map(format => (
-                    <TouchableOpacity key={format.id} style={styles.button} onPress={() => handleSelectOption("video")}>
-                      <Text style={styles.listTitle}>
-                        {format.quality} ({format.size}) - {format.format}
-                      </Text>
-                    </TouchableOpacity>
-                  ))
-                ) : (
-                  <Text style={styles.noFormatsText}>No formats available</Text>
-                )}{" "}
+                <TouchableOpacity
+                  style={styles.button}
+                  onPress={() => {
+                    setSelectedVideo({ url: item.url, title: item.Title, poster: item.Poster });
+                    handleSelectOption("video");
+                  }}>
+                  <Text style={styles.buttonText}>Video</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.button}
+                  onPress={() => {
+                    setSelectedVideo({ url: item.url, title: item.Title, poster: item.Poster });
+                    handleSelectOption("audio");
+                  }}>
+                  <Text style={styles.buttonText}>Audio</Text>
+                </TouchableOpacity>
               </View>
             )}
             contentContainerStyle={styles.listContainer}

@@ -9,6 +9,7 @@ export type RootStackParamList = {
     poster: string;
     slug: string;
     stats?: {
+      seasons?: string;
       year?: string;
       duration?: string;
       rating?: string;
@@ -21,6 +22,7 @@ export type RootStackParamList = {
     isFromBackend?: boolean;
     poster: string;
     stats?: {
+      seasons?: string;
       year?: string;
       duration?: string;
       rating?: string;
@@ -57,7 +59,9 @@ export type RootStackParamList = {
   Profile: undefined;
   Login: undefined;
   Register: undefined;
-  VideoPlayer: undefined;
+  VideoPlayer: {
+    videoUrl?: string;
+  };
   Movies: undefined;
   // Add more routes as needed
 };

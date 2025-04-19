@@ -36,7 +36,7 @@ const VideoPlayer = () => {
   const [isPaused, setPaused] = useState(false);
   const navigation = useNavigation();
   const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
-  const videoUrl = route.params.videoUrl.trim();
+  const videoUrl = route?.params?.videoUrl?.trim?.() ?? "";
   const isFocused = useIsFocused();
   const { miniPlayer, setMiniPlayer } = useMiniPlayer();
   useFocusEffect(
