@@ -26,6 +26,7 @@ import * as MediaLibrary from "expo-media-library";
 import FileViewer from "react-native-file-viewer";
 
 // Types
+
 type Video = {
   Title: string;
   Plot: string;
@@ -36,16 +37,6 @@ type Video = {
     format: string;
   }>;
   Poster: string;
-};
-
-type ActiveDownload = {
-  title: string;
-  progress: number; // as fraction from 0 to 100
-};
-
-type CompletedDownload = {
-  id: string;
-  title: string;
 };
 
 // Helper type for selected video metadata
@@ -182,12 +173,13 @@ export default function Home({ navigation }: any) {
           .map((line: string) => line.trim())
           .filter((line: string) => line.length > 0);
       }
-      const socialDownload: Video = {
+      const video: Video = {
         Title: res.data.title,
         Plot: "Download",
         Poster: res.data.thumbnail,
         Formats: formatsArray
       };
+      setDownloadVids([video]);
     } catch (error) {
       console.error("Unable to Fetch Video", error);
       Alert.alert("Error", "Unable to fetch videos from Url");
@@ -264,167 +256,58 @@ export default function Home({ navigation }: any) {
       Alert.alert("Error", "Unable to open file");
     }
   };
-  // MIME HELPER FUNCTION
-  const getMimeType = (fileUri: string) => {
-    if (fileUri.endsWith(".mp4")) return "video/mp4";
-    if (fileUri.endsWith(".m4a")) return "audio/m4a";
-    return "application/octet-stream"; // Fallback
-  };
   // Download logic: called when user selects a download option from ModalPick.
+
   const handleSelectOption = async (option: "audio" | "video") => {
-    if (!selectedVideo.url) {
-      Alert.alert("Error", "No video selected for download.");
-      return;
-    }
-
-    // Check permissions - both storage write and media library permissions
-    if (Platform.OS === "android") {
-      const storedPermissions = await AsyncStorage.getItem("storagePermissions");
-
-      if (!storedPermissions) {
-        Alert.alert(
-          "Storage Access Required",
-          "You'll need to select a folder where your downloads will be saved. This will only be asked once.",
-          [{ text: "OK", onPress: () => continueDownload(option) }]
-        );
-        return;
-      }
-    }
-
-    continueDownload(option);
-  };
-
-  // Separated download logic
-  const continueDownload = async (option: "audio" | "video") => {
+    if (!selectedVideo.url) return Alert.alert("Error", "No video selected");
     setModalVisible(false);
     const downloadId = `${Date.now()}-${selectedVideo.url}`;
-    const formatMapping: Record<string, string> = {
-      video: "best",
-      audio: "bestaudio"
-    };
-    const selectedFormat = formatMapping[option];
-
+    setActiveDownloads(prev => ({ ...prev, [downloadId]: { title: selectedVideo.title, progress: 0 } }));
     try {
-      // Check permissions - both storage write and media library permissions
-      if (Platform.OS === "android") {
-        const storagePermission = await MediaLibrary.requestPermissionsAsync();
-        if (!storagePermission.granted) {
-          Alert.alert("Permission Required", "Storage permission is needed to save files.");
-          return;
+      const dir = await requestStoragePermissions();
+      const response = await axios.post(
+        `${DOWNLOADER_API}/download-videos`,
+        { url: selectedVideo.url, format: option === "video" ? "best" : "bestaudio" },
+        {
+          responseType: "arraybuffer",
+          onDownloadProgress: e => {
+            const prog = Math.round((e.loaded / (e.total || 1)) * 100);
+            setActiveDownloads(prev => ({ ...prev, [downloadId]: { ...prev[downloadId], progress: prog } }));
+          }
         }
-      }
-
-      // Add to active downloads context
-      setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
-        ...prev,
-        [downloadId]: { title: selectedVideo.title, progress: 0 }
-      }));
-
-      // Create directory before attempting to download
-      const downloadDir = await requestStoragePermissions();
-
-      // Ensure directory exists (important step)
-      if (!downloadDir) {
-        const fallbackDir = `${FileSystem.cacheDirectory}ZileWatch/`;
-        await ensureDirectoryExists(fallbackDir);
-        return fallbackDir;
-      }
-
-      // Call the backend download endpoint
-      const response = await axios({
-        method: "post",
-        url: `${DOWNLOADER_API}/download-videos`,
-        data: { url: selectedVideo.url, format: selectedFormat },
-        responseType: "arraybuffer",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/octet-stream"
-        },
-        onDownloadProgress: progressEvent => {
-          const total = progressEvent.total || 1;
-          const progress = Math.round((progressEvent.loaded / total) * 100);
-          setActiveDownloads((prev: Record<string, ActiveDownload>) => ({
-            ...prev,
-            [downloadId]: { ...prev[downloadId], progress }
-          }));
-        }
-      });
-
-      // Check if response data exists and has length
-      if (!response.data || response.data.length === 0) {
-        throw new Error("Received empty response from server");
-      }
-
-      // Use a sanitized filename
-      const fileExtension = option === "audio" ? "m4a" : "mp4";
-      const sanitizedTitle = selectedVideo.title
-        .replace(/[^a-z0-9\s]/gi, "") // Remove special characters
-        .replace(/\s+/g, "_"); // Replace spaces with underscores
-
-      const fileName = `${sanitizedTitle}_${Date.now()}.${fileExtension}`;
-      const fileUri = `${downloadDir}${fileName}`;
-
-      // Write the file
-      await FileSystem.writeAsStringAsync(fileUri, Buffer.from(response.data).toString("base64"), {
+      );
+      const ext = option === "video" ? "mp4" : "m4a";
+      const filename = `${selectedVideo.title.replace(/[^a-z0-9]/gi, "_")}_${Date.now()}.${ext}`;
+      const filepath = `${dir}${filename}`;
+      await FileSystem.writeAsStringAsync(filepath, Buffer.from(response.data).toString("base64"), {
         encoding: FileSystem.EncodingType.Base64
       });
-      console.log("File saved to:", fileUri);
-
-      // For video downloads, save to gallery
-      let finalFileUri = fileUri;
-      if (option === "video" && hasMediaPermission) {
-        try {
-          finalFileUri = await saveFileToGallery(fileUri);
-          console.log("Video saved to gallery:", finalFileUri);
-        } catch (error) {
-          console.error("Failed to save to gallery, using file URI instead:", error);
-        }
-      }
-
-      // Create download record
-      const newDownloadRecord = {
+      let finalUri = filepath;
+      if (option === "video" && hasMediaPermission) finalUri = await saveFileToGallery(filepath);
+      await addDownloadRecord({
         id: downloadId,
         title: selectedVideo.title,
         Poster: selectedVideo.poster,
-        fileUri: finalFileUri,
+        fileUri: finalUri,
         type: option,
-        source: "direct",
         downloadedAt: Date.now()
-      };
-
-      // Save to AsyncStorage
-      await addDownloadRecord(newDownloadRecord);
-
-      // Update UI state
-      setCompleteDownloads(prev => [...prev, { id: downloadId, title: `${option.toUpperCase()} Download Complete` }]);
-      setActiveDownloads((prev: Record<string, ActiveDownload>) => {
-        const { [downloadId]: removed, ...rest } = prev;
+      });
+      setCompleteDownloads(prev => [...prev, { id: downloadId, title: `${option.toUpperCase()} Complete` }]);
+      setActiveDownloads(prev => {
+        const { [downloadId]: _, ...rest } = prev;
         return rest;
       });
-
-      // Show success message with open option
-      Alert.alert("Success", `${option.toUpperCase()} download complete.`, [
+      Alert.alert("Success", `${option.toUpperCase()} download complete`, [
         { text: "OK" },
-        {
-          text: "Open File",
-          onPress: async () => {
-            console.log("Opening file:", finalFileUri);
-            await openFile(finalFileUri);
-          }
-        }
+        { text: "Open File", onPress: () => openFile(finalUri) }
       ]);
-    } catch (error: any) {
-      console.error("Download Error:", error);
-      Alert.alert(
-        "Download Failed",
-        error.response?.data?.message || error.message || "Failed to download. Please try again."
-      );
-      setActiveDownloads((prev: Record<string, ActiveDownload>) => {
-        const { [downloadId]: removed, ...rest } = prev;
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Download failed", "Please try again");
+      setActiveDownloads(prev => {
+        const { [downloadId]: _, ...rest } = prev;
         return rest;
       });
-    } finally {
-      setModalVisible(false);
     }
   };
   // Optional: handleLinks for additional pasted link downloads.
@@ -482,7 +365,7 @@ export default function Home({ navigation }: any) {
                 <Text style={styles.listTitle}>{item.Title}</Text>
                 {item.Formats.length > 0 ? (
                   item.Formats.map(format => (
-                    <TouchableOpacity key={format.id} style={styles.button} onPress={() => handleLinks(format.id)}>
+                    <TouchableOpacity key={format.id} style={styles.button} onPress={() => handleSelectOption("video")}>
                       <Text style={styles.listTitle}>
                         {format.quality} ({format.size}) - {format.format}
                       </Text>
