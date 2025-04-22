@@ -168,8 +168,9 @@ export default function Movies(): JSX.Element {
       navigation.navigate("SeriesDetail", {
         tv_id: item.id,
         title: item.title,
-        slug: item.slug,
         isFromBackend: true,
+        seasonId: item.seasonId,
+        slug: item.slug,
         poster: item.poster,
         stats: item.stats,
       });
@@ -424,7 +425,7 @@ export default function Movies(): JSX.Element {
       {/* Header with search */}
       <View style={styles.header}>
         <Text style={styles.appTitle}>
-          {isSearching ? "Search" : "MovieStream"}
+          {isSearching ? "Search" : "ZileStream"}
         </Text>
         <View style={styles.searchContainer}>
           <TextInput
