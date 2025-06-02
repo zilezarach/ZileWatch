@@ -18,6 +18,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import streamingService from "@/utils/streamingService";
 import axios from "axios";
 import Constants from "expo-constants";
+import { Episode } from "@/types/models";
 
 type EpisodeListRouteProp = RouteProp<RootStackParamList, "EpisodeList">;
 
@@ -25,14 +26,23 @@ interface EpisodeItem {
   id: string;
   number: number;
   name: string;
+  title: string;
   description?: string;
   img?: string;
 }
 
 export default function EpisodeListScreen() {
   const route = useRoute<EpisodeListRouteProp>();
-  const { tv_id, seasonName, season_number, seriesTitle, slug, seasonId } =
-    route.params;
+  const {
+    tv_id,
+    seasonName,
+    season_number,
+    seriesTitle,
+    slug,
+    seasonId,
+    seasonNumberForApi,
+    useFallback,
+  } = route.params;
 
   const [episodes, setEpisodes] = useState<EpisodeItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,36 +63,44 @@ export default function EpisodeListScreen() {
   // Fetch episodes from your backend
   const fetchEpisodes = useCallback(async () => {
     try {
-      setLoading(true);
       setError(null);
+
       const cacheKey = `backend_episodes_${tv_id}_season_${seasonId}`;
 
-      // Try cache
       const cached = await AsyncStorage.getItem(cacheKey);
       if (cached) {
         setEpisodes(JSON.parse(cached));
-        setLoading(false);
         return;
       }
 
-      // Hit your new endpoint:
-      // GET /movie/:id/episodes?seasonId=<seasonId>
-      const resp = await axios.get<{
-        episodes: Array<{ id: string; number: number; title: string }>;
-      }>(
-        `${Constants.expoConfig?.extra?.API_Backend}/movie/${slug}-${tv_id}/episodes`,
-        { params: { seasonId: seasonId } }
-      );
+      let episodesData: EpisodeItem[] = [];
 
-      // Normalize
-      const formatted = resp.data.episodes.map((e) => ({
-        id: e.id,
-        number: e.number,
-        name: e.title,
-      }));
+      if (useFallback) {
+        episodesData = await streamingService.getEpisodeTMBD(
+          tv_id,
+          seasonNumberForApi
+        );
+      } else {
+        const resp = await axios.get<{ episodes: EpisodeItem[] }>(
+          `${Constants.expoConfig?.extra?.API_Backend}/movie/${slug}-${tv_id}/episodes`,
+          { params: { seasonId } }
+        );
+        episodesData = resp.data.episodes.map((e: any) => ({
+          id: e.id.toString(),
+          number: e.number,
+          title: e.title,
+          description: e.description,
+          img: e.img,
+        }));
+      }
 
-      setEpisodes(formatted);
-      await AsyncStorage.setItem(cacheKey, JSON.stringify(formatted));
+      if (episodesData && episodesData.length > 0) {
+        setEpisodes(episodesData);
+        await AsyncStorage.setItem(cacheKey, JSON.stringify(episodesData));
+      } else {
+        console.warn("No episodes found for season", seasonId);
+        setEpisodes([]);
+      }
     } catch (err: any) {
       console.error("Episodes fetch error:", err);
       setError("Failed to load episodes");
@@ -91,7 +109,7 @@ export default function EpisodeListScreen() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [tv_id, seasonId, slug]);
+  }, [tv_id, seasonId, slug, useFallback, cacheKey, season_number]);
 
   useEffect(() => {
     fetchEpisodes();
@@ -103,64 +121,97 @@ export default function EpisodeListScreen() {
   };
 
   // Fetch sources for a given episode
-  const fetchSources = useCallback(
-    async (episodeId: string) => {
-      try {
-        setLoading(true);
-        const sourcesData = await streamingService.getEpisodeSources(
-          tv_id.toString(),
-          episodeId,
-          slug
-        );
-        setSources(sourcesData.servers);
-        const def =
-          sourcesData.servers.find((s) => s.name === "Vidcloud") ||
-          sourcesData.servers[0];
-        setSelectedSource(def || null);
-      } catch (err) {
-        console.error("Sources fetch error:", err);
-        Alert.alert("Error", "Failed to load sources.");
-      } finally {
-        setLoading(false);
+  const fetchSources = async (episodeId: string) => {
+    // Skip source fetching for fallback mode
+    if (useFallback) {
+      return;
+    }
+
+    try {
+      setLoading(true);
+      const resp = await streamingService.getEpisodeSources(
+        tv_id.toString(),
+        episodeId,
+        slug
+      );
+
+      if (resp.servers && resp.servers.length > 0) {
+        setSources(resp.servers);
+
+        // Auto-select preferred source
+        const preferred =
+          resp.servers.find(
+            (s) => s.name.toLowerCase().includes("vidcloud") || s.isVidstream
+          ) || resp.servers[0];
+
+        setSelectedSource(preferred);
+      } else {
+        setSources([]);
+        setSelectedSource(null);
+        Alert.alert("Error", "No streaming sources available");
       }
-    },
-    [tv_id, slug]
-  );
+    } catch (error) {
+      console.error("Failed to fetch sources:", error);
+      Alert.alert("Error", "Failed to load streaming sources");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Debounce guard
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
   const handleEpisodePress = (ep: EpisodeItem) => {
     if (debounceRef.current) return;
+
     setCurrentEpisode(ep);
+
+    if (useFallback) {
+      startStreaming(ep);
+      return;
+    }
 
     debounceRef.current = setTimeout(async () => {
       try {
         await fetchSources(ep.id);
-        // if we got a default source, start immediately
         if (selectedSource) {
           startStreaming(ep);
         } else {
           setModalVisible(true);
         }
-      } catch {}
+      } catch (error) {
+        console.error("Failed to fetch sources:", error);
+        Alert.alert("Error", "Failed to load streaming sources");
+      }
       debounceRef.current = null;
     }, 300);
   };
-
   const startStreaming = async (ep: EpisodeItem) => {
-    if (!selectedSource) {
-      Alert.alert("Error", "No source selected");
-      return;
-    }
     try {
       setLoading(true);
 
-      // Add episode validation
-      if (!ep.id.match(/^\d+$/)) {
+      if (!ep.id.match(/^\d+$/) && !useFallback) {
         throw new Error("Invalid episode ID format");
       }
 
-      // Make sure slug is defined and not empty
+      if (useFallback) {
+        navigation.navigate("Stream", {
+          mediaType: "tvSeries",
+          id: tv_id.toString(),
+          videoTitle: `${seriesTitle} S${seasonNumberForApi}E${ep.number} - ${ep.title}`,
+          slug,
+          episodeId: ep.id,
+          useFallback: true,
+          seasonNumber: seasonNumberForApi,
+          episodeNumber: ep.number.toString(),
+        });
+        return;
+      }
+
+      if (!selectedSource) {
+        Alert.alert("Error", "No source selected");
+        return;
+      }
+
       if (!slug) {
         console.error("Slug is missing - cannot start streaming");
         Alert.alert("Error", "Missing series information");
@@ -181,16 +232,16 @@ export default function EpisodeListScreen() {
       navigation.navigate("Stream", {
         mediaType: "tvSeries",
         id: tv_id.toString(),
-        episode: ep.number.toString(),
-        videoTitle: `${seriesTitle} S${season_number}E${ep.number} - ${ep.name}`,
+        videoTitle: `${seriesTitle} S${seasonNumberForApi}E${ep.number} - ${ep.title}`,
         slug,
         streamUrl: info.streamUrl,
         sourceName: selectedSource.name,
         subtitles: info.subtitles,
+        episodeId: ep.id,
       });
     } catch (err) {
       console.error("Stream error:", err);
-      Alert.alert("Error", "Failed to start stream: ");
+      Alert.alert("Error", "Failed to start stream");
     } finally {
       setLoading(false);
     }
@@ -221,26 +272,41 @@ export default function EpisodeListScreen() {
         </View>
         <View style={styles.episodeInfo}>
           <Text style={styles.episodeTitle}>
-            {item.number}. {item.name}
+            {item.number}. {item.title || item.name}
           </Text>
-          <TouchableOpacity
-            style={styles.sourceButton}
-            onPress={() => {
-              setCurrentEpisode(item);
-              fetchSources(item.id);
-              setModalVisible(true);
-            }}
-          >
-            <Text style={styles.sourceButtonText}>
-              Source: {selectedSource?.name || "Select"}
+          {item.description && (
+            <Text style={styles.episodeDescription} numberOfLines={2}>
+              {item.description}
             </Text>
-          </TouchableOpacity>
+          )}
+          {/* Only show source button for primary API */}
+          {!useFallback && (
+            <TouchableOpacity
+              style={styles.sourceButton}
+              onPress={(e) => {
+                e.stopPropagation(); // Prevent episode press
+                setCurrentEpisode(item);
+                fetchSources(item.id);
+                setModalVisible(true);
+              }}
+            >
+              <Text style={styles.sourceButtonText}>
+                Source: {selectedSource?.name || "Select"}
+              </Text>
+            </TouchableOpacity>
+          )}
+          {/* Show fallback indicator */}
+          {useFallback && (
+            <View style={styles.fallbackIndicator}>
+              <Text style={styles.fallbackText}>Source 2</Text>
+            </View>
+          )}
         </View>
       </View>
     </TouchableOpacity>
   );
-
-  const SourceModal = () => (
+  const SourceModal = () => {
+    if (useFallback) return null;
     <Modal
       visible={modalVisible}
       transparent
@@ -280,8 +346,8 @@ export default function EpisodeListScreen() {
           </TouchableOpacity>
         </View>
       </View>
-    </Modal>
-  );
+    </Modal>;
+  };
 
   if (loading && !episodes.length) {
     return (
@@ -351,7 +417,26 @@ const styles = StyleSheet.create({
     color: "#FFF",
     marginBottom: 12,
   },
+  episodeDescription: {
+    color: "#AAA",
+    fontSize: 14,
+    marginTop: 4,
+    lineHeight: 18,
+  },
 
+  fallbackIndicator: {
+    marginTop: 8,
+    backgroundColor: "#4CAF50",
+    padding: 4,
+    borderRadius: 4,
+    alignSelf: "flex-start",
+  },
+
+  fallbackText: {
+    color: "#FFF",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
   episodeItem: {
     marginBottom: 12,
     backgroundColor: "#1e1e1e",

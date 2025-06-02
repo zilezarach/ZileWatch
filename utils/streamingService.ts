@@ -6,11 +6,18 @@ const BASE_URL = Constants.expoConfig?.extra?.API_Backend;
 const DEFAULT_TIMEOUT = 15_000; // Extended from 10s to 15s
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
-
+const TMBD_KEY =
+  Constants.expoConfig?.extra?.TMBD_KEY || "3d87c19403c5b4902b9617fc74eb3866";
+const TMBD_URL = Constants.expoConfig?.extra?.TMBD_URL;
 // Define extended request config type with retry properties
 interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
   _retry?: number;
   skipRetry?: boolean;
+}
+
+//functions
+function buildImageUrl(path: string, size: string = "w500"): string {
+  return path ? `https://image.tmdb.org/t/p/${size}${path}` : "";
 }
 
 // Enhanced axios instance with retry logic
@@ -89,8 +96,15 @@ export interface SearchItem {
 
 export interface StreamingInfo {
   streamUrl: string;
-  subtitles: { file: string; label: string; kind: string; default?: boolean }[];
-  selectedServer: { id: string; name: string };
+  subtitles?: {
+    file: string;
+    label: string;
+    kind: string;
+    default?: boolean;
+  }[];
+  selectedServer?: { id: string; name: string };
+  name?: string;
+  tmbdID?: string;
 }
 
 export interface Season {
@@ -98,14 +112,36 @@ export interface Season {
   number: number;
 }
 
+export interface SeasonItem {
+  id: string;
+  number: number;
+  name: string;
+  episode_count: number;
+  poster: string;
+  year: string;
+  season_number: number;
+}
+
 export interface Episode {
   id: string;
   number: number;
+  name: string;
   title: string;
   description?: string;
   img?: string;
 }
-
+interface PrimarySeasonData {
+  // This is what your backend /seasons actually returns for each season
+  id: string | number;
+  season_number?: number;
+  number?: number;
+  name?: string;
+  episode_count?: number;
+  poster_path?: string;
+  poster?: string;
+  air_date?: string;
+  year?: string;
+}
 interface MovieDetailResponse {
   title: string;
   episodeId?: string;
@@ -216,43 +252,103 @@ function handleApiError(error: unknown, customMessage: string): never {
 // 1) Search content
 export async function searchContent(
   query: string,
-  contentType?: "movie" | "tvSeries"
+  contentType: "movie" | "tvSeries",
+  useFallback: boolean = false
 ): Promise<SearchItem[]> {
-  try {
-    if (!query?.trim()) {
-      return [];
+  if (useFallback) {
+    // Determine the endpoint based on the content type.
+    const endpoint = contentType === "movie" ? "search/movie" : "search/tv";
+    try {
+      const response = await axios.get(`${TMBD_URL}/${endpoint}`, {
+        params: {
+          api_key: TMBD_KEY,
+          query,
+          language: "en-US",
+        },
+      });
+      if (contentType === "movie") {
+        return response.data.results.map((movie: any) => ({
+          id: movie.id.toString(),
+          title: movie.title,
+          poster: buildImageUrl(movie.poster_path, "w500"),
+          stats: {
+            year: movie.release_date ? movie.release_date.split("-")[0] : "",
+            rating: movie.vote_average.toString(),
+          },
+          type: "movie",
+          slug: slugify(movie.title),
+        }));
+      } else {
+        // For TV series:
+        return response.data.results.map((tv: any) => ({
+          id: tv.id.toString(),
+          title: tv.name,
+          poster: buildImageUrl(tv.poster_path, "w500"),
+          stats: {
+            year: tv.first_air_date ? tv.first_air_date.split("-")[0] : "",
+            rating: tv.vote_average.toString(),
+          },
+          type: "tvSeries",
+          slug: slugify(tv.name),
+        }));
+      }
+    } catch (error: any) {
+      console.error("TMDB search error:", error.message);
+      throw new Error("TMDB search failed");
     }
-
-    const res = await api.get<SearchResponse>("/content", {
-      params: { q: query },
-    });
-
-    if (!res.data?.items?.length) {
+  } else {
+    // Use your primary API endpoint.
+    try {
+      const res = await axios.get(
+        `${Constants.expoConfig?.extra?.API_Backend}/content`,
+        { params: { q: query, type: contentType } }
+      );
+      if (res.data && res.data.items) {
+        return res.data.items.map((item: any) => ({
+          id: item.id.toString(),
+          title: item.title,
+          poster: item.poster || "",
+          stats: item.stats || {},
+          type: item.type,
+          slug: item.slug || slugify(item.title),
+        }));
+      }
       return [];
+    } catch (error: any) {
+      console.error("Primary search error:", error.message);
+      throw new Error("Primary search failed");
     }
-
-    const items: SearchItem[] = res.data.items.map((item) => ({
-      id: item.id,
-      title: item.title,
-      slug: item.slug || slugify(item.title),
-      poster: item.poster || "",
-      stats: item.stats || {},
-      type: item.type || (item.stats?.seasons ? "tvSeries" : "movie"),
-    }));
-
-    return contentType ? items.filter((i) => i.type === contentType) : items;
-  } catch (error) {
-    console.error("Search error:", error);
-    // Return empty array instead of throwing for better UX during search
-    return [];
   }
 }
-
 // 2) Movie streaming flow
 export async function getMovieStreamingUrl(
   movieId: string,
-  incomingSlug?: string
+  incomingSlug?: string,
+  useFallback: boolean = false
 ): Promise<StreamingInfo> {
+  if (useFallback) {
+    try {
+      const fallbackUrl = `https://test-eosin-nine-75.vercel.app/${movieId}`;
+      const resp = await axios.get(fallbackUrl, { timeout: 10000 });
+      if (resp.data && Array.isArray(resp.data) && resp.data.length > 0) {
+        const fallbackStream = resp.data[0];
+        return {
+          streamUrl: fallbackStream.stream,
+          name: fallbackStream.name,
+          selectedServer: {
+            id: fallbackStream.mediaId,
+            name: fallbackStream.name,
+          },
+          tmbdID: fallbackStream.mediaId,
+        };
+      } else {
+        throw new Error("Fallback unable to fetch data");
+      }
+    } catch (error: any) {
+      console.log("Fallback is not available", error);
+      throw new Error("Fallback Error");
+    }
+  }
   try {
     // 1) Fetch movie details
     console.log(`[API] Fetching movie details for ID: ${movieId}`);
@@ -355,7 +451,7 @@ export async function getEpisodeSources(
 export async function getSeasons(
   seriesId: string,
   incomingSlug?: string
-): Promise<Season[]> {
+): Promise<SeasonItem[]> {
   try {
     if (!seriesId) {
       console.error("Series ID is required");
@@ -434,8 +530,24 @@ export async function getEpisodeStreamingUrl(
   seriesId: string,
   episodeId: string,
   serverId?: string,
-  incomingSlug?: string
+  incomingSlug?: string,
+  useFallback: boolean = false,
+  seasonNumber?: string,
+  episodeNumber?: string
 ): Promise<StreamingInfo> {
+  // If using fallback, call the fallback function
+  if (useFallback) {
+    if (!seasonNumber || !episodeNumber) {
+      throw new Error(
+        "Season and episode numbers are required for fallback streaming"
+      );
+    }
+    return getEpisodeStreamingUrlFallback(
+      seriesId,
+      seasonNumber,
+      episodeNumber
+    );
+  }
   try {
     if (!incomingSlug) {
       throw new Error(
@@ -456,8 +568,6 @@ export async function getEpisodeStreamingUrl(
     if (!seriesDetail.data) {
       throw new Error(`Series with ID ${seriesId} not found`);
     }
-
-    //Enhanced server fetching
 
     // Fetch servers
     console.log(`[API] Fetching servers for episode ID: ${episodeId}`);
@@ -516,6 +626,68 @@ export async function getEpisodeStreamingUrl(
     return handleApiError(error, "Episode stream setup failed");
   }
 }
+export async function getEpisodeTMBD(
+  seriesId: string,
+  seasonNumber: string
+): Promise<Episode[]> {
+  try {
+    const response = await axios.get(
+      `${TMBD_URL}/tv/${seriesId}/season/${seasonNumber}`,
+      {
+        params: {
+          api_key: TMBD_KEY,
+          language: "en-US",
+        },
+      }
+    );
+    if (response.data && response.data.episodes) {
+      return response.data.episodes.map((ep: any) => ({
+        id: ep.id.toString(),
+        number: ep.episode_number,
+        title: ep.name,
+        description: ep.overview,
+        img: ep.still_path
+          ? `https://image.tmdb.org/t/p/w500${ep.still_path}`
+          : "",
+      }));
+    }
+    return [];
+  } catch (error: any) {
+    console.error("Error in getEpisodesForSeasonFallback:", error.message);
+    throw new Error("Failed to fetch episodes via fallback");
+  }
+}
+
+export async function getEpisodeStreamingUrlFallback(
+  seriesId: string,
+  seasonNumber: string,
+  episodeNumber: string
+): Promise<StreamingInfo> {
+  try {
+    const fallbackUrl = `https://test-eosin-nine-75.vercel.app/${seriesId}/${seasonNumber}/${episodeNumber}`;
+    console.log(`[FALLBACK] Fetching episode stream from: ${fallbackUrl}`);
+
+    const resp = await axios.get(fallbackUrl, { timeout: 15000 });
+
+    if (resp.data && Array.isArray(resp.data) && resp.data.length > 0) {
+      const fallbackStream = resp.data[0];
+      return {
+        streamUrl: fallbackStream.stream,
+        name: fallbackStream.name,
+        selectedServer: {
+          id: fallbackStream.mediaId || seriesId,
+          name: fallbackStream.name || "Fallback Server",
+        },
+        tmbdID: fallbackStream.mediaId,
+      };
+    } else {
+      throw new Error("No stream data returned from fallback API");
+    }
+  } catch (error: any) {
+    console.error("Episode fallback error:", error);
+    throw new Error(`Fallback streaming failed: ${error.message}`);
+  }
+}
 
 export default {
   searchContent,
@@ -524,5 +696,7 @@ export default {
   getSeasons,
   getEpisodesForSeason,
   getEpisodeStreamingUrl,
+  getEpisodeTMBD,
+  getEpisodeStreamingUrlFallback,
   slugify,
 };

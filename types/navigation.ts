@@ -14,6 +14,7 @@ export type RootStackParamList = {
       duration?: string;
       rating?: string;
     };
+    useFallback?: boolean;
   };
   SeriesDetail: {
     tv_id: string;
@@ -27,25 +28,33 @@ export type RootStackParamList = {
       duration?: string;
       rating?: string;
     };
+    useFallback?: boolean;
     seasonId: string;
   };
   EpisodeList: {
     tv_id: string;
     seasonId: string;
+    seasonNumberForApi: string;
     season_number?: number | string;
     seasonName?: string;
     seriesTitle?: string;
     isFromBackend?: boolean;
     slug: string;
+    useFallback?: boolean;
+    seasonNumber: number;
   };
   Stream: {
     mediaType: "movie" | "tvSeries";
     id: number | string;
     sourceId?: string;
     episodeId?: string;
+    useFallback?: boolean;
+    seriesId?: number | string;
     videoTitle: string;
     season?: string;
     episode?: string;
+    seasonNumber?: string;
+    episodeNumber?: string;
     streamUrl?: string;
     slug: string;
     subtitles?: Array<{

@@ -21,6 +21,7 @@ import { RootStackParamList } from "@/types/navigation";
 import Constants from "expo-constants";
 import { FontAwesome } from "@expo/vector-icons";
 import streamingService, { SearchItem } from "@/utils/streamingService";
+import dataTMBD from "@/utils/detailsTmbd";
 
 const { width } = Dimensions.get("window");
 const ITEM_WIDTH = width * 0.28;
@@ -30,14 +31,14 @@ interface HomeData {
   spotlight: Array<{
     id: string;
     title: string;
-    banner: string;
-    poster: string;
-    rating: string;
-    year: string;
+    banner?: string;
+    poster?: string;
+    rating?: string;
+    year?: string;
   }>;
   trending: {
     movies: SearchItem[];
-    tvSeries: SearchItem[]; // Was "tvSeries"
+    tvSeries: SearchItem[];
   };
   latestMovies: SearchItem[];
   latestTvSeries: SearchItem[];
@@ -53,6 +54,7 @@ export default function Movies(): JSX.Element {
   const [isSearching, setIsSearching] = useState(false);
   const [contentType, setContentType] = useState<"movie" | "tvSeries">("movie");
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [useFallback, setFallback] = useState<boolean>(false);
 
   const isMounted = useRef(true);
   const navigation =
@@ -69,24 +71,32 @@ export default function Movies(): JSX.Element {
   // Fetch homepage data
   useEffect(() => {
     fetchHomeData();
-  }, []);
+  }, [useFallback]);
 
   const fetchHomeData = async () => {
     if (loading) return;
     try {
       setLoading(true);
-      const res = await axios.get<HomeData>(
-        `${Constants.expoConfig?.extra?.API_Backend}/info`
-      );
-      if (isMounted.current) {
-        setHomeInfo(res.data);
-        setLoading(false);
+      if (useFallback) {
+        // Fetch home data from TMDB via our service
+        const tmdbData = await dataTMBD.giveDataToHome();
+        if (isMounted.current) {
+          setHomeInfo(tmdbData);
+          setLoading(false);
+        }
+      } else {
+        // Fetch home data from your primary backend
+        const res = await axios.get<HomeData>(
+          `${Constants.expoConfig?.extra?.API_Backend}/info`
+        );
+        if (isMounted.current) {
+          setHomeInfo(res.data);
+          setLoading(false);
+        }
       }
     } catch (e) {
       console.warn("Failed to load home info", e);
-      if (isMounted.current) {
-        setLoading(false);
-      }
+      if (isMounted.current) setLoading(false);
     }
   };
 
@@ -101,7 +111,7 @@ export default function Movies(): JSX.Element {
     try {
       setIsSearching(true);
       setLoading(true);
-      const key = `search_${query}_${contentType}`;
+      const key = `search_${query}_${contentType}_${useFallback}`;
       const cached = await AsyncStorage.getItem(key);
 
       if (!isMounted.current) return;
@@ -111,7 +121,8 @@ export default function Movies(): JSX.Element {
       } else {
         const results = await streamingService.searchContent(
           query,
-          contentType
+          contentType,
+          useFallback
         );
         if (!isMounted.current) return;
         setMovies(results);
@@ -173,6 +184,7 @@ export default function Movies(): JSX.Element {
         slug: item.slug,
         poster: item.poster,
         stats: item.stats,
+        useFallback,
       });
     } else {
       // Navigate to MovieDetail instead of immediately watching
@@ -182,6 +194,7 @@ export default function Movies(): JSX.Element {
         slug: item.slug,
         poster: item.poster,
         stats: item.stats,
+        useFallback,
       });
     }
   };
@@ -195,6 +208,39 @@ export default function Movies(): JSX.Element {
     }
   };
 
+  //switch source data
+  const fallbackRoleToggle = () => {
+    return (
+      <View style={styles.roleContainer}>
+        <TouchableOpacity
+          onPress={() => setFallback(false)}
+          style={[styles.toogleButton, !useFallback && styles.toggleSelected]}
+        >
+          <Text
+            style={[
+              styles.toggleText,
+              !useFallback && styles.toggleTextSelected,
+            ]}
+          >
+            Source 1
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => setFallback(true)}
+          style={[styles.toogleButton, !useFallback && styles.toggleSelected]}
+        >
+          <Text
+            style={[
+              styles.toggleText,
+              !useFallback && styles.toggleTextSelected,
+            ]}
+          >
+            Source 2
+          </Text>
+        </TouchableOpacity>
+      </View>
+    );
+  };
   // Poster component
   const PosterItem = ({
     item,
@@ -250,7 +296,7 @@ export default function Movies(): JSX.Element {
     return (
       <TouchableOpacity
         style={styles.spotlightContainer}
-        onPress={() => handleItemPress(item)} // handleItemPress now knows type
+        onPress={() => handleItemPress(item)}
         activeOpacity={0.8}
         testID={`spotlight-item-${item.id}`}
       >
@@ -459,6 +505,10 @@ export default function Movies(): JSX.Element {
         </View>
       </View>
 
+      {/* source switch */}
+
+      {fallbackRoleToggle()}
+
       {/* Content type tabs */}
       <ContentTypeTabs />
 
@@ -596,6 +646,29 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  roleContainer: {
+    flexDirection: "row",
+    justifyContent: "center",
+    marginVertical: 5,
+  },
+  toogleButton: {
+    paddingVertical: 5,
+    paddingHorizontal: 10,
+    borderRadius: 16,
+    padding: 3,
+    marginHorizontal: 5,
+  },
+  toggleText: {
+    color: "#ddd",
+    fontSize: 12,
+  },
+  toggleSelected: {
+    backgroundColor: "#FF5722",
+  },
+  toggleTextSelected: {
+    color: "#fff",
+    fontWeight: "bold",
   },
   tabsContainer: {
     flexDirection: "row",
