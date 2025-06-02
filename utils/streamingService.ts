@@ -6,8 +6,7 @@ const BASE_URL = Constants.expoConfig?.extra?.API_Backend;
 const DEFAULT_TIMEOUT = 15_000; // Extended from 10s to 15s
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
-const TMBD_KEY =
-  Constants.expoConfig?.extra?.TMBD_KEY || "3d87c19403c5b4902b9617fc74eb3866";
+const TMBD_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
 const TMBD_URL = Constants.expoConfig?.extra?.TMBD_URL;
 // Define extended request config type with retry properties
 interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
@@ -328,7 +327,7 @@ export async function getMovieStreamingUrl(
 ): Promise<StreamingInfo> {
   if (useFallback) {
     try {
-      const fallbackUrl = `https://test-eosin-nine-75.vercel.app/${movieId}`;
+      const fallbackUrl = `https://extractor.0xzile.sbs/${movieId}`;
       const resp = await axios.get(fallbackUrl, { timeout: 10000 });
       if (resp.data && Array.isArray(resp.data) && resp.data.length > 0) {
         const fallbackStream = resp.data[0];
@@ -664,7 +663,7 @@ export async function getEpisodeStreamingUrlFallback(
   episodeNumber: string
 ): Promise<StreamingInfo> {
   try {
-    const fallbackUrl = `https://test-eosin-nine-75.vercel.app/${seriesId}/${seasonNumber}/${episodeNumber}`;
+    const fallbackUrl = `https://extractor.0xzile.sbs/${seriesId}/${seasonNumber}/${episodeNumber}`;
     console.log(`[FALLBACK] Fetching episode stream from: ${fallbackUrl}`);
 
     const resp = await axios.get(fallbackUrl, { timeout: 15000 });
