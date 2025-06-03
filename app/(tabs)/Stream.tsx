@@ -149,7 +149,7 @@ export default function StreamVideo() {
 
         const streamingInfo =
           await streamingService.getEpisodeStreamingUrlFallback(
-            movieId,
+            movieId.toString(),
             seasonNumber,
             episodeNumber
           );

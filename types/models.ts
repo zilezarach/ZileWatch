@@ -26,13 +26,13 @@ export interface Season {
 export interface Episode {
   id: string | number;
   name: string;
+  number?: number;
   overview?: string;
   still_path?: string;
-  episode_number: number;
+  episode_number?: number;
   season_number?: number;
   air_date?: string;
   vote_average?: number;
-  // Add other episode properties as needed
 }
 
 export interface Server {

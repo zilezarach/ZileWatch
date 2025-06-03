@@ -1,3 +1,5 @@
+import { StreamingLink } from "@/utils/streamingService";
+
 export type RootStackParamList = {
   Home: undefined;
   Search: undefined;
@@ -62,6 +64,7 @@ export type RootStackParamList = {
       label?: string;
       kind?: string;
     }>;
+    availableQualities: StreamingLink[];
     sourceName?: string;
   };
   Favorites: undefined;
@@ -72,5 +75,4 @@ export type RootStackParamList = {
     videoUrl?: string;
   };
   Movies: undefined;
-  // Add more routes as needed
 };

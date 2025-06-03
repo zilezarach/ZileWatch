@@ -8,7 +8,7 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 const TMBD_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
 const TMBD_URL = Constants.expoConfig?.extra?.TMBD_URL;
-// Define extended request config type with retry properties
+
 interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
   _retry?: number;
   skipRetry?: boolean;
@@ -104,6 +104,13 @@ export interface StreamingInfo {
   selectedServer?: { id: string; name: string };
   name?: string;
   tmbdID?: string;
+  availableQualities?: StreamingLink[];
+}
+
+export interface StreamingLink {
+  quality: string;
+  url: string;
+  server: string;
 }
 
 export interface Season {
@@ -328,20 +335,57 @@ export async function getMovieStreamingUrl(
   if (useFallback) {
     try {
       const fallbackUrl = `https://extractor.0xzile.sbs/${movieId}`;
-      const resp = await axios.get(fallbackUrl, { timeout: 10000 });
-      if (resp.data && Array.isArray(resp.data) && resp.data.length > 0) {
-        const fallbackStream = resp.data[0];
+      const resp = await axios.get(fallbackUrl, { timeout: 15000 });
+      if (resp.data && resp.data.success && Array.isArray(resp.data.data)) {
+        const sources: any[] = resp.data.data;
+        const m3u8Links: StreamingLink[] = sources
+          .filter((source) => source.stream && source.stream.includes(".m3u8"))
+          .map((source) => ({
+            quality: source.quality || "auto",
+            url: source.stream,
+            server: source.server || "Unknown Server",
+          }));
+
+        if (m3u8Links.length === 0) {
+          // Optional: Check for non-m3u8 links if no m3u8 found
+          const otherLinks: StreamingLink[] = sources.map((source) => ({
+            quality: source.quality || "auto",
+            url: source.stream,
+            server: source.server || "Unknown Server",
+          }));
+          if (otherLinks.length > 0) {
+            console.warn(
+              "No .m3u8 links found, using first available link from extractor."
+            );
+            const firstLink = otherLinks[0];
+            return {
+              streamUrl: firstLink.url,
+              subtitles: [],
+              selectedServer: { id: movieId, name: firstLink.server },
+              name: sources[0]?.name || `S${movieId}`,
+              availableQualities: otherLinks,
+            };
+          }
+          throw new Error(
+            "No playable .m3u8 (or any other) stream links found from extractor."
+          );
+        }
+        let defaultStream =
+          m3u8Links.find((link) => link.quality === "1080p") ||
+          m3u8Links.find((link) => link.quality === "720p") ||
+          m3u8Links.find((link) => link.quality.toLowerCase() === "auto") ||
+          m3u8Links[0];
         return {
-          streamUrl: fallbackStream.stream,
-          name: fallbackStream.name,
-          selectedServer: {
-            id: fallbackStream.mediaId,
-            name: fallbackStream.name,
-          },
-          tmbdID: fallbackStream.mediaId,
+          streamUrl: defaultStream.url,
+          subtitles: [],
+          selectedServer: { id: movieId, name: defaultStream.server },
+          name: sources[0]?.name || `S${movieId}`,
+          availableQualities: m3u8Links,
         };
       } else {
-        throw new Error("Fallback unable to fetch data");
+        throw new Error(
+          `Fallback extractor returned no data or unsuccessful response for ${fallbackUrl}`
+        );
       }
     } catch (error: any) {
       console.log("Fallback is not available", error);
@@ -378,7 +422,6 @@ export async function getMovieStreamingUrl(
       throw new Error("No streaming servers available for this movie");
     }
 
-    // 4) Select preferred server (VidCloud first, fallback to first available)
     const servers = srv.data.servers;
     const selectedServer =
       servers.find((s) => s.isVidstream === true) ||
@@ -668,19 +711,58 @@ export async function getEpisodeStreamingUrlFallback(
 
     const resp = await axios.get(fallbackUrl, { timeout: 15000 });
 
-    if (resp.data && Array.isArray(resp.data) && resp.data.length > 0) {
-      const fallbackStream = resp.data[0];
+    if (resp.data && resp.data.success && Array.isArray(resp.data.data)) {
+      const sources: any[] = resp.data.data;
+      const m3u8Links: StreamingLink[] = sources
+        .filter((source) => source.stream && source.stream.includes(".m3u8"))
+        .map((source) => ({
+          quality: source.quality || "auto",
+          url: source.stream,
+          server: source.server || "Unknown Server",
+        }));
+
+      if (m3u8Links.length === 0) {
+        // Optional: Check for non-m3u8 links if no m3u8 found
+        const otherLinks: StreamingLink[] = sources.map((source) => ({
+          quality: source.quality || "auto",
+          url: source.stream,
+          server: source.server || "Unknown Server",
+        }));
+        if (otherLinks.length > 0) {
+          console.warn(
+            "No .m3u8 links found, using first available link from extractor."
+          );
+          const firstLink = otherLinks[0];
+          return {
+            streamUrl: firstLink.url,
+            subtitles: [],
+            selectedServer: { id: seriesId, name: firstLink.server },
+            name: sources[0]?.name || `S${seasonNumber}E${episodeNumber}`,
+            availableQualities: otherLinks,
+          };
+        }
+        throw new Error(
+          "No playable .m3u8 (or any other) stream links found from extractor."
+        );
+      }
+
+      let defaultStream =
+        m3u8Links.find((link) => link.quality === "1080p") ||
+        m3u8Links.find((link) => link.quality === "720p") ||
+        m3u8Links.find((link) => link.quality.toLowerCase() === "auto") ||
+        m3u8Links[0];
+
       return {
-        streamUrl: fallbackStream.stream,
-        name: fallbackStream.name,
-        selectedServer: {
-          id: fallbackStream.mediaId || seriesId,
-          name: fallbackStream.name || "Fallback Server",
-        },
-        tmbdID: fallbackStream.mediaId,
+        streamUrl: defaultStream.url,
+        subtitles: [],
+        selectedServer: { id: seriesId, name: defaultStream.server },
+        name: sources[0]?.name || `S${seasonNumber}E${episodeNumber}`, // Use name from first source or construct
+        availableQualities: m3u8Links,
       };
     } else {
-      throw new Error("No stream data returned from fallback API");
+      throw new Error(
+        `Fallback extractor returned no data or unsuccessful response for ${fallbackUrl}`
+      );
     }
   } catch (error: any) {
     console.error("Episode fallback error:", error);

@@ -15,7 +15,7 @@ import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import streamingService from "@/utils/streamingService";
+import streamingService, { StreamingInfo } from "@/utils/streamingService";
 import axios from "axios";
 import Constants from "expo-constants";
 import { Episode } from "@/types/models";
@@ -25,10 +25,11 @@ type EpisodeListRouteProp = RouteProp<RootStackParamList, "EpisodeList">;
 interface EpisodeItem {
   id: string;
   number: number;
-  name: string;
-  title: string;
+  name?: string;
+  title?: string;
   description?: string;
   img?: string;
+  episode_number?: number;
 }
 
 export default function EpisodeListScreen() {
@@ -166,7 +167,12 @@ export default function EpisodeListScreen() {
     setCurrentEpisode(ep);
 
     if (useFallback) {
-      startStreaming(ep);
+      const episodeForStreaming: Episode = {
+        ...ep,
+        name: ep.name || ep.title || `Episode ${ep.number}`,
+        episode_number: ep.number,
+      };
+      startStreaming(episodeForStreaming);
       return;
     }
 
@@ -174,7 +180,12 @@ export default function EpisodeListScreen() {
       try {
         await fetchSources(ep.id);
         if (selectedSource) {
-          startStreaming(ep);
+          const episodeForStreaming: Episode = {
+            ...ep,
+            name: ep.name || ep.title || `Episode ${ep.number}`,
+            episode_number: ep.number,
+          };
+          startStreaming(episodeForStreaming);
         } else {
           setModalVisible(true);
         }
@@ -185,72 +196,92 @@ export default function EpisodeListScreen() {
       debounceRef.current = null;
     }, 300);
   };
-  const startStreaming = async (ep: EpisodeItem) => {
+  const startStreaming = async (ep: Episode) => {
+    if (!selectedSource && !useFallback) {
+      Alert.alert("Error", "No source selected for primary API stream.");
+      return;
+    }
     try {
       setLoading(true);
-
-      if (!ep.id.match(/^\d+$/) && !useFallback) {
-        throw new Error("Invalid episode ID format");
-      }
-
-      if (useFallback) {
-        navigation.navigate("Stream", {
-          mediaType: "tvSeries",
-          id: tv_id.toString(),
-          videoTitle: `${seriesTitle} S${seasonNumberForApi}E${ep.number} - ${ep.title}`,
-          slug,
-          episodeId: ep.id,
-          useFallback: true,
-          seasonNumber: seasonNumberForApi,
-          episodeNumber: ep.number.toString(),
-        });
-        return;
-      }
-
-      if (!selectedSource) {
-        Alert.alert("Error", "No source selected");
-        return;
-      }
-
-      if (!slug) {
-        console.error("Slug is missing - cannot start streaming");
-        Alert.alert("Error", "Missing series information");
+      if (!slug && !useFallback) {
+        console.error("Slug is missing - cannot start primary API streaming");
+        Alert.alert(
+          "Error",
+          "Missing series information for primary API stream."
+        );
+        setLoading(false);
         return;
       }
 
       console.log(
-        `Starting stream with slug: ${slug}, episode: ${ep.id}, server: ${selectedSource.id}`
+        `EpisodeList: Starting stream for episode ${ep.id} (Number: ${ep.number}), useFallback: ${useFallback}`
       );
 
-      const info = await streamingService.getEpisodeStreamingUrl(
-        tv_id.toString(),
-        ep.id,
-        selectedSource.id,
-        slug
-      );
+      let info: StreamingInfo;
+
+      if (useFallback) {
+        info = await streamingService.getEpisodeStreamingUrl(
+          tv_id.toString(),
+          (ep.episode_number || ep.number || 0).toString(),
+          undefined,
+          slug,
+          true,
+          seasonNumberForApi
+        );
+      } else {
+        if (!selectedSource) {
+          Alert.alert("Error", "No source selected for primary API.");
+          setLoading(false);
+          return;
+        }
+        info = await streamingService.getEpisodeStreamingUrl(
+          tv_id.toString(),
+          ep.id.toString(),
+          selectedSource.id,
+          slug,
+          false
+        );
+      }
+
+      console.log("EpisodeList: Stream info received:", info);
 
       navigation.navigate("Stream", {
         mediaType: "tvSeries",
         id: tv_id.toString(),
-        videoTitle: `${seriesTitle} S${seasonNumberForApi}E${ep.number} - ${ep.title}`,
-        slug,
+        episode: (ep.episode_number || ep.number || 0).toString(),
+        videoTitle: `${seriesTitle} S${seasonNumberForApi}E${ep.number} - ${ep.name}`,
+        slug: slug,
         streamUrl: info.streamUrl,
-        sourceName: selectedSource.name,
+        sourceName: info.selectedServer?.name,
         subtitles: info.subtitles,
-        episodeId: ep.id,
+        availableQualities: info.availableQualities || [],
+        useFallback,
       });
-    } catch (err) {
-      console.error("Stream error:", err);
-      Alert.alert("Error", "Failed to start stream");
+    } catch (err: any) {
+      console.error("EpisodeList: Stream error:", err);
+      Alert.alert(
+        "Error",
+        `Failed to start stream: ${err.message || "Unknown error"}`
+      );
     } finally {
       setLoading(false);
     }
   };
-
   const handleSourceSelect = (src: any) => {
     setSelectedSource(src);
     setModalVisible(false);
-    if (currentEpisode) startStreaming(currentEpisode);
+    if (currentEpisode) {
+      // Convert EpisodeItem to Episode-compatible object
+      const episodeForStreaming = {
+        ...currentEpisode,
+        name:
+          currentEpisode.name ||
+          currentEpisode.title ||
+          `Episode ${currentEpisode.number}`,
+        episode_number: currentEpisode.number,
+      };
+      startStreaming(episodeForStreaming);
+    }
   };
 
   const EpisodeRow = ({ item }: { item: EpisodeItem }) => (
@@ -480,7 +511,7 @@ const styles = StyleSheet.create({
     width: "90%",
     maxHeight: "70%",
     backgroundColor: "#1e1e1e",
-    borderRadius: 12,
+    borderRadius: 13,
     padding: 20,
   },
   modalTitle: {
