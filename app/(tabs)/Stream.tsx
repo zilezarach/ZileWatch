@@ -9,7 +9,7 @@ import {
   StatusBar,
   ScrollView,
   Platform,
-  BackHandler,
+  BackHandler
 } from "react-native";
 import { Video, ResizeMode } from "expo-av";
 import axios from "axios";
@@ -39,15 +39,13 @@ export default function StreamVideo() {
     seasonNumber,
     episodeNumber,
     streamUrl: directStreamUrl,
-    sourceName: directSourceName,
+    sourceName: directSourceName
   } = route.params;
 
   const BASE_URL = Constants.expoConfig?.extra?.API_Backend ?? "";
 
   // State
-  const [availableSources, setAvailableSources] = useState<
-    Array<{ id: string; name: string }>
-  >([]);
+  const [availableSources, setAvailableSources] = useState<Array<{ id: string; name: string }>>([]);
   const [sourceName, setSourceName] = useState<string>(directSourceName || "");
   const [streamUrl, setStreamUrl] = useState<string>(directStreamUrl || "");
   const [isLoading, setLoading] = useState<boolean>(!Boolean(directStreamUrl));
@@ -90,7 +88,7 @@ export default function StreamVideo() {
   );
   // Navigation listeners
   useEffect(() => {
-    const unsubscribe = navigation.addListener("beforeRemove", (e) => {
+    const unsubscribe = navigation.addListener("beforeRemove", e => {
       // Make sure video stops playing when navigating away
       if (videoRef.current) {
         videoRef.current.pauseAsync().catch(() => {});
@@ -99,9 +97,7 @@ export default function StreamVideo() {
       }
 
       // Restore orientation to portrait when leaving
-      ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT
-      ).catch(() => {});
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
     });
 
     return unsubscribe;
@@ -111,9 +107,7 @@ export default function StreamVideo() {
     return () => {
       cleanupVideo();
       // Always ensure we return to portrait on unmount
-      ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT
-      ).catch(() => {});
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
     };
   }, []);
 
@@ -128,9 +122,7 @@ export default function StreamVideo() {
   const handleGoBack = async () => {
     await cleanupVideo();
     try {
-      ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT
-      ).catch(() => {});
+      ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT).catch(() => {});
     } catch (error) {
       console.warn("Failed to lock orientation", error);
     }
@@ -142,17 +134,14 @@ export default function StreamVideo() {
       if (useFallback && mediaType === "tvSeries") {
         const { seasonNumber, episodeNumber } = route.params;
         if (!seasonNumber || !episodeNumber) {
-          throw new Error(
-            "Season and episode numbers are required for fallback"
-          );
+          throw new Error("Season and episode numbers are required for fallback");
         }
 
-        const streamingInfo =
-          await streamingService.getEpisodeStreamingUrlFallback(
-            movieId.toString(),
-            seasonNumber,
-            episodeNumber
-          );
+        const streamingInfo = await streamingService.getEpisodeStreamingUrlFallback(
+          movieId.toString(),
+          seasonNumber,
+          episodeNumber
+        );
 
         setStreamUrl(streamingInfo.streamUrl);
         setSourceName(streamingInfo.selectedServer?.name || "Fallback Server");
@@ -160,7 +149,7 @@ export default function StreamVideo() {
         return;
       }
 
-      // Your existing logic for primary API
+      //  existing logic for primary API
       const effectiveSlug = slug || streamingService.slugify(videoTitle);
       const endpoint =
         mediaType === "movie"
@@ -175,7 +164,7 @@ export default function StreamVideo() {
       setAvailableSources(servers);
 
       // auto‑select Vidcloud
-      const vid = servers.find((s) => s.name.toLowerCase() === "vidcloud");
+      const vid = servers.find(s => s.name.toLowerCase() === "vidcloud");
       if (vid) {
         await changeSource(vid.id, vid.name);
       } else {
@@ -193,8 +182,7 @@ export default function StreamVideo() {
     setError(null);
     try {
       const effectiveSlug = slug || streamingService.slugify(videoTitle);
-      const params =
-        mediaType === "movie" ? { serverId } : { serverId, episodeId };
+      const params = mediaType === "movie" ? { serverId } : { serverId, episodeId };
 
       const resp = await axios.get<{ sources: Array<{ src: string }> }>(
         `${BASE_URL}/movie/${effectiveSlug}-${movieId}/sources`,
@@ -232,11 +220,10 @@ export default function StreamVideo() {
   }, []);
 
   useEffect(() => {
-    const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
+    const sub = ScreenOrientation.addOrientationChangeListener(evt => {
       const o = evt.orientationInfo.orientation;
       const land =
-        o === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-        o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+        o === ScreenOrientation.Orientation.LANDSCAPE_LEFT || o === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
       setIsLandscape(land);
       StatusBar.setHidden(land);
     });
@@ -248,10 +235,7 @@ export default function StreamVideo() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.back}
-        >
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.back}>
           <Ionicons name="chevron-back" size={24} color="#fff" />
         </TouchableOpacity>
         <Text style={styles.title} numberOfLines={1}>
@@ -262,28 +246,15 @@ export default function StreamVideo() {
       {/* Source selector */}
       {!directStreamUrl && (
         <View style={styles.sourceBar}>
-          <Text style={styles.sourceText}>
-            {sourceName ? `Source: ${sourceName}` : "Loading sources..."}
-          </Text>
+          <Text style={styles.sourceText}>{sourceName ? `Source: ${sourceName}` : "Loading sources..."}</Text>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            {availableSources.map((s) => (
+            {availableSources.map(s => (
               <TouchableOpacity
                 key={s.id}
                 onPress={() => changeSource(s.id, s.name)}
-                style={[
-                  styles.sourceButton,
-                  s.name === sourceName && styles.activeSource,
-                ]}
-                disabled={isLoading || s.name === sourceName}
-              >
-                <Text
-                  style={[
-                    styles.sourceLabel,
-                    s.name === sourceName && styles.activeSourceLabel,
-                  ]}
-                >
-                  {s.name}
-                </Text>
+                style={[styles.sourceButton, s.name === sourceName && styles.activeSource]}
+                disabled={isLoading || s.name === sourceName}>
+                <Text style={[styles.sourceLabel, s.name === sourceName && styles.activeSourceLabel]}>{s.name}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
@@ -301,17 +272,12 @@ export default function StreamVideo() {
           <Text style={styles.errorText}>{error}</Text>
           <TouchableOpacity
             style={styles.retryButton}
-            onPress={() => (directStreamUrl ? setError(null) : fetchSources())}
-          >
+            onPress={() => (directStreamUrl ? setError(null) : fetchSources())}>
             <Text style={styles.retryLabel}>Retry</Text>
           </TouchableOpacity>
         </View>
       ) : (
-        <View
-          style={
-            isLandscape ? styles.fullscreenVideoContainer : styles.videoBox
-          }
-        >
+        <View style={isLandscape ? styles.fullscreenVideoContainer : styles.videoBox}>
           {shouldPlayVideo && (
             <Video
               ref={videoRef}
@@ -337,13 +303,13 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000",
     justifyContent: "center",
-    alignItems: "center",
+    alignItems: "center"
   },
   header: {
     flexDirection: "row",
     alignItems: "center",
     padding: 12,
-    backgroundColor: "#121212",
+    backgroundColor: "#121212"
   },
   back: { padding: 8 },
   title: {
@@ -351,13 +317,13 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 18,
     fontWeight: "bold",
-    marginLeft: 8,
+    marginLeft: 8
   },
   sourceBar: {
     backgroundColor: "#121212",
     padding: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#333",
+    borderBottomColor: "#333"
   },
   sourceText: { color: "#aaa", marginBottom: 4 },
   sourceButton: {
@@ -365,7 +331,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginRight: 8,
     backgroundColor: "#2c2c2c",
-    borderRadius: 16,
+    borderRadius: 16
   },
   sourceLabel: { color: "#ddd", fontSize: 12 },
   activeSource: { backgroundColor: "#FF5722" },
@@ -378,22 +344,22 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF5722",
     paddingVertical: 10,
     paddingHorizontal: 24,
-    borderRadius: 8,
+    borderRadius: 8
   },
   retryLabel: { color: "#fff", fontWeight: "bold" },
   videoBox: {
     width,
     height: (width * 9) / 16,
     backgroundColor: "#000",
-    alignSelf: "center",
+    alignSelf: "center"
   },
   video: { width: "100%", height: "100%" },
   fullscreenVideoContainer: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#000",
+    backgroundColor: "#000"
   },
   fullscreenVideo: {
     width: height,
-    height: width,
-  },
+    height: width
+  }
 });

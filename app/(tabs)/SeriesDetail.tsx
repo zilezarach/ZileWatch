@@ -10,7 +10,7 @@ import {
   RefreshControl,
   StyleSheet,
   SafeAreaView,
-  StatusBar,
+  StatusBar
 } from "react-native";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -63,10 +63,9 @@ export default function SeriesDetail(): JSX.Element {
     title: initialTitle,
     slug: initialSlug,
     poster: initialPoster,
-    useFallback,
+    useFallback
   } = route.params;
-  const navigation =
-    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const [data, setData] = useState<FlatSeriesPayload | null>(null);
   const [seasons, setSeasons] = useState<SeasonItem[]>([]);
@@ -75,9 +74,7 @@ export default function SeriesDetail(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
 
   const detailsCacheKey = `backend_series_${tv_id}`;
-  const seasonsCacheKey = `backend_seasons_${tv_id}-${
-    initialSlug || streamingService.slugify(initialTitle || "")
-  }`;
+  const seasonsCacheKey = `backend_seasons_${tv_id}-${initialSlug || streamingService.slugify(initialTitle || "")}`;
 
   const getSeasonNumber = (season: SeasonItem): number => {
     return season.number ?? season.season_number ?? 1;
@@ -96,14 +93,11 @@ export default function SeriesDetail(): JSX.Element {
       setLoading(true);
       if (useFallback) {
         // Fetch series details using the fallback service
-        const details = await tmdbDetailsService.getSeriesDetailsFallback(
-          tv_id
-        );
+        const details = await tmdbDetailsService.getSeriesDetailsFallback(tv_id);
         setData(details);
       } else {
         const normalizedTitle = initialTitle?.replace(/^watch-/i, "") || "";
-        const effectiveSlug =
-          initialSlug || streamingService.slugify(normalizedTitle);
+        const effectiveSlug = initialSlug || streamingService.slugify(normalizedTitle);
         const resp = await axios.get<SeriesDetails>(
           `${Constants.expoConfig?.extra?.API_Backend}/movie/${effectiveSlug}-${tv_id}`
         );
@@ -124,8 +118,7 @@ export default function SeriesDetail(): JSX.Element {
       setError(null);
       // Normalize the title and build an effective slug.
       const normalizedTitle = initialTitle?.replace(/^watch-/i, "") || "";
-      const effectiveSlug =
-        initialSlug || streamingService.slugify(normalizedTitle);
+      const effectiveSlug = initialSlug || streamingService.slugify(normalizedTitle);
 
       // Try cache first.
       const cached = await AsyncStorage.getItem(seasonsCacheKey);
@@ -136,8 +129,7 @@ export default function SeriesDetail(): JSX.Element {
       let seasonsData: SeasonItem[] = [];
       if (useFallback) {
         // Fallback: Use the fallback details service for series.
-        const fallbackDetails =
-          await tmdbDetailsService.getSeriesDetailsFallback(tv_id);
+        const fallbackDetails = await tmdbDetailsService.getSeriesDetailsFallback(tv_id);
         seasonsData = fallbackDetails.seasons; // Extract the seasons array.
       } else {
         // Primary: Use the primary streaming service's getSeasons function.
@@ -146,10 +138,7 @@ export default function SeriesDetail(): JSX.Element {
 
       if (seasonsData && seasonsData.length > 0) {
         setSeasons(seasonsData);
-        await AsyncStorage.setItem(
-          seasonsCacheKey,
-          JSON.stringify(seasonsData)
-        );
+        await AsyncStorage.setItem(seasonsCacheKey, JSON.stringify(seasonsData));
       } else {
         console.warn("No seasons found for series:", tv_id);
         setSeasons([]); // Ensure seasons is an empty array if nothing is found.
@@ -163,7 +152,7 @@ export default function SeriesDetail(): JSX.Element {
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     Promise.all([fetchDetails(), fetchSeasons()])
-      .catch((err) => {
+      .catch(err => {
         console.error("Refresh error:", err);
       })
       .finally(() => {
@@ -194,7 +183,7 @@ export default function SeriesDetail(): JSX.Element {
         seasonName: `${seasonName}${seasonYear ? ` (${seasonYear})` : ""}`,
         seriesTitle: data.title || initialTitle,
         isFromBackend: !useFallback,
-        useFallback: useFallback,
+        useFallback: useFallback
       });
     },
     [data, tv_id, navigation, initialSlug, initialTitle, useFallback]
@@ -223,9 +212,7 @@ export default function SeriesDetail(): JSX.Element {
   const { title, description, related, stats, poster } = data;
   const getRating = () => {
     if (!stats) return null;
-    const ratingObj = stats.find(
-      (stat) => stat.name === "Rating" || stat.name === "rating"
-    );
+    const ratingObj = stats.find(stat => stat.name === "Rating" || stat.name === "rating");
     return ratingObj ? ratingObj.value : null;
   };
 
@@ -237,9 +224,7 @@ export default function SeriesDetail(): JSX.Element {
         {stats.map((stat, index) => (
           <View key={index} style={styles.statItem}>
             <Text style={styles.statLabel}>{stat.name}</Text>
-            <Text style={styles.statValue}>
-              {Array.isArray(stat.value) ? stat.value.join(", ") : stat.value}
-            </Text>
+            <Text style={styles.statValue}>{Array.isArray(stat.value) ? stat.value.join(", ") : stat.value}</Text>
           </View>
         ))}
       </View>
@@ -251,23 +236,16 @@ export default function SeriesDetail(): JSX.Element {
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
 
       {/* Back button */}
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => navigation.goBack()}
-      >
+      <TouchableOpacity style={styles.backButton} onPress={() => navigation.goBack()}>
         <FontAwesome name="arrow-left" size={20} color="#FFF" />
       </TouchableOpacity>
 
-      <ScrollView
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
+      <ScrollView refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}>
         {/* Series poster and overlay */}
         <View style={styles.posterContainer}>
           <Image
             source={{
-              uri: poster || initialPoster,
+              uri: poster || initialPoster
             }}
             style={styles.posterImage}
             defaultSource={require("../../assets/images/Original.png")}
@@ -302,12 +280,11 @@ export default function SeriesDetail(): JSX.Element {
           <Text style={styles.sectionTitle}>Seasons</Text>
           {seasons.length > 0 ? (
             <View style={styles.seasonsList}>
-              {seasons.map((season) => (
+              {seasons.map(season => (
                 <TouchableOpacity
                   key={season.id}
                   style={styles.seasonItem}
-                  onPress={() => navigateToEpisodeList(season)}
-                >
+                  onPress={() => navigateToEpisodeList(season)}>
                   <Text style={styles.seasonText}>
                     Season {season.number}
                     {season.year ? ` (${season.year})` : ""}
@@ -319,10 +296,7 @@ export default function SeriesDetail(): JSX.Element {
           ) : (
             <View style={styles.noSeasonsContainer}>
               <Text style={styles.noSeasons}>No seasons available</Text>
-              <TouchableOpacity
-                style={styles.retryBtnSmall}
-                onPress={fetchSeasons}
-              >
+              <TouchableOpacity style={styles.retryBtnSmall} onPress={fetchSeasons}>
                 <Text style={styles.retryText}>Retry</Text>
               </TouchableOpacity>
             </View>
@@ -341,15 +315,14 @@ export default function SeriesDetail(): JSX.Element {
                     key={index}
                     style={styles.relatedItem}
                     onPress={() => {
-                      const itemType =
-                        item.stats && item.stats.seasons ? "tvSeries" : "movie";
+                      const itemType = item.stats && item.stats.seasons ? "tvSeries" : "movie";
 
                       if (itemType === "movie") {
                         navigation.navigate("MovieDetail", {
                           movie_id: item.id,
                           slug: itemSlug,
                           title: item.title,
-                          poster: item.poster,
+                          poster: item.poster
                         });
                       } else {
                         navigation.navigate("SeriesDetail", {
@@ -357,11 +330,10 @@ export default function SeriesDetail(): JSX.Element {
                           title: item.title,
                           slug: itemSlug,
                           poster: item.poster,
-                          seasonId: seasonId,
+                          seasonId: seasonId
                         });
                       }
-                    }}
-                  >
+                    }}>
                     <Image
                       source={{ uri: item.poster }}
                       style={styles.relatedPoster}
@@ -384,38 +356,38 @@ export default function SeriesDetail(): JSX.Element {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#121212",
+    backgroundColor: "#121212"
   },
   center: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#121212",
+    backgroundColor: "#121212"
   },
   loadingText: {
     color: "#FFF",
-    marginTop: 8,
+    marginTop: 8
   },
   errorText: {
     color: "#ff6b6b",
     textAlign: "center",
-    margin: 16,
+    margin: 16
   },
   retryBtn: {
     backgroundColor: "#FF5722",
     padding: 12,
-    borderRadius: 8,
+    borderRadius: 8
   },
   retryBtnSmall: {
     backgroundColor: "#FF5722",
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 8,
-    marginTop: 8,
+    marginTop: 8
   },
   retryText: {
     color: "#FFF",
-    fontWeight: "bold",
+    fontWeight: "bold"
   },
   backButton: {
     position: "absolute",
@@ -427,15 +399,15 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     justifyContent: "center",
-    alignItems: "center",
+    alignItems: "center"
   },
   posterContainer: {
     height: 300,
-    position: "relative",
+    position: "relative"
   },
   posterImage: {
     width: "100%",
-    height: "100%",
+    height: "100%"
   },
   posterGradient: {
     position: "absolute",
@@ -445,26 +417,26 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingTop: 60,
     backgroundColor: "rgba(0,0,0,0.7)",
-    justifyContent: "flex-end",
+    justifyContent: "flex-end"
   },
   seriesTitle: {
     color: "#FFF",
     fontSize: 24,
-    fontWeight: "bold",
+    fontWeight: "bold"
   },
   ratingContainer: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 8,
+    marginTop: 8
   },
   ratingText: {
     color: "#FFD700",
     fontSize: 14,
-    marginLeft: 6,
+    marginLeft: 6
   },
   actionContainer: {
     padding: 16,
-    backgroundColor: "#1A1A1A",
+    backgroundColor: "#1A1A1A"
   },
   watchButton: {
     backgroundColor: "#FF5722",
@@ -472,64 +444,64 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 12,
+    paddingVertical: 12
   },
   playIcon: {
-    marginRight: 8,
+    marginRight: 8
   },
   watchButtonText: {
     color: "#FFF",
     fontSize: 16,
-    fontWeight: "600",
+    fontWeight: "600"
   },
   descriptionContainer: {
-    padding: 16,
+    padding: 16
   },
   sectionTitle: {
     color: "#FFF",
     fontSize: 18,
     fontWeight: "bold",
-    marginBottom: 12,
+    marginBottom: 12
   },
   descriptionText: {
     color: "#DDD",
     fontSize: 15,
-    lineHeight: 22,
+    lineHeight: 22
   },
   infoSection: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: "#333",
+    borderTopColor: "#333"
   },
   statsContainer: {
     backgroundColor: "#1E1E1E",
     borderRadius: 8,
-    padding: 12,
+    padding: 12
   },
   statItem: {
     flexDirection: "row",
     justifyContent: "space-between",
     paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#333",
+    borderBottomColor: "#333"
   },
   statLabel: {
     color: "#BBB",
-    fontSize: 14,
+    fontSize: 14
   },
   statValue: {
     color: "#FFF",
     fontSize: 14,
-    fontWeight: "500",
+    fontWeight: "500"
   },
   seasonsSection: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: "#333",
+    borderTopColor: "#333"
   },
   seasonsList: {
     backgroundColor: "#1E1E1E",
-    borderRadius: 8,
+    borderRadius: 8
   },
   seasonItem: {
     flexDirection: "row",
@@ -537,37 +509,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: "#333",
+    borderBottomColor: "#333"
   },
   seasonText: {
     color: "#FFF",
-    fontSize: 16,
+    fontSize: 16
   },
   noSeasonsContainer: {
     alignItems: "center",
-    padding: 16,
+    padding: 16
   },
   noSeasons: {
     color: "#AAA",
-    textAlign: "center",
+    textAlign: "center"
   },
   relatedSection: {
     padding: 16,
     borderTopWidth: 1,
-    borderTopColor: "#333",
+    borderTopColor: "#333"
   },
   relatedItem: {
     width: 120,
-    marginRight: 12,
+    marginRight: 12
   },
   relatedPoster: {
     width: 120,
     height: 180,
-    borderRadius: 8,
+    borderRadius: 8
   },
   relatedTitle: {
     color: "#FFF",
     fontSize: 12,
-    marginTop: 6,
-  },
+    marginTop: 6
+  }
 });
