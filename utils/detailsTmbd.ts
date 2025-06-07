@@ -1,7 +1,7 @@
 import axios from "axios";
-import { Constants } from "expo-constants";
+import Constants from "expo-constants";
 
-const TMBD_KEY = process.env.TMBD_KEY;
+const TMBD_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
 const TMBD_BASE_URL = "https://api.themoviedb.org/3";
 
 function buildImageUrl(path: string, size: string = "w500") {
@@ -14,6 +14,12 @@ function createSlug(title: string): string {
     .replace(/[^\w\s-]/g, "") // Remove special characters
     .replace(/[\s_-]+/g, "-") // Replace spaces/underscores with hyphens
     .replace(/^-+|-+$/g, ""); // Trim hyphens from start/end
+}
+
+if (!TMBD_KEY) {
+  console.warn(
+    "[detailsTmbd] no TMDB_KEY found in Constants.expoConfig.extra.TMDB_KEY"
+  );
 }
 
 export interface RawTmbdMovie {
