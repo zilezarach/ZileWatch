@@ -8,6 +8,14 @@ function buildImageUrl(path: string, size: string = "w500") {
   return path ? `https://image.tmdb.org/t/p/${size}${path}` : "";
 }
 
+function createSlug(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[^\w\s-]/g, "") // Remove special characters
+    .replace(/[\s_-]+/g, "-") // Replace spaces/underscores with hyphens
+    .replace(/^-+|-+$/g, ""); // Trim hyphens from start/end
+}
+
 export interface RawTmbdMovie {
   id: number;
   title: string;
@@ -63,28 +71,28 @@ export interface HomeData {
 
 async function getTrendingMovies(): Promise<RawTmbdMovie[]> {
   const resp = await axios.get(`${TMBD_BASE_URL}/trending/movie/week`, {
-    params: { api_key: TMBD_KEY }
+    params: { api_key: TMBD_KEY },
   });
   return resp.data.results;
 }
 
 async function getTrendingTV(): Promise<RawTmbdTv[]> {
   const resp = await axios.get(`${TMBD_BASE_URL}/trending/tv/week`, {
-    params: { api_key: TMBD_KEY }
+    params: { api_key: TMBD_KEY },
   });
   return resp.data.results;
 }
 
 async function getNowPlayingMovies(): Promise<RawTmbdMovie[]> {
   const resp = await axios.get(`${TMBD_BASE_URL}/movie/now_playing`, {
-    params: { api_key: TMBD_KEY, language: "en-US" }
+    params: { api_key: TMBD_KEY, language: "en-US" },
   });
   return resp.data.results;
 }
 
 async function getOnTheAirTV(): Promise<RawTmbdTv[]> {
   const resp = await axios.get(`${TMBD_BASE_URL}/tv/on_the_air`, {
-    params: { api_key: TMBD_KEY, language: "en-US" }
+    params: { api_key: TMBD_KEY, language: "en-US" },
   });
   return resp.data.results;
 }
@@ -96,10 +104,10 @@ function transformMovieToSearchItem(movie: RawTmbdMovie): SearchItem {
     poster: buildImageUrl(movie.poster_path, "w500"),
     stats: {
       rating: movie.vote_average.toString(),
-      year: movie.release_date ? movie.release_date.split("-")[0] : ""
+      year: movie.release_date ? movie.release_date.split("-")[0] : "",
     },
     type: "movie",
-    slug: movie.title.toLowerCase().replace(/ /g, "-")
+    slug: createSlug(movie.title),
   };
 }
 
@@ -110,39 +118,44 @@ function transformTVToSearchItem(tv: RawTmbdTv): SearchItem {
     poster: buildImageUrl(tv.poster_path, "w500"),
     stats: {
       rating: tv.vote_average.toString(),
-      year: tv.first_air_date ? tv.first_air_date.split("-")[0] : ""
+      year: tv.first_air_date ? tv.first_air_date.split("-")[0] : "",
     },
     type: "tvSeries",
-    slug: tv.name.toLowerCase().replace(/ /g, "-")
+    slug: createSlug(tv.name),
   };
 }
 
 export async function giveDataToHome(): Promise<HomeData> {
   try {
-    const [trendingMovies, trendingTV, nowPlayingMovies, onTheAirTV] = await Promise.all([
-      getTrendingMovies(),
-      getTrendingTV(),
-      getNowPlayingMovies(),
-      getOnTheAirTV()
-    ]);
+    const [trendingMovies, trendingTV, nowPlayingMovies, onTheAirTV] =
+      await Promise.all([
+        getTrendingMovies(),
+        getTrendingTV(),
+        getNowPlayingMovies(),
+        getOnTheAirTV(),
+      ]);
 
     const spotlight = trendingMovies.slice(0, 5).map((movie: any) => ({
       id: movie.id.toString(),
       title: movie.title,
-      banner: buildImageUrl(movie.backdrop_path, "original") || buildImageUrl(movie.poster_path, "w500"),
+      banner:
+        buildImageUrl(movie.backdrop_path, "original") ||
+        buildImageUrl(movie.poster_path, "w500"),
       poster: buildImageUrl(movie.poster_path, "w500"),
       rating: movie.vote_average.toString(),
-      year: movie.release_date ? movie.release_date.split("-")[0] : ""
+      year: movie.release_date ? movie.release_date.split("-")[0] : "",
     }));
 
     return {
       spotlight,
       trending: {
         movies: trendingMovies.map(transformMovieToSearchItem),
-        tvSeries: trendingTV.map(transformTVToSearchItem)
+        tvSeries: trendingTV.map(transformTVToSearchItem),
       },
-      latestMovies: nowPlayingMovies.slice(0, 5).map(transformMovieToSearchItem),
-      latestTvSeries: onTheAirTV.slice(0, 5).map(transformTVToSearchItem)
+      latestMovies: nowPlayingMovies
+        .slice(0, 5)
+        .map(transformMovieToSearchItem),
+      latestTvSeries: onTheAirTV.slice(0, 5).map(transformTVToSearchItem),
     };
   } catch (error: any) {
     console.error("Error fetching home data from TMDB:", error.message);
@@ -151,5 +164,5 @@ export async function giveDataToHome(): Promise<HomeData> {
 }
 
 export default {
-  giveDataToHome
+  giveDataToHome,
 };

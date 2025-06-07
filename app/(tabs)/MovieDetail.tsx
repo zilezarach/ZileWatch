@@ -64,23 +64,50 @@ export default function MovieDetail(): JSX.Element {
     async function fetchMovieDetails() {
       try {
         setLoading(true);
-        const normalizedTitle = initialTitle?.replace(/^watch-/i, "") || "";
-        const effectiveSlug =
-          initialSlug || streamingService.slugify(normalizedTitle);
+
+        console.log("=== MovieDetail Debug ===");
+        console.log("movie_id:", movie_id);
+        console.log("initialSlug:", initialSlug);
+        console.log("initialTitle:", initialTitle);
+        console.log("useFallback:", useFallback);
+
         if (useFallback) {
-          // Use backend route that proxies TMDB details
+          // Use the correct fallback service for TMDB details
           const details = await tmdbDetailsService.getMovieDetails(movie_id);
-          setMovieDetails(details);
+          const transformedDetails: MovieDetails = {
+            ...details,
+            related: details.related || [],
+          };
+          setMovieDetails(transformedDetails);
         } else {
-          // Use primary source endpoint
+          // Use primary streaming service - construct proper slug
+          const normalizedTitle = initialTitle?.replace(/^watch-/i, "") || "";
+          const effectiveSlug =
+            initialSlug || streamingService.slugify(normalizedTitle);
+
+          console.log("Primary API - effectiveSlug:", effectiveSlug);
+          console.log(
+            "Primary API URL:",
+            `${Constants.expoConfig?.extra?.API_Backend}/movie/${effectiveSlug}-${movie_id}`
+          );
+
           const response = await axios.get(
             `${Constants.expoConfig?.extra?.API_Backend}/movie/${effectiveSlug}-${movie_id}`
           );
           setMovieDetails(response.data);
         }
-      } catch (error) {
-        console.error("Failed to fetch movie details:", error);
-        Alert.alert("Error", "Failed to load movie details.");
+      } catch (err) {
+        console.error("=== MovieDetail Error ===");
+        console.error("Full error:", err);
+        console.error("Error response:", err.response?.data);
+        console.error("Error status:", err.response?.status);
+
+        Alert.alert(
+          "Error",
+          `Failed to load movie details: ${
+            err.response?.data?.message || err.message
+          }`
+        );
       } finally {
         setLoading(false);
       }
@@ -119,7 +146,8 @@ export default function MovieDetail(): JSX.Element {
           label: sub.label,
           kind: sub.kind,
         })),
-        useFallback: useFallback, // Pass fallback flag to Stream component
+        useFallback: useFallback,
+        availableQualities: info.availableQualities || [],
       });
     } catch (error) {
       console.error("Error getting movie stream:", error);
