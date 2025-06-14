@@ -33,8 +33,7 @@ export default {
         "READ_MEDIA_VIDEO", // Ensures videos appear in gallery
         "READ_MEDIA_AUDIO"
       ],
-      hermesEnabled: true,
-      newArchEnabled: true
+      hermesEnabled: true
     },
     web: {
       bundler: "metro",
@@ -52,7 +51,10 @@ export default {
         {
           android: {
             kotlinVersion: "1.9.25",
-            suppressKotlinVersionCompatibilityCheck: true
+            suppressKotlinVersionCompatibilityCheck: true,
+            shrinkResources: true,
+            minifyEnabled: true,
+            enableSeparateBuildPerCPUArchitecture: true
           }
         }
       ]
