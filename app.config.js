@@ -54,7 +54,8 @@ export default {
             suppressKotlinVersionCompatibilityCheck: true,
             shrinkResources: true,
             minifyEnabled: true,
-            enableSeparateBuildPerCPUArchitecture: true
+            enableSeparateBuildPerCPUArchitecture: true,
+            enableProguardInReleaseBuilds: true
           }
         }
       ]
