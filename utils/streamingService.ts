@@ -387,9 +387,9 @@ export async function getMovieStreamingUrl(
 
     const servers = srv.data.servers;
     const selectedServer =
-      servers.find(s => s.isVidstream === true) ||
+      servers.find(s => s.isVidstream === false) ||
       servers.find(s => s.name.toLowerCase().includes("vidcloud")) ||
-      servers[0];
+      servers[1];
 
     // 5) Fetch sources
     console.log(`[API] Fetching sources for movie: ${watchSlug}-${movieId}, server: ${selectedServer.name}`);
@@ -400,7 +400,6 @@ export async function getMovieStreamingUrl(
     if (!src.data.success || !src.data.sources?.length) {
       throw new Error("No playable sources found for this movie");
     }
-
     // 6) Build streaming info response
     return {
       streamUrl: src.data.sources[0].file,
