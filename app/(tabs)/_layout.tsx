@@ -121,8 +121,7 @@ export default function Layout() {
                   title: "Games",
                   tabBarIcon: ({ focused, color, size }) => (
                     <FontAwesome5 name="gamepad" size={size} color={focused ? "#7d0b02" : color} />
-                  ),
-                  href: null
+                  )
                 }}
               />
               {/* Movies Tab */}
@@ -151,6 +150,7 @@ export default function Layout() {
               <Tabs.Screen name="SeriesDetail" options={{ href: null }} />
               <Tabs.Screen name="EpisodeList" options={{ href: null }} />
               <Tabs.Screen name="MovieDetail" options={{ href: null }} />
+              <Tabs.Screen name="LivePlayer" options={{ href: null }} />
             </Tabs>
             {/* Persistent MiniPlayer, visible on all screens */}
             <MiniPlayer />

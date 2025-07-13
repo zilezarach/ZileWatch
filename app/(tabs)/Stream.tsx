@@ -45,7 +45,7 @@ export default function StreamVideo() {
   const BASE_URL = Constants.expoConfig?.extra?.API_Backend ?? "";
 
   // State
-  const [availableSources, setAvailableSources] = useState<Array<{ id: string; name: string }>>([]);
+  const [availableSources, setAvailableSources] = useState<Array<{ id: string; name: string; url?: string }>>([]);
   const [sourceName, setSourceName] = useState<string>(directSourceName || "");
   const [streamUrl, setStreamUrl] = useState<string>(directStreamUrl || "");
   const [isLoading, setLoading] = useState<boolean>(!Boolean(directStreamUrl));
@@ -294,6 +294,18 @@ export default function StreamVideo() {
           )}
         </View>
       )}
+      {availableSources.some(s => s.name === "Vidfast") && (
+        <TouchableOpacity
+          style={styles.switchToVidfastButton}
+          onPress={() => {
+            const vidfastSource = availableSources.find(s => s.name === "Vidfast");
+            if (vidfastSource) {
+              changeSource(vidfastSource.id, vidfastSource.name);
+            }
+          }}>
+          <Text style={styles.switchToVidfastText}>Switch to Vidfast</Text>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }
@@ -318,6 +330,17 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     marginLeft: 8
+  },
+  switchToVidfastButton: {
+    marginTop: 8,
+    backgroundColor: "#FFD700", // Gold color for visibility
+    padding: 10,
+    borderRadius: 5,
+    alignItems: "center"
+  },
+  switchToVidfastText: {
+    color: "#000",
+    fontWeight: "bold"
   },
   sourceBar: {
     backgroundColor: "#121212",

@@ -67,6 +67,10 @@ export type RootStackParamList = {
     availableQualities: StreamingLink[];
     sourceName?: string;
   };
+  LivePlayer: {
+    title: string;
+    url: string;
+  };
   Favorites: undefined;
   Profile: undefined;
   Login: undefined;
