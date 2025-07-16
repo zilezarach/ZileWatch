@@ -20,7 +20,9 @@ export interface LiveItem {
   channels: Channel[];
 }
 
-const API = process.env.zileLive || "http://localhost:4500/streams";
+import Constants from "expo-constants";
+
+const API = Constants?.expoConfig?.extra?.zileLive;
 
 export async function fetchLiveSports(): Promise<LiveItem[]> {
   const res = await fetch(`${API}/live`);
