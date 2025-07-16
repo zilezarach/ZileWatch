@@ -12,18 +12,18 @@ export default {
     splash: {
       image: "./assets/images/Original.png",
       resizeMode: "cover",
-      backgroundColor: "#000000"
+      backgroundColor: "#000000",
     },
     newArchEnabled: false,
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.zile.zileWatch"
+      bundleIdentifier: "com.zile.zileWatch",
     },
     android: {
       package: "com.zile.zileWatch",
       adaptiveIcon: {
         foregroundImage: "./assets/images/adaptive-icon.png",
-        backgroundColor: "#ffffff"
+        backgroundColor: "#ffffff",
       },
       permissions: [
         "READ_EXTERNAL_STORAGE",
@@ -31,14 +31,14 @@ export default {
         "MEDIA_LIBRARY",
         "ACCESS_MEDIA_LOCATION", // New permission for Android 10+
         "READ_MEDIA_VIDEO", // Ensures videos appear in gallery
-        "READ_MEDIA_AUDIO"
+        "READ_MEDIA_AUDIO",
       ],
-      hermesEnabled: true
+      hermesEnabled: true,
     },
     web: {
       bundler: "metro",
       output: "static",
-      favicon: "./assets/images/favicon.png"
+      favicon: "./assets/images/favicon.png",
     },
     plugins: [
       "expo-router",
@@ -55,22 +55,23 @@ export default {
             shrinkResources: true,
             minifyEnabled: true,
             enableSeparateBuildPerCPUArchitecture: true,
-            enableProguardInReleaseBuilds: true
-          }
-        }
-      ]
+            enableProguardInReleaseBuilds: true,
+          },
+        },
+      ],
     ],
     experiments: {
-      typedRoutes: true
+      typedRoutes: true,
     },
     extra: {
       youtubeApiKey: process.env.YOUTUBE_API_KEY,
       API_Backend: process.env.API_KEY || "https://api.0xzile.sbs",
       TMBD_KEY: process.env.TMBD_KEY || "3d87c19403c5b4902b9617fc74eb3866",
       TMBD_URL: "https://api.themoviedb.org/3",
+      zileLive: process.env.zileLive || "https://live-zile.0xzile.sbs/streams",
       eas: {
-        projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4"
-      }
-    }
-  }
+        projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4",
+      },
+    },
+  },
 };
