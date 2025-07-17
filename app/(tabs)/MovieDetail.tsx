@@ -21,6 +21,7 @@ import streamingService from "@/utils/streamingService";
 import tmdbDetailsService, {
   MovieDetails as detailsService,
 } from "@/utils/detailsService";
+import { title } from "process";
 
 interface MovieDetails {
   title: string;
@@ -159,6 +160,33 @@ export default function MovieDetail(): JSX.Element {
       setStreamLoading(false);
     }
   };
+  // vidfast
+  const handleVidfast = async () => {
+    setStreamLoading(true);
+    try {
+      const info = await streamingService.getMovieStreamingUrl(
+        String(movie_id),
+        undefined,
+        false,
+        true
+      );
+      console.log("Streaming to Vidfast", info.streamUrl);
+      navigation.navigate("Stream", {
+        mediaType: "movie",
+        id: String(movie_id),
+        videoTitle: title,
+        streamUrl: info.streamUrl,
+        sourceName: "Vidfast",
+        useFallback: true,
+      });
+    } catch (err) {
+      console.error("Unable to get vidfast stream", err);
+      Alert.alert("Error", "Could not load HD stream.");
+    } finally {
+      setStreamLoading(false);
+    }
+  };
+
   // Display movie stats in a readable format
   const renderStats = () => {
     if (!movieDetails || !movieDetails.stats) return null;
@@ -285,14 +313,35 @@ export default function MovieDetail(): JSX.Element {
                     color="#FFF"
                     style={styles.playIcon}
                   />
-                  <Text style={styles.watchButtonText}>Watch Now</Text>
+                  <Text style={styles.watchButtonText}>Source One</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+          <View style={styles.actionContainer}>
+            <TouchableOpacity
+              style={styles.watchButton}
+              onPress={handleVidfast}
+              disabled={streamLoading}
+            >
+              {streamLoading ? (
+                <ActivityIndicator size="small" color="#FFF" />
+              ) : (
+                <>
+                  <FontAwesome
+                    name="play"
+                    size={16}
+                    color="#FFF"
+                    style={styles.playIcon}
+                  />
+                  <Text style={styles.watchButtonText}>Source Two</Text>
                 </>
               )}
             </TouchableOpacity>
           </View>
           {useFallback && (
             <View style={styles.fallbackIndicator}>
-              <Text style={styles.fallbackText}>Using Source 2</Text>
+              <Text style={styles.fallbackText}>Primary</Text>
             </View>
           )}
 

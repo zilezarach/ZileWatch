@@ -58,13 +58,13 @@ export type RootStackParamList = {
     seasonNumber?: string;
     episodeNumber?: string;
     streamUrl?: string;
-    slug: string;
+    slug?: string;
     subtitles?: Array<{
       file: string;
       label?: string;
       kind?: string;
     }>;
-    availableQualities: StreamingLink[];
+    availableQualities?: StreamingLink[];
     sourceName?: string;
   };
   LivePlayer: {
