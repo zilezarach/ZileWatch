@@ -335,13 +335,15 @@ export async function getMovieStreamingUrl(
 ): Promise<StreamingInfo> {
   if (vidfastOnly) {
     const vidfastUrl = `${EXTRA_URL}/vidfast/${movieId}`;
-    const resp = await axios.get<{ success: boolean; data: any[] }>(
-      vidfastUrl,
-      { timeout: 15000 }
-    );
-    if (!resp.data.success || !Array.isArray(resp.data.data))
+    const resp = await axios.get<{ success: boolean; data: any }>(vidfastUrl, {
+      timeout: 15000,
+    });
+    if (!resp.data.success || !resp.data.data)
       throw new Error("Vidfast failed");
-    const { streamUrl, headers } = resp.data.data[0];
+    const { streamUrl } = resp.data.data;
+    if (!streamUrl) {
+      throw new Error("No stream URL found in Vidfast response");
+    }
     return {
       streamUrl,
       selectedServer: { id: movieId, name: "Vidfast" },
@@ -592,11 +594,38 @@ export async function getEpisodeStreamingUrl(
   episodeId: string,
   serverId?: string,
   incomingSlug?: string,
+  vidfastOnly: boolean = false,
   useFallback: boolean = false,
   seasonNumber?: string,
   episodeNumber?: string
 ): Promise<StreamingInfo> {
-  // If using fallback, call the fallback function
+  // Handle Vidfast source
+  if (vidfastOnly) {
+    if (!seasonNumber || !episodeNumber) {
+      throw new Error(
+        "Season and episode numbers are required for Vidfast streaming"
+      );
+    }
+    const vidfastUrl = `${EXTRA_URL}/vidfast/${seriesId}/${seasonNumber}/${episodeNumber}`;
+    const resp = await axios.get<{ success: boolean; data: any }>(vidfastUrl, {
+      timeout: 15000,
+    });
+    if (!resp.data.success || !resp.data.data) {
+      throw new Error("Vidfast failed");
+    }
+    // Fix: Access the data object directly, not as an array
+    const { streamUrl } = resp.data.data;
+    if (!streamUrl) {
+      throw new Error("No stream URL found in Vidfast response");
+    }
+    return {
+      streamUrl,
+      selectedServer: { id: seriesId, name: "Vidfast" },
+      availableQualities: [],
+    };
+  }
+
+  // Handle fallback source
   if (useFallback) {
     if (!seasonNumber || !episodeNumber) {
       throw new Error(
@@ -609,46 +638,40 @@ export async function getEpisodeStreamingUrl(
       episodeNumber
     );
   }
+
+  // Handle primary source
   try {
     if (!incomingSlug) {
       throw new Error(
         "Slug is required for season requests - provide slug or series title"
       );
     }
-
     // Clean existing watch- prefix if present
     const baseSlug = incomingSlug.replace(/^watch-/i, "");
     const watchSlug = formatWatchSlug(baseSlug);
-
     // Get series details for slug
     console.log(`[API] Fetching series details for ID: ${seriesId}`);
     const seriesDetail = await api.get<MovieDetailResponse>(
       `/movie/${incomingSlug}-${seriesId}`
     );
-
     if (!seriesDetail.data) {
       throw new Error(`Series with ID ${seriesId} not found`);
     }
-
     // Fetch servers
     console.log(`[API] Fetching servers for episode ID: ${episodeId}`);
     const { servers } = await getEpisodeSources(seriesId, episodeId, baseSlug);
-
     if (!servers.length) {
       throw new Error("No streaming servers available for this episode");
     }
-
     // Select server based on preference
     const selectedServer = serverId
       ? servers.find((s) => s.id === serverId)
       : servers.find((s) => s.isVidstream === true) ||
         servers.find((s) => s.name.toLowerCase().includes("vidcloud")) ||
         servers[0];
-
     if (!selectedServer?.id) {
       throw new Error("Invalid server selection");
     }
-
     // Get sources
     console.log(
       `[API] Fetching sources for episode: ${episodeId}, server: ${selectedServer.name}`
@@ -662,16 +685,13 @@ export async function getEpisodeStreamingUrl(
         },
       }
     );
-
     if (!src.data.success || !src.data.sources?.length) {
       throw new Error("No playable sources found for this episode");
     }
-
     // Decode URL if necessary
     const streamUrl = src.data.sources[0].file.includes("%")
       ? decodeURIComponent(src.data.sources[0].file)
       : src.data.sources[0].file;
-
     return {
       streamUrl,
       subtitles:
@@ -725,7 +745,7 @@ export async function getEpisodeStreamingUrlFallback(
   episodeNumber: string
 ): Promise<StreamingInfo> {
   try {
-    const fallbackUrl = `${EXTRA_URL}/fallback/${seriesId}/${seasonNumber}/${episodeNumber}`;
+    const fallbackUrl = `${EXTRA_URL}/tmdb/${seriesId}/${seasonNumber}/${episodeNumber}`;
     console.log(`[FALLBACK] Fetching episode stream from: ${fallbackUrl}`);
 
     const resp = await axios.get(fallbackUrl, { timeout: 15000 });

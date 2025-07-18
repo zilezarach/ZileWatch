@@ -9,7 +9,7 @@ import {
   RefreshControl,
   StyleSheet,
   Image,
-  Modal
+  Modal,
 } from "react-native";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
@@ -32,10 +32,27 @@ interface EpisodeItem {
   episode_number?: number;
 }
 
+// Define source types
+type SourceType = "primary" | "fallback" | "vidfast";
+
+interface SourceOption {
+  id: SourceType;
+  name: string;
+  description: string;
+}
+
 export default function EpisodeListScreen() {
   const route = useRoute<EpisodeListRouteProp>();
-  const { tv_id, seasonName, season_number, seriesTitle, slug, seasonId, seasonNumberForApi, useFallback } =
-    route.params;
+  const {
+    tv_id,
+    seasonName,
+    season_number,
+    seriesTitle,
+    slug,
+    seasonId,
+    seasonNumberForApi,
+    useFallback,
+  } = route.params;
 
   const [episodes, setEpisodes] = useState<EpisodeItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,10 +60,39 @@ export default function EpisodeListScreen() {
   const [sources, setSources] = useState<any[]>([]);
   const [selectedSource, setSelectedSource] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
-  const [currentEpisode, setCurrentEpisode] = useState<EpisodeItem | null>(null);
+  const [currentEpisode, setCurrentEpisode] = useState<EpisodeItem | null>(
+    null
+  );
   const [error, setError] = useState<string | null>(null);
 
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  // New state for source switching
+  const [selectedSourceType, setSelectedSourceType] = useState<SourceType>(
+    useFallback ? "fallback" : "primary"
+  );
+  const [sourceModalVisible, setSourceModalVisible] = useState(false);
+  const [streamLoading, setStreamLoading] = useState(false);
+
+  const navigation =
+    useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+
+  // Define available sources
+  const availableSources: SourceOption[] = [
+    //{
+    //id: "primary",
+    //name: "Source One",
+    //description: "Primary streaming source",
+    //},
+    {
+      id: "fallback",
+      name: "Source One",
+      description: "Default streaming source",
+    },
+    {
+      id: "vidfast",
+      name: "Source Two",
+      description: "High quality streaming",
+    },
+  ];
 
   const cacheKey = `backend_episodes_${tv_id}_season_${tv_id}`;
 
@@ -66,7 +112,10 @@ export default function EpisodeListScreen() {
       let episodesData: EpisodeItem[] = [];
 
       if (useFallback) {
-        episodesData = await streamingService.getEpisodeTMBD(tv_id, seasonNumberForApi);
+        episodesData = await streamingService.getEpisodeTMBD(
+          tv_id,
+          seasonNumberForApi
+        );
       } else {
         const resp = await axios.get<{ episodes: EpisodeItem[] }>(
           `${Constants.expoConfig?.extra?.API_Backend}/movie/${slug}-${tv_id}/episodes`,
@@ -77,7 +126,7 @@ export default function EpisodeListScreen() {
           number: e.number,
           title: e.title,
           description: e.description,
-          img: e.img
+          img: e.img,
         }));
       }
 
@@ -107,23 +156,28 @@ export default function EpisodeListScreen() {
     fetchEpisodes();
   };
 
-  // Fetch sources for a given episode
+  // Fetch sources for a given episode (only for primary source)
   const fetchSources = async (episodeId: string) => {
-    // Skip source fetching for fallback mode
-    if (useFallback) {
+    if (selectedSourceType !== "primary") {
       return;
     }
 
     try {
       setLoading(true);
-      const resp = await streamingService.getEpisodeSources(tv_id.toString(), episodeId, slug);
+      const resp = await streamingService.getEpisodeSources(
+        tv_id.toString(),
+        episodeId,
+        slug
+      );
 
       if (resp.servers && resp.servers.length > 0) {
         setSources(resp.servers);
 
         // Auto-select preferred source
         const preferred =
-          resp.servers.find(s => s.name.toLowerCase().includes("vidcloud") || s.isVidstream) || resp.servers[0];
+          resp.servers.find(
+            (s) => s.name.toLowerCase().includes("vidcloud") || s.isVidstream
+          ) || resp.servers[0];
 
         setSelectedSource(preferred);
       } else {
@@ -146,16 +200,18 @@ export default function EpisodeListScreen() {
 
     setCurrentEpisode(ep);
 
-    if (useFallback) {
+    // Handle different source types
+    if (selectedSourceType === "fallback" || selectedSourceType === "vidfast") {
       const episodeForStreaming: Episode = {
         ...ep,
         name: ep.name || ep.title || `Episode ${ep.number}`,
-        episode_number: ep.number
+        episode_number: ep.number,
       };
       startStreaming(episodeForStreaming);
       return;
     }
 
+    // For primary source, fetch sources first
     debounceRef.current = setTimeout(async () => {
       try {
         await fetchSources(ep.id);
@@ -163,7 +219,7 @@ export default function EpisodeListScreen() {
           const episodeForStreaming: Episode = {
             ...ep,
             name: ep.name || ep.title || `Episode ${ep.number}`,
-            episode_number: ep.number
+            episode_number: ep.number,
           };
           startStreaming(episodeForStreaming);
         } else {
@@ -176,53 +232,46 @@ export default function EpisodeListScreen() {
       debounceRef.current = null;
     }, 300);
   };
+
   const startStreaming = async (ep: Episode) => {
-    if (!selectedSource && !useFallback) {
-      Alert.alert("Error", "No source selected for primary API stream.");
-      return;
-    }
     try {
-      setLoading(true);
-      if (!slug && !useFallback) {
-        console.error("Slug is missing - cannot start primary API streaming");
-        Alert.alert("Error", "Missing series information for primary API stream.");
-        setLoading(false);
-        return;
-      }
-
+      setStreamLoading(true);
       console.log(
-        `EpisodeList: Starting stream for episode ${ep.id} (Number: ${ep.number}), useFallback: ${useFallback}`
+        `EpisodeList: Starting stream for episode ${ep.id} (Number: ${ep.number}), sourceType: ${selectedSourceType}`
       );
-
       let info: StreamingInfo;
-
-      if (useFallback) {
-        info = await streamingService.getEpisodeStreamingUrl(
-          tv_id.toString(),
-          ep.id.toString(),
-          undefined,
-          slug,
-          true,
-          seasonNumberForApi.toString(),
-          (ep.episode_number || ep.number || 0).toString()
-        );
-      } else {
-        if (!selectedSource) {
-          Alert.alert("Error", "No source selected for primary API.");
-          setLoading(false);
-          return;
-        }
-        info = await streamingService.getEpisodeStreamingUrl(
-          tv_id.toString(),
-          ep.id.toString(),
-          selectedSource.id,
-          slug,
-          false
-        );
+      switch (selectedSourceType) {
+        case "vidfast":
+          // Use Vidfast source
+          info = await streamingService.getEpisodeStreamingUrl(
+            tv_id.toString(),
+            ep.id.toString(),
+            undefined, // serverId
+            slug, // incomingSlug
+            true, // vidfastOnly
+            false, // useFallback
+            seasonNumberForApi.toString(), // seasonNumber
+            (ep.episode_number || ep.number || 0).toString() // episodeNumber
+          );
+          break;
+        case "fallback":
+        default:
+          // Use fallback source
+          info = await streamingService.getEpisodeStreamingUrl(
+            tv_id.toString(),
+            ep.id.toString(),
+            undefined, // serverId
+            slug, // incomingSlug
+            false, // vidfastOnly
+            true, // useFallback
+            seasonNumberForApi.toString(), // seasonNumber
+            (ep.episode_number || ep.number || 0).toString() // episodeNumber
+          );
+          break;
       }
-
       console.log("EpisodeList: Stream info received:", info);
-
+      const sourceName =
+        selectedSourceType === "vidfast" ? "Vidfast" : "Source Two";
       navigation.navigate("Stream", {
         mediaType: "tvSeries",
         id: tv_id.toString(),
@@ -230,41 +279,58 @@ export default function EpisodeListScreen() {
         videoTitle: `${seriesTitle} S${seasonNumberForApi}E${ep.number} - ${ep.name}`,
         slug: slug,
         streamUrl: info.streamUrl,
-        sourceName: info.selectedServer?.name,
+        sourceName: sourceName,
         subtitles: info.subtitles,
         availableQualities: info.availableQualities || [],
-        useFallback
+        useFallback: selectedSourceType === "fallback",
       });
     } catch (err: any) {
       console.error("EpisodeList: Stream error:", err);
-      Alert.alert("Error", `Failed to start stream: ${err.message || "Unknown error"}`);
+      Alert.alert(
+        "Error",
+        `Failed to start stream: ${err.message || "Unknown error"}`
+      );
     } finally {
-      setLoading(false);
+      setStreamLoading(false);
     }
   };
+
   const handleSourceSelect = (src: any) => {
     setSelectedSource(src);
     setModalVisible(false);
     if (currentEpisode) {
-      // Convert EpisodeItem to Episode-compatible object
       const episodeForStreaming = {
         ...currentEpisode,
-        name: currentEpisode.name || currentEpisode.title || `Episode ${currentEpisode.number}`,
-        episode_number: currentEpisode.number
+        name:
+          currentEpisode.name ||
+          currentEpisode.title ||
+          `Episode ${currentEpisode.number}`,
+        episode_number: currentEpisode.number,
       };
       startStreaming(episodeForStreaming);
     }
   };
 
+  const handleSourceTypeSelect = (sourceType: SourceType) => {
+    setSelectedSourceType(sourceType);
+    setSourceModalVisible(false);
+  };
+
   const EpisodeRow = ({ item }: { item: EpisodeItem }) => (
-    <TouchableOpacity style={styles.episodeItem} onPress={() => handleEpisodePress(item)}>
+    <TouchableOpacity
+      style={styles.episodeItem}
+      onPress={() => handleEpisodePress(item)}
+      disabled={streamLoading}
+    >
       <View style={styles.episodeRow}>
         <View style={styles.episodeThumbnail}>
           {item.img ? (
             <Image source={{ uri: item.img }} style={styles.episodeImage} />
           ) : (
             <View style={styles.episodePlaceholder}>
-              <Text style={styles.episodePlaceholderText}>Ep {item.number}</Text>
+              <Text style={styles.episodePlaceholderText}>
+                Ep {item.number}
+              </Text>
             </View>
           )}
         </View>
@@ -277,55 +343,127 @@ export default function EpisodeListScreen() {
               {item.description}
             </Text>
           )}
+
+          {/* Source indicator */}
+          <View style={styles.sourceIndicator}>
+            <Text style={styles.sourceIndicatorText}>
+              {availableSources.find((s) => s.id === selectedSourceType)
+                ?.name || "Source One"}
+            </Text>
+          </View>
+
           {/* Only show source button for primary API */}
-          {!useFallback && (
+          {selectedSourceType === "primary" && (
             <TouchableOpacity
               style={styles.sourceButton}
-              onPress={e => {
-                e.stopPropagation(); // Prevent episode press
+              onPress={(e) => {
+                e.stopPropagation();
                 setCurrentEpisode(item);
                 fetchSources(item.id);
                 setModalVisible(true);
-              }}>
-              <Text style={styles.sourceButtonText}>Source: {selectedSource?.name || "Select"}</Text>
+              }}
+            >
+              <Text style={styles.sourceButtonText}>
+                Server: {selectedSource?.name || "Select"}
+              </Text>
             </TouchableOpacity>
-          )}
-          {/* Show fallback indicator */}
-          {useFallback && (
-            <View style={styles.fallbackIndicator}>
-              <Text style={styles.fallbackText}>Source 2</Text>
-            </View>
           )}
         </View>
       </View>
     </TouchableOpacity>
   );
-  const SourceModal = () => {
-    if (useFallback) return null;
-    <Modal visible={modalVisible} transparent animationType="slide" onRequestClose={() => setModalVisible(false)}>
+
+  const SourceModal = () => (
+    <Modal
+      visible={modalVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setModalVisible(false)}
+    >
       <View style={styles.modalOverlay}>
         <View style={styles.modalContent}>
-          <Text style={styles.modalTitle}>Select Source</Text>
+          <Text style={styles.modalTitle}>Select Server</Text>
           <FlatList
             data={sources}
-            keyExtractor={i => i.id.toString()}
+            keyExtractor={(i) => i.id.toString()}
             renderItem={({ item }) => (
               <TouchableOpacity
-                style={[styles.sourceItem, selectedSource?.id === item.id && styles.selectedSourceItem]}
-                onPress={() => handleSourceSelect(item)}>
-                <Text style={[styles.sourceText, selectedSource?.id === item.id && styles.selectedSourceText]}>
+                style={[
+                  styles.sourceItem,
+                  selectedSource?.id === item.id && styles.selectedSourceItem,
+                ]}
+                onPress={() => handleSourceSelect(item)}
+              >
+                <Text
+                  style={[
+                    styles.sourceText,
+                    selectedSource?.id === item.id && styles.selectedSourceText,
+                  ]}
+                >
                   {item.name}
                 </Text>
               </TouchableOpacity>
             )}
           />
-          <TouchableOpacity style={styles.closeButton} onPress={() => setModalVisible(false)}>
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => setModalVisible(false)}
+          >
             <Text style={styles.closeText}>Close</Text>
           </TouchableOpacity>
         </View>
       </View>
-    </Modal>;
-  };
+    </Modal>
+  );
+
+  const SourceTypeModal = () => (
+    <Modal
+      visible={sourceModalVisible}
+      transparent
+      animationType="slide"
+      onRequestClose={() => setSourceModalVisible(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Select Source</Text>
+          <FlatList
+            data={availableSources}
+            keyExtractor={(item) => item.id}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={[
+                  styles.sourceItem,
+                  selectedSourceType === item.id && styles.selectedSourceItem,
+                ]}
+                onPress={() => handleSourceTypeSelect(item.id)}
+              >
+                <View>
+                  <Text
+                    style={[
+                      styles.sourceText,
+                      selectedSourceType === item.id &&
+                        styles.selectedSourceText,
+                    ]}
+                  >
+                    {item.name}
+                  </Text>
+                  <Text style={styles.sourceDescription}>
+                    {item.description}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            )}
+          />
+          <TouchableOpacity
+            style={styles.closeButton}
+            onPress={() => setSourceModalVisible(false)}
+          >
+            <Text style={styles.closeText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
 
   if (loading && !episodes.length) {
     return (
@@ -349,17 +487,34 @@ export default function EpisodeListScreen() {
 
   return (
     <View style={styles.container}>
-      <Text style={styles.headerTitle}>
-        {seriesTitle} — {seasonName}
-      </Text>
+      <View style={styles.header}>
+        <Text style={styles.headerTitle}>
+          {seriesTitle} — {seasonName}
+        </Text>
+        <TouchableOpacity
+          style={styles.sourceSelectButton}
+          onPress={() => setSourceModalVisible(true)}
+        >
+          <Text style={styles.sourceSelectText}>
+            {availableSources.find((s) => s.id === selectedSourceType)?.name ||
+              "Source One"}
+          </Text>
+        </TouchableOpacity>
+      </View>
+
       <FlatList
         data={episodes}
-        keyExtractor={i => i.id}
+        keyExtractor={(i) => i.id}
         renderItem={({ item }) => <EpisodeRow item={item} />}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
       />
+
       <SourceModal />
-      {loading && episodes.length > 0 && (
+      <SourceTypeModal />
+
+      {(streamLoading || (loading && episodes.length > 0)) && (
         <View style={styles.loadingOverlay}>
           <ActivityIndicator size="large" color="#FFF" />
           <Text style={styles.loadingOverlayText}>Setting up stream…</Text>
@@ -375,7 +530,7 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#121212"
+    backgroundColor: "#121212",
   },
   loadingText: { color: "#FFF", marginTop: 8 },
   errorText: { color: "#ff6b6b", textAlign: "center", margin: 16 },
@@ -383,41 +538,60 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF5722",
     padding: 12,
     borderRadius: 8,
-    marginTop: 12
+    marginTop: 12,
   },
   retryText: { color: "#FFF", fontWeight: "bold" },
 
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
   headerTitle: {
     fontSize: 22,
     fontWeight: "bold",
     color: "#FFF",
-    marginBottom: 12
+    flex: 1,
   },
+  sourceSelectButton: {
+    backgroundColor: "#FF5722",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 6,
+    marginLeft: 12,
+  },
+  sourceSelectText: {
+    color: "#FFF",
+    fontSize: 14,
+    fontWeight: "bold",
+  },
+
   episodeDescription: {
     color: "#AAA",
     fontSize: 14,
     marginTop: 4,
-    lineHeight: 18
+    lineHeight: 18,
   },
 
-  fallbackIndicator: {
+  sourceIndicator: {
     marginTop: 8,
-    backgroundColor: "#4CAF50",
+    backgroundColor: "#FF5722",
     padding: 4,
     borderRadius: 4,
-    alignSelf: "flex-start"
+    alignSelf: "flex-start",
   },
-
-  fallbackText: {
+  sourceIndicatorText: {
     color: "#FFF",
     fontSize: 10,
-    fontWeight: "bold"
+    fontWeight: "bold",
   },
+
   episodeItem: {
     marginBottom: 12,
     backgroundColor: "#1e1e1e",
     borderRadius: 8,
-    overflow: "hidden"
+    overflow: "hidden",
   },
   episodeRow: { flexDirection: "row", padding: 12 },
   episodeThumbnail: {
@@ -425,13 +599,13 @@ const styles = StyleSheet.create({
     height: 68,
     borderRadius: 4,
     overflow: "hidden",
-    backgroundColor: "#2c2c2c"
+    backgroundColor: "#2c2c2c",
   },
   episodeImage: { width: "100%", height: "100%" },
   episodePlaceholder: {
     flex: 1,
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
   },
   episodePlaceholderText: { color: "#777" },
   episodeInfo: { flex: 1, marginLeft: 12 },
@@ -441,7 +615,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#262626",
     padding: 6,
     borderRadius: 4,
-    alignSelf: "flex-start"
+    alignSelf: "flex-start",
   },
   sourceButtonText: { color: "#ffcc66", fontSize: 12 },
 
@@ -450,32 +624,37 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "center",
     alignItems: "center",
-    padding: 24
+    padding: 24,
   },
   modalContent: {
     width: "90%",
     maxHeight: "70%",
     backgroundColor: "#1e1e1e",
     borderRadius: 13,
-    padding: 20
+    padding: 20,
   },
   modalTitle: {
     color: "#FFF",
     fontSize: 20,
     fontWeight: "bold",
     marginBottom: 16,
-    textAlign: "center"
+    textAlign: "center",
   },
   sourceItem: { padding: 12, borderBottomWidth: 1, borderBottomColor: "#333" },
-  selectedSourceItem: { backgroundColor: "#7d0b02" },
+  selectedSourceItem: { backgroundColor: "#FF5722" },
   sourceText: { color: "#FFF", fontSize: 16 },
   selectedSourceText: { fontWeight: "bold" },
+  sourceDescription: {
+    color: "#AAA",
+    fontSize: 12,
+    marginTop: 4,
+  },
   closeButton: {
     marginTop: 16,
     backgroundColor: "#333",
     padding: 12,
     borderRadius: 8,
-    alignItems: "center"
+    alignItems: "center",
   },
   closeText: { color: "#FFF", fontSize: 16 },
 
@@ -487,7 +666,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     backgroundColor: "rgba(0,0,0,0.7)",
     justifyContent: "center",
-    alignItems: "center"
+    alignItems: "center",
   },
-  loadingOverlayText: { color: "#FFF", marginTop: 12 }
+  loadingOverlayText: { color: "#FFF", marginTop: 12 },
 });
