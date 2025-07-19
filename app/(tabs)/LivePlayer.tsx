@@ -9,12 +9,13 @@ import {
   Alert,
   ActivityIndicator,
   Platform,
+  BackHandler,
 } from "react-native";
 import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { RootStackParamList } from "@/types/navigation";
 import * as ScreenOrientation from "expo-screen-orientation";
-import { useFocusEffect } from "@react-navigation/native";
+import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { RouteProp } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -27,8 +28,9 @@ export default function PlayerScreen() {
   const { title, url } = useLocalSearchParams<{ title: string; url: string }>();
   const router = useRouter();
   const videoRef = useRef<Video>(null);
+  const isFocused = useIsFocused();
 
-  const [isPlaying, setIsPlaying] = useState(false); // Changed from true to false initially
+  const [isPlaying, setIsPlaying] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
@@ -38,36 +40,74 @@ export default function PlayerScreen() {
 
   const controlsTimeoutRef = useRef<NodeJS.Timeout>();
 
-  // Handle screen orientation
+  // Handle back button press
   useFocusEffect(
     React.useCallback(() => {
-      const setupOrientation = async () => {
-        if (isFullscreen) {
-          await ScreenOrientation.lockAsync(
-            ScreenOrientation.OrientationLock.LANDSCAPE
-          );
-        } else {
-          await ScreenOrientation.lockAsync(
-            ScreenOrientation.OrientationLock.PORTRAIT
-          );
-        }
+      const onBackPress = () => {
+        handleGoBack();
+        return true;
       };
 
-      setupOrientation();
+      BackHandler.addEventListener("hardwareBackPress", onBackPress);
 
       return () => {
-        ScreenOrientation.unlockAsync();
+        BackHandler.removeEventListener("hardwareBackPress", onBackPress);
       };
-    }, [isFullscreen])
+    }, [])
   );
+
+  // Handle screen orientation changes
+  useEffect(() => {
+    const updateOrientation = async () => {
+      const orientation = await ScreenOrientation.getOrientationAsync();
+      const isLandscape =
+        orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+        orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+
+      setIsFullscreen(isLandscape);
+    };
+
+    updateOrientation();
+
+    const subscription = ScreenOrientation.addOrientationChangeListener(
+      (evt) => {
+        const orientation = evt.orientationInfo.orientation;
+        const isLandscape =
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+          orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+
+        setIsFullscreen(isLandscape);
+      }
+    );
+
+    return () => {
+      ScreenOrientation.removeOrientationChangeListener(subscription);
+    };
+  }, []);
+
+  // Pause video when screen loses focus
+  useEffect(() => {
+    if (!isFocused && videoRef.current) {
+      videoRef.current.pauseAsync();
+    }
+  }, [isFocused]);
+
+  // Clean up when component unmounts
+  useEffect(() => {
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.pauseAsync();
+      }
+      ScreenOrientation.unlockAsync();
+    };
+  }, []);
 
   // Auto-hide controls
   useEffect(() => {
-    if (showControls && isPlaying && !isBuffering) {
-      // Added !isBuffering condition
+    if (showControls && isPlaying && !isBuffering && !isLoading) {
       controlsTimeoutRef.current = setTimeout(() => {
         setShowControls(false);
-      }, 3000);
+      }, 4000);
     }
 
     return () => {
@@ -75,7 +115,7 @@ export default function PlayerScreen() {
         clearTimeout(controlsTimeoutRef.current);
       }
     };
-  }, [showControls, isPlaying, isBuffering]); // Added isBuffering to dependencies
+  }, [showControls, isPlaying, isBuffering, isLoading]);
 
   const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
     if (status.isLoaded) {
@@ -83,14 +123,12 @@ export default function PlayerScreen() {
       setIsPlaying(status.isPlaying || false);
       setIsMuted(status.isMuted || false);
 
-      // Better buffering state management
       if ("isBuffering" in status) {
         setIsBuffering(status.isBuffering || false);
       } else {
         setIsBuffering(false);
       }
 
-      // Clear error if playback is successful
       if (error) {
         setError(null);
       }
@@ -108,6 +146,7 @@ export default function PlayerScreen() {
       } else {
         await videoRef.current?.playAsync();
       }
+      setShowControls(true);
     } catch (err) {
       console.error("Error toggling play/pause:", err);
     }
@@ -116,21 +155,44 @@ export default function PlayerScreen() {
   const toggleMute = async () => {
     try {
       await videoRef.current?.setIsMutedAsync(!isMuted);
+      setShowControls(true);
     } catch (err) {
       console.error("Error toggling mute:", err);
     }
   };
 
   const toggleFullscreen = async () => {
-    setIsFullscreen(!isFullscreen);
+    try {
+      if (isFullscreen) {
+        await ScreenOrientation.lockAsync(
+          ScreenOrientation.OrientationLock.PORTRAIT
+        );
+      } else {
+        await ScreenOrientation.lockAsync(
+          ScreenOrientation.OrientationLock.LANDSCAPE
+        );
+      }
+    } catch (err) {
+      console.error("Error toggling fullscreen:", err);
+    }
   };
 
   const handleVideoPress = () => {
-    setShowControls(true);
+    setShowControls(!showControls);
   };
 
-  const handleGoBack = () => {
-    router.back();
+  const handleGoBack = async () => {
+    try {
+      if (videoRef.current) {
+        await videoRef.current.pauseAsync();
+      }
+      await ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT
+      );
+      router.back();
+    } catch (err) {
+      router.back();
+    }
   };
 
   const handleReload = async () => {
@@ -171,6 +233,10 @@ export default function PlayerScreen() {
     );
   }
 
+  const videoContainerStyle = isFullscreen
+    ? [styles.videoContainer, styles.fullscreenVideo]
+    : styles.videoContainer;
+
   return (
     <View
       style={[styles.container, isFullscreen && styles.fullscreenContainer]}
@@ -181,9 +247,7 @@ export default function PlayerScreen() {
         hidden={isFullscreen}
       />
 
-      <View
-        style={[styles.videoContainer, isFullscreen && styles.fullscreenVideo]}
-      >
+      <View style={videoContainerStyle}>
         <Video
           ref={videoRef}
           source={{ uri: url }}
@@ -195,13 +259,13 @@ export default function PlayerScreen() {
           isLooping={false}
           style={styles.video}
           onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
-          progressUpdateIntervalMillis={500} // Added for better status updates
+          progressUpdateIntervalMillis={500}
         />
 
-        {/* Video Overlay */}
+        {/* Video Overlay - Touch area for controls */}
         <Pressable style={styles.videoOverlay} onPress={handleVideoPress}>
-          {/* Loading/Buffering Indicator - Fixed condition */}
-          {(isLoading || (isBuffering && !isPlaying)) && (
+          {/* Loading/Buffering Indicator */}
+          {(isLoading || isBuffering) && (
             <View style={styles.loadingOverlay}>
               <ActivityIndicator size="large" color="#FF6B35" />
               <Text style={styles.loadingText}>
@@ -210,30 +274,39 @@ export default function PlayerScreen() {
             </View>
           )}
 
-          {/* Controls */}
+          {/* Controls Overlay */}
           {showControls && !isLoading && (
             <View style={styles.controlsContainer}>
-              {/* Top Controls */}
-              <View style={styles.topControls}>
-                <Pressable style={styles.backBtn} onPress={handleGoBack}>
+              {/* Top Controls Bar */}
+              <View
+                style={[
+                  styles.topControls,
+                  isFullscreen && styles.topControlsFullscreen,
+                ]}
+              >
+                <Pressable style={styles.controlButton} onPress={handleGoBack}>
                   <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
                 </Pressable>
+
                 <Text style={styles.videoTitle} numberOfLines={1}>
                   {title}
                 </Text>
-                <Pressable
-                  style={styles.fullscreenBtn}
-                  onPress={toggleFullscreen}
-                >
-                  <Ionicons
-                    name={isFullscreen ? "contract" : "expand"}
-                    size={24}
-                    color="#FFFFFF"
-                  />
-                </Pressable>
+
+                <View style={styles.rightControls}>
+                  <Pressable
+                    style={styles.controlButton}
+                    onPress={toggleFullscreen}
+                  >
+                    <Ionicons
+                      name={isFullscreen ? "contract" : "expand"}
+                      size={24}
+                      color="#FFFFFF"
+                    />
+                  </Pressable>
+                </View>
               </View>
 
-              {/* Center Controls */}
+              {/* Center Play/Pause Button */}
               <View style={styles.centerControls}>
                 <Pressable style={styles.playButton} onPress={togglePlayPause}>
                   <Ionicons
@@ -244,8 +317,13 @@ export default function PlayerScreen() {
                 </Pressable>
               </View>
 
-              {/* Bottom Controls */}
-              <View style={styles.bottomControls}>
+              {/* Bottom Controls Bar */}
+              <View
+                style={[
+                  styles.bottomControls,
+                  isFullscreen && styles.bottomControlsFullscreen,
+                ]}
+              >
                 <View style={styles.liveIndicator}>
                   <View
                     style={[
@@ -258,13 +336,15 @@ export default function PlayerScreen() {
                   </Text>
                 </View>
 
-                <Pressable style={styles.muteButton} onPress={toggleMute}>
-                  <Ionicons
-                    name={isMuted ? "volume-mute" : "volume-high"}
-                    size={24}
-                    color="#FFFFFF"
-                  />
-                </Pressable>
+                <View style={styles.rightControls}>
+                  <Pressable style={styles.controlButton} onPress={toggleMute}>
+                    <Ionicons
+                      name={isMuted ? "volume-mute" : "volume-high"}
+                      size={24}
+                      color="#FFFFFF"
+                    />
+                  </Pressable>
+                </View>
               </View>
             </View>
           )}
@@ -329,13 +409,18 @@ const styles = StyleSheet.create({
   },
   videoContainer: {
     width: screenWidth,
-    height: screenWidth * (9 / 16), // 16:9 aspect ratio
+    height: screenWidth * (9 / 16),
     backgroundColor: "#000000",
     position: "relative",
   },
   fullscreenVideo: {
-    width: screenHeight,
-    height: screenWidth,
+    width: screenHeight > screenWidth ? screenHeight : screenWidth,
+    height: screenHeight > screenWidth ? screenWidth : screenHeight,
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   video: {
     width: "100%",
@@ -347,12 +432,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    justifyContent: "center",
-    alignItems: "center",
   },
   loadingOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
   },
   loadingText: {
     color: "#FFFFFF",
@@ -366,7 +455,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.3)",
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
   },
   topControls: {
     flexDirection: "row",
@@ -375,8 +464,13 @@ const styles = StyleSheet.create({
     paddingTop: Platform.OS === "ios" ? 50 : 20,
     paddingBottom: 16,
   },
-  backBtn: {
+  topControlsFullscreen: {
+    paddingTop: Platform.OS === "ios" ? 20 : 10,
+  },
+  controlButton: {
     padding: 8,
+    borderRadius: 20,
+    backgroundColor: "rgba(0, 0, 0, 0.6)",
   },
   videoTitle: {
     flex: 1,
@@ -385,8 +479,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginHorizontal: 16,
   },
-  fullscreenBtn: {
-    padding: 8,
+  rightControls: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   centerControls: {
     flex: 1,
@@ -394,9 +489,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   playButton: {
-    backgroundColor: "rgba(255, 107, 53, 0.8)",
+    backgroundColor: "rgba(255, 107, 53, 0.9)",
     borderRadius: 50,
     padding: 20,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   bottomControls: {
     flexDirection: "row",
@@ -404,6 +507,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
     paddingBottom: 16,
+  },
+  bottomControlsFullscreen: {
+    paddingBottom: Platform.OS === "ios" ? 20 : 16,
   },
   liveIndicator: {
     flexDirection: "row",
@@ -428,9 +534,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "bold",
     letterSpacing: 0.5,
-  },
-  muteButton: {
-    padding: 8,
   },
   infoPanel: {
     flex: 1,
