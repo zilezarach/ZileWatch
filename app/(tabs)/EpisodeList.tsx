@@ -33,7 +33,7 @@ interface EpisodeItem {
 }
 
 // Define source types
-type SourceType = "primary" | "fallback" | "vidfast";
+type SourceType = "primary" | "fallback" | "vidfast" | "wootly";
 
 interface SourceOption {
   id: SourceType;
@@ -91,6 +91,11 @@ export default function EpisodeListScreen() {
       id: "vidfast",
       name: "Source Two",
       description: "High quality streaming",
+    },
+    {
+      id: "wootly",
+      name: "Source Three",
+      description: "Wootly Streaming",
     },
   ];
 
@@ -233,45 +238,90 @@ export default function EpisodeListScreen() {
     }, 300);
   };
 
+  async function withRetries<T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 3,
+    delayMs: number = 2000
+  ): Promise<T> {
+    let lastError: any;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Retry ${attempt}/${maxRetries} failed: ${err.message}`);
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+    }
+    throw lastError;
+  }
   const startStreaming = async (ep: Episode) => {
     try {
       setStreamLoading(true);
       console.log(
         `EpisodeList: Starting stream for episode ${ep.id} (Number: ${ep.number}), sourceType: ${selectedSourceType}`
       );
+      const fetchStream = async () => {
+        let info: StreamingInfo;
+        switch (selectedSourceType) {
+          case "vidfast":
+            // Use Vidfast source
+            info = await streamingService.getEpisodeStreamingUrl(
+              tv_id.toString(),
+              ep.id.toString(),
+              undefined, // serverId
+              slug, // incomingSlug
+              true, // vidfastOnly
+              false, // useFallback
+              seasonNumberForApi.toString(), // seasonNumber
+              (ep.episode_number || ep.number || 0).toString() // episodeNumber
+            );
+            break;
+          case "wootly": // New case for wootly
+            info = await streamingService.getEpisodeStreamingUrl(
+              tv_id.toString(),
+              ep.id.toString(),
+              undefined,
+              slug,
+              false,
+              false,
+              seasonNumberForApi.toString(),
+              (ep.episode_number || ep.number || 0).toString(),
+              true
+            );
+            break;
+          case "fallback":
+          default:
+            // Use fallback source
+            info = await streamingService.getEpisodeStreamingUrl(
+              tv_id.toString(),
+              ep.id.toString(),
+              undefined, // serverId
+              slug, // incomingSlug
+              false, // vidfastOnly
+              true, // useFallback
+              seasonNumberForApi.toString(), // seasonNumber
+              (ep.episode_number || ep.number || 0).toString() // episodeNumber
+            );
+            break;
+        }
+        return info;
+      };
       let info: StreamingInfo;
-      switch (selectedSourceType) {
-        case "vidfast":
-          // Use Vidfast source
-          info = await streamingService.getEpisodeStreamingUrl(
-            tv_id.toString(),
-            ep.id.toString(),
-            undefined, // serverId
-            slug, // incomingSlug
-            true, // vidfastOnly
-            false, // useFallback
-            seasonNumberForApi.toString(), // seasonNumber
-            (ep.episode_number || ep.number || 0).toString() // episodeNumber
-          );
-          break;
-        case "fallback":
-        default:
-          // Use fallback source
-          info = await streamingService.getEpisodeStreamingUrl(
-            tv_id.toString(),
-            ep.id.toString(),
-            undefined, // serverId
-            slug, // incomingSlug
-            false, // vidfastOnly
-            true, // useFallback
-            seasonNumberForApi.toString(), // seasonNumber
-            (ep.episode_number || ep.number || 0).toString() // episodeNumber
-          );
-          break;
+      if (selectedSourceType === "vidfast" || selectedSourceType === "wootly") {
+        info = await withRetries(fetchStream);
+      } else {
+        info = await fetchStream();
       }
       console.log("EpisodeList: Stream info received:", info);
       const sourceName =
-        selectedSourceType === "vidfast" ? "Vidfast" : "Source Two";
+        selectedSourceType === "vidfast"
+          ? "Vidfast"
+          : selectedSourceType === "wootly"
+          ? "Wootly"
+          : "Source One";
       navigation.navigate("Stream", {
         mediaType: "tvSeries",
         id: tv_id.toString(),

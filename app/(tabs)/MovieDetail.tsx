@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -22,8 +22,9 @@ import Constants from "expo-constants";
 import { FontAwesome } from "@expo/vector-icons";
 import streamingService from "@/utils/streamingService";
 import tmdbDetailsService from "@/utils/detailsService";
-
-const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+import { StreamingInfo } from "@/utils/streamingService";
+import { title } from "process";
+const { height: screenHeight } = Dimensions.get("window");
 
 interface MovieDetails {
   title: string;
@@ -60,6 +61,17 @@ export default function MovieDetail(): JSX.Element {
     useFallback = false,
   } = route.params;
 
+  // TV-specific refs for focus management
+  const backButtonRef = useRef(null);
+  const watchButtonRef = useRef(null);
+  const vidfastButtonRef = useRef(null);
+  const scrollViewRef = useRef(null);
+  const relatedScrollRef = useRef(null);
+
+  // TV focus state
+  const [focusedButton, setFocusedButton] = useState("back");
+  const [currentRelatedIndex, setCurrentRelatedIndex] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [streamLoading, setStreamLoading] = useState(false);
   const [activeStreamSource, setActiveStreamSource] = useState<string | null>(
@@ -68,6 +80,126 @@ export default function MovieDetail(): JSX.Element {
   const [movieDetails, setMovieDetails] = useState<MovieDetails | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [imageError, setImageError] = useState(false);
+
+  // TV Event Handler for React Native TV
+  useEffect(() => {
+    // Check if running on TV platform
+    if (Platform.isTV) {
+      const handleTVEvent = (evt: any) => {
+        if (evt && evt.eventType === "select") {
+          handleTVSelect();
+        } else if (evt && evt.eventType === "left") {
+          handleTVLeft();
+        } else if (evt && evt.eventType === "right") {
+          handleTVRight();
+        } else if (evt && evt.eventType === "up") {
+          handleTVUp();
+        } else if (evt && evt.eventType === "down") {
+          handleTVDown();
+        }
+      };
+      console.log("TV platform detected, focus management enabled");
+    }
+  }, [focusedButton, currentRelatedIndex]);
+
+  const handleTVSelect = () => {
+    switch (focusedButton) {
+      case "back":
+        navigation.goBack();
+        break;
+      case "watch":
+        handleWatchNow();
+        break;
+      case "vidfast":
+        handleVidfast();
+        break;
+      case "related":
+        if (movieDetails?.related?.[currentRelatedIndex]) {
+          navigateToRelatedItem(movieDetails.related[currentRelatedIndex]);
+        }
+        break;
+    }
+  };
+
+  async function withRetries<T>(
+    fn: () => Promise<T>,
+    maxRetries: number = 3,
+    delayMs: number = 2000
+  ): Promise<T> {
+    let lastError: any;
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (err: any) {
+        lastError = err;
+        console.warn(`Retry ${attempt}/${maxRetries} failed: ${err.message}`);
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  const handleTVLeft = () => {
+    if (focusedButton === "related" && currentRelatedIndex > 0) {
+      setCurrentRelatedIndex(currentRelatedIndex - 1);
+      scrollRelatedToIndex(currentRelatedIndex - 1);
+    }
+  };
+
+  const handleTVRight = () => {
+    if (
+      focusedButton === "related" &&
+      movieDetails?.related &&
+      currentRelatedIndex < movieDetails.related.length - 1
+    ) {
+      setCurrentRelatedIndex(currentRelatedIndex + 1);
+      scrollRelatedToIndex(currentRelatedIndex + 1);
+    }
+  };
+
+  const handleTVUp = () => {
+    switch (focusedButton) {
+      case "vidfast":
+        setFocusedButton("watch");
+        break;
+      case "related":
+        setFocusedButton("vidfast");
+        break;
+      default:
+        if (focusedButton !== "back") {
+          setFocusedButton("back");
+        }
+        break;
+    }
+  };
+
+  const handleTVDown = () => {
+    switch (focusedButton) {
+      case "back":
+        setFocusedButton("watch");
+        break;
+      case "watch":
+        setFocusedButton("vidfast");
+        break;
+      case "vidfast":
+        if (movieDetails?.related && movieDetails.related.length > 0) {
+          setFocusedButton("related");
+          setCurrentRelatedIndex(0);
+        }
+        break;
+    }
+  };
+
+  const scrollRelatedToIndex = (index: number) => {
+    if (relatedScrollRef.current && "scrollTo" in relatedScrollRef.current) {
+      (relatedScrollRef.current as any).scrollTo({
+        x: index * 156,
+        animated: true,
+      });
+    }
+  };
 
   const fetchMovieDetails = useCallback(async () => {
     try {
@@ -100,7 +232,7 @@ export default function MovieDetail(): JSX.Element {
         const response = await axios.get(
           `${Constants.expoConfig?.extra?.API_Backend}/movie/${effectiveSlug}-${movie_id}`,
           {
-            timeout: 10000, // 10 second timeout
+            timeout: 10000,
           }
         );
         setMovieDetails(response.data);
@@ -132,36 +264,70 @@ export default function MovieDetail(): JSX.Element {
     fetchMovieDetails().finally(() => setRefreshing(false));
   }, [fetchMovieDetails]);
 
-  const handleStreamAction = async (sourceType: "primary" | "vidfast") => {
+  const handleStreamAction = async (
+    sourceType: "primary" | "vidfast" | "wootly"
+  ) => {
     try {
       setStreamLoading(true);
       setActiveStreamSource(sourceType);
-
-      console.log(
-        `Getting streaming URL for movie (${sourceType}):`,
-        movie_id,
-        "slug:",
-        initialSlug,
-        "useFallback:",
-        useFallback
-      );
-
-      const info = await streamingService.getMovieStreamingUrl(
-        sourceType === "vidfast" ? String(movie_id) : movie_id,
-        sourceType === "vidfast" ? undefined : initialSlug,
-        sourceType === "vidfast" ? false : useFallback,
-        sourceType === "vidfast"
-      );
-
-      console.log(`${sourceType} stream info received:`, info.streamUrl);
-
+      const fetchStream = async () => {
+        console.log(
+          `Getting streaming URL for movie (${sourceType}):`,
+          movie_id,
+          "slug:",
+          initialSlug,
+          "useFallback:",
+          useFallback
+        );
+        let info;
+        switch (sourceType) {
+          case "vidfast":
+            info = await streamingService.getMovieStreamingUrl(
+              String(movie_id),
+              undefined,
+              false,
+              true // vidfastOnly
+            );
+            break;
+          case "wootly":
+            info = await streamingService.getMovieStreamingUrl(
+              String(movie_id),
+              initialSlug,
+              useFallback,
+              false,
+              true // useWootly
+            );
+            break;
+          case "primary":
+          default:
+            info = await streamingService.getMovieStreamingUrl(
+              movie_id,
+              initialSlug,
+              useFallback,
+              false
+            );
+            break;
+        }
+        console.log(`${sourceType} stream info received:`, info.streamUrl);
+        return info;
+      };
+      let info: StreamingInfo;
+      if (sourceType === "vidfast" || sourceType === "wootly") {
+        info = await withRetries(fetchStream);
+      } else {
+        info = await fetchStream();
+      }
       navigation.navigate("Stream", {
         mediaType: "movie" as const,
         id: String(movie_id),
         videoTitle: movieDetails?.title || initialTitle || "Untitled",
         streamUrl: info.streamUrl,
         sourceName:
-          sourceType === "vidfast" ? "Vidfast" : info.selectedServer?.name,
+          sourceType === "vidfast"
+            ? "Vidfast"
+            : sourceType === "wootly"
+            ? "wootly"
+            : info.selectedServer?.name,
         slug: initialSlug,
         subtitles: info.subtitles?.map((sub) => ({
           file: sub.file,
@@ -188,7 +354,7 @@ export default function MovieDetail(): JSX.Element {
   const handleVidfast = () => handleStreamAction("vidfast");
 
   const renderStats = () => {
-    if (!movieDetails?.stats?.length) return null;
+    if (!movieDetails?.stats || movieDetails.stats.length === 0) return null;
 
     return (
       <View style={styles.statsContainer}>
@@ -226,12 +392,14 @@ export default function MovieDetail(): JSX.Element {
   };
 
   const renderRelatedContent = () => {
-    if (!movieDetails?.related?.length) return null;
+    if (!movieDetails?.related || movieDetails.related.length === 0)
+      return null;
 
     return (
       <View style={styles.relatedSection}>
         <Text style={styles.sectionTitle}>You May Also Like</Text>
         <ScrollView
+          ref={relatedScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.relatedScrollContainer}
@@ -239,9 +407,17 @@ export default function MovieDetail(): JSX.Element {
           {movieDetails.related.map((item: any, index: number) => (
             <TouchableOpacity
               key={`${item.id}-${index}`}
-              style={styles.relatedItem}
+              style={[
+                styles.relatedItem,
+                focusedButton === "related" &&
+                  currentRelatedIndex === index &&
+                  styles.focusedRelatedItem,
+              ]}
               onPress={() => navigateToRelatedItem(item)}
               activeOpacity={0.8}
+              hasTVPreferredFocus={
+                focusedButton === "related" && currentRelatedIndex === index
+              }
             >
               <Image
                 source={{ uri: item.poster }}
@@ -272,14 +448,21 @@ export default function MovieDetail(): JSX.Element {
   const renderStreamingButton = (
     title: string,
     onPress: () => void,
-    sourceType: "primary" | "vidfast",
-    style?: any
+    sourceType: "primary" | "vidfast" | "wootly",
+    style?: any,
+    buttonType?: string
   ) => (
     <TouchableOpacity
-      style={[styles.watchButton, style]}
+      ref={buttonType === "watch" ? watchButtonRef : vidfastButtonRef}
+      style={[
+        styles.watchButton,
+        style,
+        focusedButton === buttonType && styles.focusedButton,
+      ]}
       onPress={onPress}
       disabled={streamLoading}
       activeOpacity={0.8}
+      hasTVPreferredFocus={focusedButton === buttonType}
     >
       {streamLoading && activeStreamSource === sourceType ? (
         <ActivityIndicator size="small" color="#FFF" />
@@ -329,14 +512,20 @@ export default function MovieDetail(): JSX.Element {
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
 
       <TouchableOpacity
-        style={styles.backButton}
+        ref={backButtonRef}
+        style={[
+          styles.backButton,
+          focusedButton === "back" && styles.focusedButton,
+        ]}
         onPress={() => navigation.goBack()}
         activeOpacity={0.8}
+        hasTVPreferredFocus={focusedButton === "back"}
       >
         <FontAwesome name="arrow-left" size={20} color="#FFF" />
       </TouchableOpacity>
 
       <ScrollView
+        ref={scrollViewRef}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -376,7 +565,13 @@ export default function MovieDetail(): JSX.Element {
         {/* Streaming buttons */}
         <View style={styles.streamingSection}>
           <View style={styles.actionContainer}>
-            {renderStreamingButton("Source One", handleWatchNow, "primary")}
+            {renderStreamingButton(
+              "Source One",
+              handleWatchNow,
+              "primary",
+              null,
+              "watch"
+            )}
           </View>
 
           <View style={styles.actionContainer}>
@@ -384,7 +579,17 @@ export default function MovieDetail(): JSX.Element {
               "Source Two (HD)",
               handleVidfast,
               "vidfast",
-              styles.secondaryButton
+              styles.secondaryButton,
+              "vidfast"
+            )}
+          </View>
+          <View style={styles.actionContainer}>
+            {renderStreamingButton(
+              "Source Three (wootly)",
+              () => handleStreamAction("wootly"),
+              "wootly",
+              styles.thirdButton,
+              "wootly"
             )}
           </View>
 
@@ -406,7 +611,7 @@ export default function MovieDetail(): JSX.Element {
         )}
 
         {/* Stats information */}
-        {movieDetails?.stats?.length > 0 && (
+        {movieDetails?.stats && movieDetails.stats.length > 0 && (
           <View style={styles.infoSection}>
             <Text style={styles.sectionTitle}>Details</Text>
             {renderStats()}
@@ -424,6 +629,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#121212",
+  },
+  thirdButton: {
+    backgroundColor: "#2196F3", // Example color
+    ...Platform.select({
+      ios: {
+        shadowColor: "#2196F3",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 8,
+      },
+      android: { elevation: 6 },
+    }),
   },
   backButton: {
     position: "absolute",
@@ -447,6 +664,26 @@ const styles = StyleSheet.create({
         elevation: 5,
       },
     }),
+  },
+  // TV-specific focus styles
+  focusedButton: {
+    borderWidth: 3,
+    borderColor: "#FF5722",
+    shadowColor: "#FF5722",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.8,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  focusedRelatedItem: {
+    borderWidth: 2,
+    borderColor: "#FF5722",
+    borderRadius: 12,
+    shadowColor: "#FF5722",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.6,
+    shadowRadius: 8,
+    elevation: 6,
   },
   loaderContainer: {
     flex: 1,

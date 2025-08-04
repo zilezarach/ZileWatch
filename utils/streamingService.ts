@@ -331,7 +331,8 @@ export async function getMovieStreamingUrl(
   movieId: string,
   incomingSlug?: string,
   useFallback: boolean = false,
-  vidfastOnly: boolean = false
+  vidfastOnly: boolean = false,
+  useWootly: boolean = false
 ): Promise<StreamingInfo> {
   if (vidfastOnly) {
     const vidfastUrl = `${EXTRA_URL}/vidfast/${movieId}`;
@@ -409,6 +410,10 @@ export async function getMovieStreamingUrl(
       console.log("Fallback is not available", error);
       throw new Error("Fallback Error");
     }
+  }
+
+  if (useWootly) {
+    return getWootlyStreamingUrl(movieId, vidfastOnly, useFallback, useWootly);
   }
 
   try {
@@ -588,6 +593,82 @@ export async function getEpisodesForSeason(
   }
 }
 
+//wootly source
+async function getWootlyStreamingUrl(
+  id: string,
+  vidfastOnly: boolean = false,
+  useFallback: boolean = false,
+  useWootly: boolean = false,
+  seasonNumber?: string,
+  episodeNumber?: string
+): Promise<StreamingInfo> {
+  if (!useWootly) throw new Error("Wootly not enabled");
+
+  try {
+    let url = `${EXTRA_URL}/wootly/${id}`;
+    if (seasonNumber && episodeNumber) {
+      url += `/${seasonNumber}/${episodeNumber}`;
+    }
+
+    const resp = await axios.get(url, { timeout: 15000 });
+
+    if (
+      resp.data &&
+      resp.data.success &&
+      Array.isArray(resp.data.data) &&
+      resp.data.data.length > 0
+    ) {
+      const sources = resp.data.data;
+
+      // Filter for .mp4
+      const mp4Links: StreamingLink[] = sources
+        .filter((source: any) => source.url && source.url.includes(".mp4"))
+        .map((source: any) => ({
+          quality: source.quality || "auto",
+          url: source.url,
+          server: source.source || "Wootly",
+        }));
+
+      if (mp4Links.length === 0) {
+        // Fallback to any available link
+        const otherLinks: StreamingLink[] = sources.map((source: any) => ({
+          quality: source.quality || "auto",
+          url: source.url,
+          server: source.source || "Wootly",
+        }));
+        if (otherLinks.length > 0) {
+          const firstLink = otherLinks[0];
+          return {
+            streamUrl: firstLink.url,
+            subtitles: [], // Add subtitles if available in response
+            selectedServer: { id, name: firstLink.server },
+            availableQualities: otherLinks,
+          };
+        }
+        throw new Error("No playable streams found from Wootly");
+      }
+
+      // Select best quality (e.g., 1080p > 720p > auto)
+      let defaultStream =
+        mp4Links.find((link) => link.quality === "1080p") ||
+        mp4Links.find((link) => link.quality === "720p") ||
+        mp4Links.find((link) => link.quality.toLowerCase() === "auto") ||
+        mp4Links[0];
+
+      return {
+        streamUrl: defaultStream.url,
+        selectedServer: { id, name: defaultStream.server },
+        availableQualities: mp4Links,
+      };
+    } else {
+      throw new Error("Wootly returned no data or unsuccessful response");
+    }
+  } catch (error: any) {
+    console.error("Wootly streaming error:", error);
+    throw new Error(`Wootly failed: ${error.message}`);
+  }
+}
+
 // 5) Episode → streaming flow
 export async function getEpisodeStreamingUrl(
   seriesId: string,
@@ -597,7 +678,8 @@ export async function getEpisodeStreamingUrl(
   vidfastOnly: boolean = false,
   useFallback: boolean = false,
   seasonNumber?: string,
-  episodeNumber?: string
+  episodeNumber?: string,
+  useWootly: boolean = false
 ): Promise<StreamingInfo> {
   // Handle Vidfast source
   if (vidfastOnly) {
@@ -634,6 +716,21 @@ export async function getEpisodeStreamingUrl(
     }
     return getEpisodeStreamingUrlFallback(
       seriesId,
+      seasonNumber,
+      episodeNumber
+    );
+  }
+
+  // wootly source
+  if (useWootly) {
+    if (!seasonNumber || !episodeNumber) {
+      throw new Error("Season and Episode no are required");
+    }
+    return getWootlyStreamingUrl(
+      seriesId,
+      vidfastOnly,
+      useFallback,
+      useWootly,
       seasonNumber,
       episodeNumber
     );

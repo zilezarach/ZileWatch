@@ -5,15 +5,20 @@ import {
   ActivityIndicator,
   Text,
   Dimensions,
-  TouchableOpacity,
+  Pressable,
   Alert,
   Platform,
   Modal,
-  BackHandler
+  BackHandler,
 } from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import axios from "axios";
-import { useRoute, RouteProp, useNavigation, useFocusEffect } from "@react-navigation/native";
+import {
+  useRoute,
+  RouteProp,
+  useNavigation,
+  useFocusEffect,
+} from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import Constants from "expo-constants";
 import * as ScreenOrientation from "expo-screen-orientation";
@@ -22,376 +27,335 @@ import { useMiniPlayer } from "../../context/MiniPlayerContext";
 import { Buffer } from "buffer";
 import * as FileSystem from "expo-file-system";
 import * as MediaLibrary from "expo-media-library";
-import { useIsFocused } from "@react-navigation/native";
-const { width } = Dimensions.get("window");
 
-const VideoPlayer = () => {
+const TVEventHandler = (require("react-native") as any).TVEventHandler;
+
+const { width, height } = Dimensions.get("window");
+
+export default function VideoPlayer() {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [isLandscape, setLandscape] = useState<boolean>(false);
-  const [downloadModalVisable, setDownloadModalVisable] = useState(false);
+  const [downloadModalVisible, setDownloadModalVisible] = useState(false);
+  const [focused, setFocused] = useState<string | null>(null);
+
   const route = useRoute<RouteProp<RootStackParamList, "VideoPlayer">>();
-  const videoRef = useRef<VideoRef>(null);
-  const [isPaused, setPaused] = useState(false);
   const navigation = useNavigation();
+  const videoRef = useRef<VideoRef>(null);
+
   const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
   const videoUrl = route?.params?.videoUrl?.trim?.() ?? "";
-  const isFocused = useIsFocused();
   const { miniPlayer, setMiniPlayer } = useMiniPlayer();
+
+  // Handle Back Press
   useFocusEffect(
     React.useCallback(() => {
       const onBackPress = () => {
         handleClose();
         return true;
       };
-
       BackHandler.addEventListener("hardwareBackPress", onBackPress);
-
-      return () => {
+      return () =>
         BackHandler.removeEventListener("hardwareBackPress", onBackPress);
-      };
     }, [])
   );
-  //Pause to lose screen Focus
-  useEffect(() => {
-    if (!isFocused && videoRef.current) {
-      setPaused(true);
-      setStreamUrl(null);
-    }
-  }, [isFocused]);
 
-  // Clean up when component unmounts
+  // Pause on blur
   useEffect(() => {
-    return () => {
-      if (videoRef.current) {
-        videoRef.current.dismissFullscreenPlayer?.();
-        // Force pause the video when leaving
-        setPaused(true);
-        setStreamUrl(null);
-      }
-    };
-  }, []);
-
-  // Add navigation listener for when screen is unfocused
-  useEffect(() => {
-    const unsubscribe = navigation.addListener("beforeRemove", e => {
-      // Pause and clean up video when navigating away
+    const unsubscribe = navigation.addListener("beforeRemove", () => {
       if (videoRef.current) {
         videoRef.current.dismissFullscreenPlayer?.();
         setPaused(true);
         setStreamUrl(null);
       }
     });
-
     return unsubscribe;
   }, [navigation]);
-  //fetch stream url
+
+  // Fetch stream URL
   useEffect(() => {
-    const fetchStreamUrl = async () => {
+    (async () => {
       try {
         const response = await axios.get(`${DOWNLOADER_API}/stream-videos`, {
-          params: { url: videoUrl }
+          params: { url: videoUrl },
         });
         setStreamUrl(response.data.streamUrl);
-      } catch (err) {
+      } catch {
         setError("Error fetching stream URL");
       } finally {
         setLoading(false);
       }
-    };
+    })();
+  }, [videoUrl]);
 
-    fetchStreamUrl();
-  }, [videoUrl, DOWNLOADER_API]);
-
-  //handle Screen Rotation
-
+  // Screen orientation
   useEffect(() => {
     const updateOrientation = async () => {
       const orientation = await ScreenOrientation.getOrientationAsync();
-      if (
-        orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-        orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-      ) {
-        setLandscape(true);
-      } else {
-        setLandscape(false);
+      const isLand = [
+        ScreenOrientation.Orientation.LANDSCAPE_LEFT,
+        ScreenOrientation.Orientation.LANDSCAPE_RIGHT,
+      ].includes(orientation);
+      setLandscape(isLand);
+      if (Platform.OS === "ios" && videoRef.current) {
+        if (isLand) videoRef.current.presentFullscreenPlayer?.();
+        else videoRef.current.dismissFullscreenPlayer?.();
       }
     };
-
     updateOrientation();
-
-    const subscription = ScreenOrientation.addOrientationChangeListener(evt => {
-      const orientation = evt.orientationInfo.orientation;
-      if (
-        orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
-        orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT
-      ) {
-        setLandscape(true);
-        // For iOS, use native fullscreen
-        if (Platform.OS === "ios" && videoRef.current?.presentFullscreenPlayer) {
-          videoRef.current.presentFullscreenPlayer();
-        }
-      } else if (
-        orientation === ScreenOrientation.Orientation.PORTRAIT_UP ||
-        orientation === ScreenOrientation.Orientation.PORTRAIT_DOWN
-      ) {
-        setLandscape(false);
-        if (Platform.OS === "ios" && videoRef.current?.dismissFullscreenPlayer) {
-          videoRef.current.dismissFullscreenPlayer();
-        }
+    const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
+      const ori = evt.orientationInfo.orientation;
+      const land = [
+        ScreenOrientation.Orientation.LANDSCAPE_LEFT,
+        ScreenOrientation.Orientation.LANDSCAPE_RIGHT,
+      ].includes(ori);
+      setLandscape(land);
+      if (Platform.OS === "ios" && videoRef.current) {
+        land
+          ? videoRef.current.presentFullscreenPlayer?.()
+          : videoRef.current.dismissFullscreenPlayer?.();
       }
     });
+    return () => ScreenOrientation.removeOrientationChangeListener(sub);
+  }, []);
 
-    return () => {
-      ScreenOrientation.removeOrientationChangeListener(subscription);
-    };
+  // TV remote button handling
+  useEffect(() => {
+    const tvHandler = new TVEventHandler();
+    tvHandler.enable(null, (_cmp: any, evt: any) => {
+      if (!evt) return;
+      if (evt.eventType === "playPause") togglePlaypause();
+      if (evt.eventType === "menu") handleClose();
+    });
+    return () => tvHandler.disable();
   }, []);
 
   const handleClose = () => {
-    if (videoRef.current) {
-      // Make sure to dismiss fullscreen player
-      videoRef.current.dismissFullscreenPlayer?.();
-      // Force pause the video
-      setPaused(true);
-      setStreamUrl(null);
-    }
-
-    // Return to portrait orientation before navigating back
+    videoRef.current?.dismissFullscreenPlayer?.();
     ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT);
-
-    // Navigate back
     navigation.goBack();
   };
 
-  const togglePlaypause = () => {
-    setPaused(prev => !prev);
-  };
+  const [isPaused, setPaused] = useState(false);
+  const togglePlaypause = () => setPaused((prev) => !prev);
 
-  const returnToFullScreen = () => {
-    if (videoRef.current?.presentFullscreenPlayer) {
-      videoRef.current.presentFullscreenPlayer();
-    }
-  };
+  const returnToFullScreen = () =>
+    videoRef.current?.presentFullscreenPlayer?.();
 
-  const openModal = () => {
-    setDownloadModalVisable(true);
-  };
   const toggleMiniPlayer = async () => {
-    // When toggled, update the global mini player state.
     if (!miniPlayer.visible) {
-      let videoCurrent = 0;
-
-      try {
-        // Await the getCurrentPosition if it returns a promise
-        if (videoRef.current?.getCurrentPosition) {
-          videoCurrent = await videoRef.current.getCurrentPosition();
-        }
-      } catch (error) {
-        console.error("Error getting current position:", error);
-        videoCurrent = 0;
+      let pos = 0;
+      if (videoRef.current?.getCurrentPosition) {
+        try {
+          pos = await videoRef.current.getCurrentPosition();
+        } catch {}
       }
-
-      setMiniPlayer(prev => ({
-        ...prev, // Spread the previous state to include other required fields
+      setMiniPlayer((prev) => ({
+        ...prev,
         visible: true,
-        videoUrl: streamUrl || null,
-        videoCurrent: Number(videoCurrent) || 0, // Ensure it's a number
-        title: "Now Playing"
+        videoUrl: streamUrl,
+        videoCurrent: pos,
+        title: "Now Playing",
       }));
     } else {
-      setMiniPlayer(prev => ({ ...prev, visible: false }));
+      setMiniPlayer((prev) => ({ ...prev, visible: false }));
     }
   };
+
   const handleDownloadOption = async (option: "video" | "audio") => {
-    setDownloadModalVisable(false);
+    setDownloadModalVisible(false);
+    setLoading(true);
     try {
-      setLoading(true);
-      // For video, use "best" format; for audio, "bestaudio"
       const format = option === "video" ? "best" : "bestaudio";
-      const response = await axios({
-        method: "post",
-        url: `${DOWNLOADER_API}/download-videos`,
-        data: { url: videoUrl, format },
-        responseType: "arraybuffer",
-        onDownloadProgress: progressEvent => {
-          const total = progressEvent.total || 1;
-          const progress = Math.round((progressEvent.loaded / total) * 100);
-          console.log(`Downloading ${option}: ${progress}%`);
-        }
-      });
-
-      // Ensure the download folder exists.
+      const response = await axios.post(
+        `${DOWNLOADER_API}/download-videos`,
+        { url: videoUrl, format },
+        { responseType: "arraybuffer" }
+      );
       const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
-      const directoryInfo = await FileSystem.getInfoAsync(downloadDir);
-      if (!directoryInfo.exists) {
+      const info = await FileSystem.getInfoAsync(downloadDir);
+      if (!info.exists)
         await FileSystem.makeDirectoryAsync(downloadDir, {
-          intermediates: true
+          intermediates: true,
         });
-      }
-
-      // Set the file extension based on type.
-      const fileExtension = option === "video" ? "mp4" : "m4a";
-      // Generate a sanitized filename.
-      const fileName = `ZileWatch_${option}_${Date.now()}.${fileExtension}`;
+      const ext = option === "video" ? "mp4" : "m4a";
+      const fileName = `ZileWatch_${option}_${Date.now()}.${ext}`;
       const fileUri = `${downloadDir}${fileName}`;
-
-      // Convert the binary data to base64.
-      const base64Data = Buffer.from(response.data).toString("base64");
-      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
-        encoding: FileSystem.EncodingType.Base64
+      const base64 = Buffer.from(response.data).toString("base64");
+      await FileSystem.writeAsStringAsync(fileUri, base64, {
+        encoding: FileSystem.EncodingType.Base64,
       });
-
-      // Request media library permission and add the file.
       const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status === "granted") {
         const asset = await MediaLibrary.createAssetAsync(fileUri);
-        const albumName = option === "video" ? "ZileWatch Videos" : "ZileWatch Audio";
-        await MediaLibrary.createAlbumAsync(albumName, asset, false);
-        Alert.alert("Download Complete", `Downloaded ${option} successfully. File added to ${albumName} album.`);
-      } else {
-        Alert.alert(
-          "Download Complete",
-          `Downloaded ${option} successfully, but media library permissions were not granted.`
+        await MediaLibrary.createAlbumAsync(
+          option === "video" ? "ZileWatch Videos" : "ZileWatch Audio",
+          asset,
+          false
         );
       }
-    } catch (error) {
-      console.error("Download error", error);
+      Alert.alert("Download Complete", `${option} saved successfully.`);
+    } catch {
       Alert.alert("Error", "Download failed. Please try again.");
     } finally {
       setLoading(false);
     }
   };
-  if (loading) {
+
+  // Loader / Error states
+  if (loading)
     return (
       <View style={styles.loaderContainer}>
         <ActivityIndicator size="large" color="#7d0b02" />
         <Text style={styles.loaderText}>Loading Video...</Text>
       </View>
     );
-  }
-
-  if (error || !streamUrl) {
+  if (error || !streamUrl)
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>{error || "Failed to load video"}</Text>
       </View>
     );
-  }
-  const videoStyle = Platform.OS === "android" && isLandscape ? [styles.video, styles.fullscreenVid] : styles.video;
+
+  const videoStyle =
+    Platform.OS === "android" && isLandscape
+      ? [styles.video, styles.fullscreenVid]
+      : styles.video;
 
   return (
     <View style={styles.container}>
-      {/* Header with controls */}
+      {/* Header controls */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={toggleMiniPlayer} style={styles.headerButton}>
+        <Pressable
+          nativeID="miniBtn"
+          focusable
+          hasTVPreferredFocus
+          onFocus={() => setFocused("mini")}
+          onBlur={() => setFocused(null)}
+          style={[
+            styles.headerButton,
+            focused === "mini" && styles.headerButtonFocused,
+          ]}
+          onPress={toggleMiniPlayer}
+        >
           <Ionicons name="contract" size={24} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={togglePlaypause} style={styles.headerButton}>
+        </Pressable>
+        <Pressable
+          nativeID="playBtn"
+          focusable
+          onFocus={() => setFocused("play")}
+          onBlur={() => setFocused(null)}
+          style={[
+            styles.headerButton,
+            focused === "play" && styles.headerButtonFocused,
+          ]}
+          onPress={togglePlaypause}
+        >
           <Ionicons name={isPaused ? "play" : "pause"} size={24} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={returnToFullScreen} style={styles.headerButton}>
+        </Pressable>
+        <Pressable
+          nativeID="expandBtn"
+          focusable
+          onFocus={() => setFocused("expand")}
+          onBlur={() => setFocused(null)}
+          style={[
+            styles.headerButton,
+            focused === "expand" && styles.headerButtonFocused,
+          ]}
+          onPress={returnToFullScreen}
+        >
           <Ionicons name="expand" size={24} color="#fff" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleClose} style={styles.headerButton}>
+        </Pressable>
+        <Pressable
+          nativeID="closeBtn"
+          focusable
+          onFocus={() => setFocused("close")}
+          onBlur={() => setFocused(null)}
+          style={[
+            styles.headerButton,
+            focused === "close" && styles.headerButtonFocused,
+          ]}
+          onPress={handleClose}
+        >
           <Ionicons name="close" size={24} color="#fff" />
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
-      <Video
-        source={{ uri: streamUrl }}
-        style={videoStyle}
-        controls
-        resizeMode="contain"
-        paused={false}
-        ref={videoRef}
-        onLoad={() => setLoading(false)}
-      />
+      {/* Video */}
+      <View focusable style={styles.videoWrapper}>
+        <Video
+          source={{ uri: streamUrl! }}
+          style={videoStyle}
+          controls
+          resizeMode="contain"
+          paused={isPaused}
+          ref={videoRef}
+          onLoad={() => setLoading(false)}
+        />
+      </View>
 
-      {/*Download Modal*/}
+      {/* Download Modal */}
       <Modal
-        visible={downloadModalVisable}
+        visible={downloadModalVisible}
         animationType="slide"
         transparent
-        onRequestClose={() => setDownloadModalVisable(false)}>
+        onRequestClose={() => setDownloadModalVisible(false)}
+      >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Formats</Text>
-            <TouchableOpacity onPress={() => handleDownloadOption("video")} style={styles.optionModal}>
+            <Text style={styles.modalTitle}>Select Format</Text>
+            <Pressable
+              focusable
+              hasTVPreferredFocus={true}
+              onFocus={() => setFocused("vidOpt")}
+              onBlur={() => setFocused(null)}
+              style={[
+                styles.optionModal,
+                focused === "vidOpt" && styles.optionModalFocused,
+              ]}
+              onPress={() => handleDownloadOption("video")}
+            >
               <Ionicons name="videocam" size={24} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => handleDownloadOption("audio")} style={styles.optionModal}>
+            </Pressable>
+            <Pressable
+              focusable
+              onFocus={() => setFocused("audOpt")}
+              onBlur={() => setFocused(null)}
+              style={[
+                styles.optionModal,
+                focused === "audOpt" && styles.optionModalFocused,
+              ]}
+              onPress={() => handleDownloadOption("audio")}
+            >
               <Ionicons name="musical-note" size={24} color="#fff" />
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setDownloadModalVisable(false)} style={styles.optionModal}>
+            </Pressable>
+            <Pressable
+              focusable
+              onFocus={() => setFocused("closeOpt")}
+              onBlur={() => setFocused(null)}
+              style={[
+                styles.optionModal,
+                focused === "closeOpt" && styles.optionModalFocused,
+              ]}
+              onPress={() => setDownloadModalVisible(false)}
+            >
               <Ionicons name="close" size={24} color="#fff" />
-            </TouchableOpacity>
+            </Pressable>
           </View>
         </View>
       </Modal>
     </View>
   );
-};
+}
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#000",
     justifyContent: "center",
-    alignItems: "center"
-  },
-  video: {
-    width: "100%",
-    height: (width * 9) / 16,
-    backgroundColor: "#000"
-  },
-  modalTitle: {
-    fontWeight: "bold",
-    fontSize: 10,
-    color: "#7d0b02",
-    marginBottom: 15
-  },
-  modalContainer: {
-    flex: 1,
-    justifyContent: "center",
-    backgroundColor: "rgba(0,0,0,0.8)",
-    padding: 20
-  },
-  modalContent: {
-    backgroundColor: "#1E1E1E",
-    borderRadius: 10,
-    padding: 20,
-    alignItems: "center"
-  },
-  optionModal: {
-    backgroundColor: "#7d0b02",
-    paddingVertical: 10,
-    paddingHorizontal: 20,
-    marginVertical: 5,
-    width: "100%",
-    alignItems: "center"
-  },
-  fullscreenVid: {
-    position: "absolute",
-    top: 0,
-    bottom: 0,
-    width: Dimensions.get("window").width,
-    height: Dimensions.get("window").height
-  },
-  loaderContainer: {
-    flex: 1,
-    justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#000"
   },
-  loaderText: { color: "#FFF", marginTop: 10 },
-  errorContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#000"
-  },
-  errorText: { color: "red", fontSize: 16, fontWeight: "bold" },
   header: {
     position: "absolute",
     top: 20,
@@ -402,9 +366,61 @@ const styles = StyleSheet.create({
     alignItems: "center",
     zIndex: 3,
     backgroundColor: "rgba(0,0,0,0.6)",
-    paddingVertical: 5
+    paddingVertical: 5,
   },
-  headerButton: { padding: 10 }
+  headerButton: { padding: 10 },
+  headerButtonFocused: {
+    transform: [{ scale: 1.1 }],
+    borderWidth: 2,
+    borderColor: "#7d0b02",
+    borderRadius: 4,
+  },
+  videoWrapper: { width: "100%", height: (width * 9) / 16 },
+  video: { width: "100%", height: (width * 9) / 16, backgroundColor: "#000" },
+  fullscreenVid: { position: "absolute", top: 0, bottom: 0, width, height },
+  loaderContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#000",
+  },
+  loaderText: { color: "#FFF", marginTop: 10 },
+  errorContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#000",
+  },
+  errorText: { color: "red", fontSize: 16, fontWeight: "bold" },
+  modalContainer: {
+    flex: 1,
+    justifyContent: "center",
+    backgroundColor: "rgba(0,0,0,0.8)",
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: "#1E1E1E",
+    borderRadius: 10,
+    padding: 20,
+    alignItems: "center",
+  },
+  modalTitle: {
+    fontWeight: "bold",
+    fontSize: 14,
+    color: "#7d0b02",
+    marginBottom: 15,
+  },
+  optionModal: {
+    backgroundColor: "#7d0b02",
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    marginVertical: 5,
+    width: "100%",
+    alignItems: "center",
+  },
+  optionModalFocused: {
+    transform: [{ scale: 1.1 }],
+    borderWidth: 2,
+    borderColor: "#fff",
+  },
 });
-
-export default VideoPlayer;
