@@ -20,6 +20,8 @@ import {
   fetchLiveSports,
   fetchCategories,
   fetchChannels,
+  getStreamUrl,
+  getChannelsStream,
   LiveItem,
   TVChannels,
 } from "@/utils/liveService";
@@ -37,11 +39,13 @@ interface LoadingState {
 }
 
 const ANIMATION_DURATION = 200;
-const CARD_HEIGHT = 120;
+const CARD_HEIGHT = 140;
 const CHANNEL_CARD_HEIGHT = 140;
 
 export default function GamesScreen() {
   const [list, setList] = useState<LiveItem[]>([]);
+  const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
+  const [itemErrors, setItemErrors] = useState<Set<string>>(new Set());
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [channels, setChannels] = useState<TVChannels[]>([]);
@@ -54,7 +58,6 @@ export default function GamesScreen() {
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
 
   // Animation values
-
   const [fadeAnim] = useState(() => new Animated.Value(0));
   const [slideAnim] = useState(() => new Animated.Value(50));
 
@@ -89,8 +92,17 @@ export default function GamesScreen() {
 
         setList(liveData);
         setCategories(catData);
-        setChannels(channelData);
+        const processedChannels = channelData.map((channel, index) => {
+          const id = channel.id !== undefined ? channel.id : index;
+          return {
+            id: id,
+            name: channel.name || `Channel ${id}`,
+            image: channel.image || "",
+            streamUrl: channel.streamUrl || "",
+          };
+        });
 
+        setChannels(processedChannels);
         // Animate content in
         if (!isRefresh) {
           Animated.parallel([
@@ -149,13 +161,41 @@ export default function GamesScreen() {
 
   // Enhanced navigation with error handling
   const navigateToPlayer = useCallback(
-    (title: string, url: string) => {
-      if (!url || url.trim() === "") {
+    async (title: string, channelId: string, isChannel = false) => {
+      const id = channelId.trim();
+      if (!id) {
         Alert.alert("Stream Error", "This stream is currently unavailable.");
         return;
       }
 
-      navigation.navigate("LivePlayer", { title, url });
+      try {
+        setLoadingItems((prev) => new Set([...prev, id]));
+        setItemErrors((prev) => {
+          const newErrors = new Set(prev);
+          newErrors.delete(id);
+          return newErrors;
+        });
+
+        const streamUrl = isChannel
+          ? await getChannelsStream(id)
+          : await getStreamUrl(id);
+
+        setLoadingItems((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(id);
+          return newSet;
+        });
+
+        navigation.navigate("LivePlayer", { title, url: streamUrl });
+      } catch (error) {
+        console.error("Stream error:", error);
+        setLoadingItems((prev) => {
+          const newSet = new Set(prev);
+          newSet.delete(id);
+          return newSet;
+        });
+        setItemErrors((prev) => new Set([...prev, id]));
+      }
     },
     [navigation]
   );
@@ -173,90 +213,103 @@ export default function GamesScreen() {
     }
   }, []);
 
+  // Get sport icon based on category
+  const getSportIcon = useCallback((category: string) => {
+    const cat = category.toLowerCase();
+    if (cat.includes("football") || cat.includes("soccer")) return "futbol-o";
+    if (cat.includes("basketball")) return "basketball-ball";
+    if (cat.includes("tennis")) return "table-tennis";
+    if (cat.includes("baseball")) return "baseball-ball";
+    if (cat.includes("golf")) return "golf-ball";
+    if (cat.includes("hockey")) return "hockey-puck";
+    if (cat.includes("boxing") || cat.includes("mma")) return "fist-raised";
+    return "trophy"; // Default icon
+  }, []);
+
+  const renderMatchAction = (id: string) => {
+    const isLoading = loadingItems.has(id);
+    const hasError = itemErrors.has(id);
+
+    return (
+      <View style={styles.actionContainer}>
+        {isLoading ? (
+          <ActivityIndicator size="small" color="#FFFFFF" />
+        ) : hasError ? (
+          <Pressable
+            onPress={() => navigateToPlayer("", id, false)}
+            style={styles.retryButton}
+          >
+            <FontAwesome name="refresh" size={14} color="#FFFFFF" />
+          </Pressable>
+        ) : (
+          <>
+            <View style={styles.liveIndicator}>
+              <View style={styles.liveDot} />
+              <Text style={styles.liveText}>LIVE</Text>
+            </View>
+            <View style={styles.playButton}>
+              <FontAwesome name="play" size={14} color="#FFFFFF" />
+            </View>
+          </>
+        )}
+      </View>
+    );
+  };
+
   const renderMatch = useCallback(
     ({ item, index }: { item: LiveItem; index: number }) => {
-      const imageUri = item.channels?.[0]?.streamUrl?.replace(".m3u8", ".jpg");
-      const hasImageError = imageErrors.has(imageUri || "");
+      const itemId = String(item.id);
+      const isDisabled = loadingItems.has(itemId);
 
       return (
         <Animated.View
           style={[
             styles.cardWrapper,
-            {
-              opacity: fadeAnim,
-              transform: [
-                {
-                  translateY: slideAnim.interpolate({
-                    inputRange: [0, 50],
-                    outputRange: [0, 50],
-                  }),
-                },
-              ],
-            },
+            { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
           <Pressable
             style={({ pressed }) => [
               styles.card,
               pressed && styles.cardPressed,
-              { height: CARD_HEIGHT },
+              { height: CARD_HEIGHT, opacity: isDisabled ? 0.6 : 1 },
             ]}
             onPress={() =>
-              navigateToPlayer(item.match, item.channels?.[0]?.streamUrl)
+              !isDisabled && navigateToPlayer(item.match, itemId, false)
             }
+            disabled={isDisabled}
             android_ripple={{ color: "rgba(255, 107, 53, 0.2)" }}
           >
-            <View style={styles.imageContainer}>
-              {!hasImageError && imageUri ? (
-                <Image
-                  source={{ uri: imageUri }}
-                  style={styles.thumb}
-                  onError={() => handleImageError(imageUri)}
-                  defaultSource={require("../../assets/images/HomeLogo.png")}
+            <View style={styles.sportIconContainer}>
+              <View style={styles.sportIconBackground}>
+                <FontAwesome
+                  name={getSportIcon(item.category)}
+                  size={24}
+                  color="#FFFFFF"
                 />
-              ) : (
-                <View style={[styles.thumb, styles.placeholderImage]}>
-                  <FontAwesome name="play-circle" size={32} color="#FF6B35" />
-                </View>
-              )}
-              <View style={styles.gradientOverlay} />
-
-              {/* Enhanced live indicator with pulse animation */}
-              <View style={styles.liveIndicator}>
-                <View style={styles.liveDot} />
-                <Text style={styles.liveText}>LIVE</Text>
               </View>
-
-              {/* Quality indicator */}
-              <View style={styles.qualityBadge}>
-                <Text style={styles.qualityText}>HD</Text>
-              </View>
-            </View>
-
-            <View style={styles.contentContainer}>
-              <Text style={styles.match} numberOfLines={2}>
-                {item.match || "Live Match"}
-              </Text>
-              <Text style={styles.category} numberOfLines={1}>
+              <Text style={styles.categoryBadge} numberOfLines={1}>
                 {item.category || "Sports"}
               </Text>
+            </View>
 
-              <View style={styles.metaInfo}>
-                <View style={styles.channelContainer}>
+            <View style={styles.matchDetailsContainer}>
+              <Text style={styles.matchTitle} numberOfLines={2}>
+                {item.match || "Live Event"}
+              </Text>
+              <View style={styles.matchMetaContainer}>
+                <View style={styles.channelInfo}>
                   <FontAwesome name="tv" size={12} color="#FF6B35" />
-                  <Text style={styles.channel}>
+                  <Text style={styles.channelName}>
                     {item.channels?.[0]?.name || "Channel 1"}
                   </Text>
                 </View>
-                <Text style={styles.time}>{getFormattedTime(item.start)}</Text>
+                <Text style={styles.matchTime}>
+                  {getFormattedTime(item.start)}
+                </Text>
               </View>
             </View>
-
-            <View style={styles.playButton}>
-              <View style={styles.playIconContainer}>
-                <FontAwesome name="play" size={16} color="#FFFFFF" />
-              </View>
-            </View>
+            {renderMatchAction(itemId)}
           </Pressable>
         </Animated.View>
       );
@@ -264,41 +317,61 @@ export default function GamesScreen() {
     [
       fadeAnim,
       slideAnim,
-      imageErrors,
+      loadingItems,
+      itemErrors,
       navigateToPlayer,
-      handleImageError,
-      getFormattedTime,
+      getSportIcon,
     ]
   );
 
+  const renderChannelAction = (id: string) => {
+    const isLoading = loadingItems.has(id);
+    const hasError = itemErrors.has(id);
+
+    return (
+      <View style={styles.channelStatus}>
+        {isLoading ? (
+          <ActivityIndicator size="small" color="#4CAF50" />
+        ) : hasError ? (
+          <Pressable
+            onPress={() => navigateToPlayer("", id, true)}
+            style={styles.retryButtonSmall}
+          >
+            <FontAwesome name="refresh" size={12} color="#FF6B35" />
+          </Pressable>
+        ) : (
+          <>
+            <View style={styles.onlineIndicator} />
+            <Text style={styles.onlineText}>Broadcasting</Text>
+          </>
+        )}
+      </View>
+    );
+  };
+
   const renderChannel = useCallback(
     ({ item, index }: { item: TVChannels; index: number }) => {
+      const channelId = String(item.id) || `channel_${index}`;
+      const isDisabled = loadingItems.has(channelId);
       const hasImageError = imageErrors.has(item.image || "");
 
       return (
         <Animated.View
           style={[
             styles.channelCardWrapper,
-            {
-              opacity: fadeAnim,
-              transform: [
-                {
-                  translateY: slideAnim.interpolate({
-                    inputRange: [0, 50],
-                    outputRange: [0, 50],
-                  }),
-                },
-              ],
-            },
+            { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
           ]}
         >
           <Pressable
             style={({ pressed }) => [
               styles.channelCard,
               pressed && styles.channelCardPressed,
-              { height: CHANNEL_CARD_HEIGHT },
+              { height: CHANNEL_CARD_HEIGHT, opacity: isDisabled ? 0.6 : 1 },
             ]}
-            onPress={() => navigateToPlayer(item.name, item.streamUrl)}
+            onPress={() =>
+              !isDisabled && navigateToPlayer(item.name, channelId, true)
+            }
+            disabled={isDisabled}
             android_ripple={{ color: "rgba(255, 107, 53, 0.2)" }}
           >
             <View style={styles.channelImageContainer}>
@@ -315,8 +388,6 @@ export default function GamesScreen() {
                 </View>
               )}
               <View style={styles.channelOverlay} />
-
-              {/* Channel quality indicator */}
               <View style={styles.channelQualityBadge}>
                 <Text style={styles.qualityText}>LIVE</Text>
               </View>
@@ -326,18 +397,22 @@ export default function GamesScreen() {
               <Text style={styles.channelName} numberOfLines={1}>
                 {item.name || "TV Channel"}
               </Text>
-              <View style={styles.channelStatus}>
-                <View style={styles.onlineIndicator} />
-                <Text style={styles.onlineText}>Broadcasting</Text>
-              </View>
+              {renderChannelAction(channelId)}
             </View>
           </Pressable>
         </Animated.View>
       );
     },
-    [fadeAnim, slideAnim, imageErrors, navigateToPlayer, handleImageError]
+    [
+      fadeAnim,
+      slideAnim,
+      imageErrors,
+      loadingItems,
+      itemErrors,
+      navigateToPlayer,
+      handleImageError,
+    ]
   );
-
   const renderCategoryFilter = useCallback(
     () => (
       <ScrollView
@@ -379,6 +454,12 @@ export default function GamesScreen() {
             ]}
             android_ripple={{ color: "rgba(255, 107, 53, 0.2)" }}
           >
+            <FontAwesome
+              name={getSportIcon(cat)}
+              size={14}
+              color={selectedCategory === cat ? "#FFFFFF" : "#CCCCCC"}
+              style={styles.filterIcon}
+            />
             <Text
               style={[
                 styles.filterText,
@@ -391,8 +472,9 @@ export default function GamesScreen() {
         ))}
       </ScrollView>
     ),
-    [categories, selectedCategory]
+    [categories, selectedCategory, getSportIcon]
   );
+
   const renderEmptyState = useCallback(
     () => (
       <View style={styles.emptyState}>
@@ -433,6 +515,7 @@ export default function GamesScreen() {
       </View>
     );
   }, [showChannels, channels.length, filteredList.length]);
+
   useEffect(() => {
     loadData();
   }, [loadData]);
@@ -445,6 +528,7 @@ export default function GamesScreen() {
       }
     }, [loadData, loadingState.initial])
   );
+
   if (loadingState.initial) {
     return (
       <SafeAreaView style={styles.loadingContainer}>
@@ -459,6 +543,7 @@ export default function GamesScreen() {
       </SafeAreaView>
     );
   }
+
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
@@ -604,6 +689,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#0D0D0D",
+  },
+  retryButtonSmall: {
+    padding: 4,
+    borderRadius: 12,
+    backgroundColor: "rgba(255, 107, 53, 0.1)",
   },
   loadingContent: {
     alignItems: "center",
@@ -805,17 +895,17 @@ const styles = StyleSheet.create({
   card: {
     flexDirection: "row",
     backgroundColor: "#1A1A1A",
-    borderRadius: 20,
+    borderRadius: 16,
     overflow: "hidden",
     ...Platform.select({
       ios: {
         shadowColor: "#000",
-        shadowOffset: { width: 0, height: 6 },
+        shadowOffset: { width: 0, height: 4 },
         shadowOpacity: 0.15,
-        shadowRadius: 12,
+        shadowRadius: 8,
       },
       android: {
-        elevation: 8,
+        elevation: 6,
       },
     }),
     borderWidth: 1,
@@ -825,126 +915,96 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     transform: [{ scale: 0.98 }],
   },
-  imageContainer: {
-    position: "relative",
-    width: 140,
-    flex: 0,
-  },
-  thumb: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#2A2A2A",
-  },
-  placeholderImage: {
+  // New Sports Card Styles
+  sportIconContainer: {
+    width: 80,
     justifyContent: "center",
     alignItems: "center",
+    paddingVertical: 16,
+    borderRightWidth: 1,
+    borderRightColor: "#2A2A2A",
   },
-  gradientOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.1)",
-  },
-  liveIndicator: {
-    position: "absolute",
-    top: 12,
-    left: 12,
+  sportIconBackground: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: "#FF6B35",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  categoryBadge: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#CCCCCC",
+    textAlign: "center",
+  },
+  matchDetailsContainer: {
+    flex: 1,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
+    justifyContent: "space-between",
+  },
+  matchTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+    marginBottom: 12,
+    lineHeight: 24,
+  },
+  matchMetaContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  channelInfo: {
     flexDirection: "row",
     alignItems: "center",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.3,
-        shadowRadius: 3,
-      },
-      android: {
-        elevation: 4,
-      },
-    }),
   },
-  qualityBadge: {
-    position: "absolute",
-    top: 12,
-    right: 12,
-    backgroundColor: "rgba(0,0,0,0.7)",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  qualityText: {
+  channelName: {
+    fontSize: 14,
     color: "#FFFFFF",
-    fontSize: 10,
-    fontWeight: "bold",
+    fontWeight: "500",
+    marginLeft: 6,
+  },
+  matchTime: {
+    fontSize: 14,
+    color: "#888888",
+    fontWeight: "500",
+  },
+  actionContainer: {
+    width: 80,
+    justifyContent: "center",
+    alignItems: "center",
+    borderLeftWidth: 1,
+    borderLeftColor: "#2A2A2A",
+  },
+  liveIndicator: {
+    backgroundColor: "#FF6B35",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 16,
   },
   liveDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
     backgroundColor: "#FFFFFF",
-    marginRight: 4,
+    marginRight: 6,
   },
   liveText: {
     color: "#FFFFFF",
     fontSize: 10,
     fontWeight: "bold",
   },
-  contentContainer: {
-    flex: 1,
-    padding: 16,
-    justifyContent: "space-between",
-  },
-  match: {
-    fontSize: 18,
-    fontWeight: "bold",
-    color: "#FFFFFF",
-    marginBottom: 4,
-    lineHeight: 22,
-  },
-  category: {
-    fontSize: 12,
-    color: "#FF6B35",
-    fontWeight: "600",
-    marginBottom: 8,
-    textTransform: "uppercase",
-  },
-  metaInfo: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  channelContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  channel: {
-    fontSize: 14,
-    color: "#FFFFFF",
-    fontWeight: "600",
-    marginLeft: 6,
-  },
-  time: {
-    fontSize: 12,
-    color: "#888888",
-    fontWeight: "500",
-  },
   playButton: {
-    justifyContent: "center",
-    alignItems: "center",
-    width: 70,
-    backgroundColor: "#FF6B35",
-  },
-  playIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.15)",
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "rgba(255, 107, 53, 0.2)",
     justifyContent: "center",
     alignItems: "center",
   },
@@ -988,6 +1048,10 @@ const styles = StyleSheet.create({
     height: "100%",
     backgroundColor: "#2A2A2A",
   },
+  placeholderImage: {
+    justifyContent: "center",
+    alignItems: "center",
+  },
   channelOverlay: {
     position: "absolute",
     top: 0,
@@ -1005,16 +1069,12 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
   },
-  channelInfo: {
-    padding: 12,
-    height: 50,
-  },
-  channelName: {
+  qualityText: {
     color: "#FFFFFF",
-    fontWeight: "600",
-    fontSize: 16,
-    marginBottom: 4,
+    fontSize: 10,
+    fontWeight: "bold",
   },
+
   channelStatus: {
     flexDirection: "row",
     alignItems: "center",
