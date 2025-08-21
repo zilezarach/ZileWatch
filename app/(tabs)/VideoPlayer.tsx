@@ -80,8 +80,26 @@ export default function VideoPlayer() {
         const response = await axios.get(`${DOWNLOADER_API}/stream-videos`, {
           params: { url: videoUrl },
         });
-        setStreamUrl(response.data.streamUrl);
-      } catch {
+
+        if (response.data.success) {
+          if (
+            response.data.type === "progressive" ||
+            response.data.type === "hls"
+          ) {
+            setStreamUrl(response.data.streamUrl);
+          } else if (response.data.type === "separate_streams") {
+            // Not directly playable
+            setError(
+              "This video uses separate video/audio streams and cannot be streamed directly. Please download instead."
+            );
+          } else {
+            setError("Unsupported stream type returned from server.");
+          }
+        } else {
+          setError(response.data.message || "Failed to load video");
+        }
+      } catch (err) {
+        console.error("Stream fetch error:", err);
         setError("Error fetching stream URL");
       } finally {
         setLoading(false);

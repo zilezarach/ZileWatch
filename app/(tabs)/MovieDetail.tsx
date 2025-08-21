@@ -13,18 +13,24 @@ import {
   Dimensions,
   RefreshControl,
   Platform,
+  Animated,
 } from "react-native";
 import { RouteProp, useRoute, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "@/types/navigation";
+import * as Haptics from "expo-haptics";
 import axios from "axios";
 import Constants from "expo-constants";
-import { FontAwesome } from "@expo/vector-icons";
+import { FontAwesome, MaterialIcons } from "@expo/vector-icons";
 import streamingService from "@/utils/streamingService";
 import tmdbDetailsService from "@/utils/detailsService";
 import { StreamingInfo } from "@/utils/streamingService";
-import { title } from "process";
-const { height: screenHeight } = Dimensions.get("window");
+
+import type { IconProps } from "@expo/vector-icons/build/createIconSet";
+
+type MaterialIconName = keyof typeof MaterialIcons.glyphMap;
+
+const { height: screenHeight, width: screenWidth } = Dimensions.get("window");
 
 interface MovieDetails {
   title: string;
@@ -52,6 +58,8 @@ export default function MovieDetail(): JSX.Element {
   const route = useRoute<MovieDetailScreenRouteProp>();
   const navigation =
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const scaleAnim = useRef(new Animated.Value(0.95)).current;
 
   const {
     movie_id,
@@ -61,17 +69,6 @@ export default function MovieDetail(): JSX.Element {
     useFallback = false,
   } = route.params;
 
-  // TV-specific refs for focus management
-  const backButtonRef = useRef(null);
-  const watchButtonRef = useRef(null);
-  const vidfastButtonRef = useRef(null);
-  const scrollViewRef = useRef(null);
-  const relatedScrollRef = useRef(null);
-
-  // TV focus state
-  const [focusedButton, setFocusedButton] = useState("back");
-  const [currentRelatedIndex, setCurrentRelatedIndex] = useState(0);
-
   const [loading, setLoading] = useState(true);
   const [streamLoading, setStreamLoading] = useState(false);
   const [activeStreamSource, setActiveStreamSource] = useState<string | null>(
@@ -80,46 +77,32 @@ export default function MovieDetail(): JSX.Element {
   const [movieDetails, setMovieDetails] = useState<MovieDetails | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [imageError, setImageError] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-  // TV Event Handler for React Native TV
-  useEffect(() => {
-    // Check if running on TV platform
-    if (Platform.isTV) {
-      const handleTVEvent = (evt: any) => {
-        if (evt && evt.eventType === "select") {
-          handleTVSelect();
-        } else if (evt && evt.eventType === "left") {
-          handleTVLeft();
-        } else if (evt && evt.eventType === "right") {
-          handleTVRight();
-        } else if (evt && evt.eventType === "up") {
-          handleTVUp();
-        } else if (evt && evt.eventType === "down") {
-          handleTVDown();
-        }
-      };
-      console.log("TV platform detected, focus management enabled");
-    }
-  }, [focusedButton, currentRelatedIndex]);
-
-  const handleTVSelect = () => {
-    switch (focusedButton) {
-      case "back":
-        navigation.goBack();
-        break;
-      case "watch":
-        handleWatchNow();
-        break;
-      case "vidfast":
-        handleVidfast();
-        break;
-      case "related":
-        if (movieDetails?.related?.[currentRelatedIndex]) {
-          navigateToRelatedItem(movieDetails.related[currentRelatedIndex]);
-        }
-        break;
-    }
+  const showToast = (message: string) => {
+    setToast(message);
+    Animated.sequence([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+      Animated.delay(2500),
+      Animated.timing(fadeAnim, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => setToast(null));
   };
+
+  useEffect(() => {
+    Animated.timing(scaleAnim, {
+      toValue: 1,
+      duration: 500,
+      useNativeDriver: true,
+    }).start();
+  }, []);
 
   async function withRetries<T>(
     fn: () => Promise<T>,
@@ -140,66 +123,6 @@ export default function MovieDetail(): JSX.Element {
     }
     throw lastError;
   }
-
-  const handleTVLeft = () => {
-    if (focusedButton === "related" && currentRelatedIndex > 0) {
-      setCurrentRelatedIndex(currentRelatedIndex - 1);
-      scrollRelatedToIndex(currentRelatedIndex - 1);
-    }
-  };
-
-  const handleTVRight = () => {
-    if (
-      focusedButton === "related" &&
-      movieDetails?.related &&
-      currentRelatedIndex < movieDetails.related.length - 1
-    ) {
-      setCurrentRelatedIndex(currentRelatedIndex + 1);
-      scrollRelatedToIndex(currentRelatedIndex + 1);
-    }
-  };
-
-  const handleTVUp = () => {
-    switch (focusedButton) {
-      case "vidfast":
-        setFocusedButton("watch");
-        break;
-      case "related":
-        setFocusedButton("vidfast");
-        break;
-      default:
-        if (focusedButton !== "back") {
-          setFocusedButton("back");
-        }
-        break;
-    }
-  };
-
-  const handleTVDown = () => {
-    switch (focusedButton) {
-      case "back":
-        setFocusedButton("watch");
-        break;
-      case "watch":
-        setFocusedButton("vidfast");
-        break;
-      case "vidfast":
-        if (movieDetails?.related && movieDetails.related.length > 0) {
-          setFocusedButton("related");
-          setCurrentRelatedIndex(0);
-        }
-        break;
-    }
-  };
-
-  const scrollRelatedToIndex = (index: number) => {
-    if (relatedScrollRef.current && "scrollTo" in relatedScrollRef.current) {
-      (relatedScrollRef.current as any).scrollTo({
-        x: index * 156,
-        animated: true,
-      });
-    }
-  };
 
   const fetchMovieDetails = useCallback(async () => {
     try {
@@ -265,58 +188,55 @@ export default function MovieDetail(): JSX.Element {
   }, [fetchMovieDetails]);
 
   const handleStreamAction = async (
-    sourceType: "primary" | "vidfast" | "wootly"
+    sourceType: "tmdb" | "vidfast" | "wootly"
   ) => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    }
+
     try {
       setStreamLoading(true);
       setActiveStreamSource(sourceType);
+      showToast(`Loading ${sourceType} stream...`);
+
       const fetchStream = async () => {
-        console.log(
-          `Getting streaming URL for movie (${sourceType}):`,
-          movie_id,
-          "slug:",
-          initialSlug,
-          "useFallback:",
-          useFallback
-        );
-        let info;
+        const movieIdStr = String(movie_id);
+
         switch (sourceType) {
           case "vidfast":
-            info = await streamingService.getMovieStreamingUrl(
-              String(movie_id),
+            return await streamingService.getMovieStreamingUrl(
+              movieIdStr,
               undefined,
               false,
-              true // vidfastOnly
+              true
             );
-            break;
           case "wootly":
-            info = await streamingService.getMovieStreamingUrl(
-              String(movie_id),
+            return await streamingService.getMovieStreamingUrl(
+              movieIdStr,
               initialSlug,
               useFallback,
               false,
-              true // useWootly
+              true
             );
-            break;
-          case "primary":
+          case "tmdb":
           default:
-            info = await streamingService.getMovieStreamingUrl(
-              movie_id,
+            return await streamingService.getMovieStreamingUrl(
+              movieIdStr,
               initialSlug,
-              useFallback,
-              false
+              true
             );
-            break;
         }
-        console.log(`${sourceType} stream info received:`, info.streamUrl);
-        return info;
       };
+
       let info: StreamingInfo;
       if (sourceType === "vidfast" || sourceType === "wootly") {
         info = await withRetries(fetchStream);
       } else {
         info = await fetchStream();
       }
+
+      showToast("Stream ready!");
+
       navigation.navigate("Stream", {
         mediaType: "movie" as const,
         id: String(movie_id),
@@ -326,7 +246,7 @@ export default function MovieDetail(): JSX.Element {
           sourceType === "vidfast"
             ? "Vidfast"
             : sourceType === "wootly"
-            ? "wootly"
+            ? "Wootly"
             : info.selectedServer?.name,
         slug: initialSlug,
         subtitles: info.subtitles?.map((sub) => ({
@@ -334,14 +254,16 @@ export default function MovieDetail(): JSX.Element {
           label: sub.label,
           kind: sub.kind,
         })),
-        useFallback: sourceType === "vidfast" ? true : useFallback,
+        useFallback: sourceType !== "tmdb",
         availableQualities: info.availableQualities || [],
       });
     } catch (error: any) {
       console.error(`Error getting ${sourceType} stream:`, error);
+      showToast(`Failed to load ${sourceType} stream`);
+
       Alert.alert(
         "Streaming Error",
-        `Unable to get ${sourceType} streaming information.`,
+        `Unable to get ${sourceType} streaming information. Try another source.`,
         [{ text: "OK" }]
       );
     } finally {
@@ -349,9 +271,6 @@ export default function MovieDetail(): JSX.Element {
       setActiveStreamSource(null);
     }
   };
-
-  const handleWatchNow = () => handleStreamAction("primary");
-  const handleVidfast = () => handleStreamAction("vidfast");
 
   const renderStats = () => {
     if (!movieDetails?.stats || movieDetails.stats.length === 0) return null;
@@ -371,6 +290,10 @@ export default function MovieDetail(): JSX.Element {
   };
 
   const navigateToRelatedItem = (item: any) => {
+    if (Platform.OS !== "web") {
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+    }
+
     const itemType = item.stats?.seasons ? "tvSeries" : "movie";
 
     if (itemType === "tvSeries") {
@@ -399,7 +322,6 @@ export default function MovieDetail(): JSX.Element {
       <View style={styles.relatedSection}>
         <Text style={styles.sectionTitle}>You May Also Like</Text>
         <ScrollView
-          ref={relatedScrollRef}
           horizontal
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.relatedScrollContainer}
@@ -407,25 +329,14 @@ export default function MovieDetail(): JSX.Element {
           {movieDetails.related.map((item: any, index: number) => (
             <TouchableOpacity
               key={`${item.id}-${index}`}
-              style={[
-                styles.relatedItem,
-                focusedButton === "related" &&
-                  currentRelatedIndex === index &&
-                  styles.focusedRelatedItem,
-              ]}
+              style={styles.relatedItem}
               onPress={() => navigateToRelatedItem(item)}
-              activeOpacity={0.8}
-              hasTVPreferredFocus={
-                focusedButton === "related" && currentRelatedIndex === index
-              }
+              activeOpacity={0.7}
             >
               <Image
                 source={{ uri: item.poster }}
                 style={styles.relatedPoster}
                 defaultSource={require("../../assets/images/Original.png")}
-                onError={() =>
-                  console.log(`Related poster failed to load: ${item.poster}`)
-                }
               />
               <Text style={styles.relatedTitle} numberOfLines={2}>
                 {item.title}
@@ -448,29 +359,25 @@ export default function MovieDetail(): JSX.Element {
   const renderStreamingButton = (
     title: string,
     onPress: () => void,
-    sourceType: "primary" | "vidfast" | "wootly",
+    sourceType: "tmdb" | "vidfast" | "wootly",
     style?: any,
-    buttonType?: string
+    icon?: MaterialIconName
   ) => (
     <TouchableOpacity
-      ref={buttonType === "watch" ? watchButtonRef : vidfastButtonRef}
-      style={[
-        styles.watchButton,
-        style,
-        focusedButton === buttonType && styles.focusedButton,
-      ]}
+      style={[styles.watchButton, style]}
       onPress={onPress}
       disabled={streamLoading}
       activeOpacity={0.8}
-      hasTVPreferredFocus={focusedButton === buttonType}
+      accessibilityLabel={`Play ${title}`}
+      accessibilityRole="button"
     >
       {streamLoading && activeStreamSource === sourceType ? (
         <ActivityIndicator size="small" color="#FFF" />
       ) : (
         <>
-          <FontAwesome
-            name="play"
-            size={16}
+          <MaterialIcons
+            name={icon || "play-arrow"}
+            size={18}
             color="#FFF"
             style={styles.playIcon}
           />
@@ -496,6 +403,8 @@ export default function MovieDetail(): JSX.Element {
         <TouchableOpacity
           style={styles.backButton}
           onPress={() => navigation.goBack()}
+          accessibilityLabel="Go back"
+          accessibilityRole="button"
         >
           <FontAwesome name="arrow-left" size={20} color="#FFF" />
         </TouchableOpacity>
@@ -512,20 +421,16 @@ export default function MovieDetail(): JSX.Element {
       <StatusBar barStyle="light-content" backgroundColor="#121212" />
 
       <TouchableOpacity
-        ref={backButtonRef}
-        style={[
-          styles.backButton,
-          focusedButton === "back" && styles.focusedButton,
-        ]}
+        style={styles.backButton}
         onPress={() => navigation.goBack()}
-        activeOpacity={0.8}
-        hasTVPreferredFocus={focusedButton === "back"}
+        accessibilityLabel="Go back"
+        accessibilityRole="button"
       >
         <FontAwesome name="arrow-left" size={20} color="#FFF" />
       </TouchableOpacity>
 
-      <ScrollView
-        ref={scrollViewRef}
+      <Animated.ScrollView
+        style={{ transform: [{ scale: scaleAnim }] }}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -536,7 +441,6 @@ export default function MovieDetail(): JSX.Element {
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* Movie poster and overlay */}
         <View style={styles.posterContainer}>
           <Image
             source={{
@@ -562,45 +466,38 @@ export default function MovieDetail(): JSX.Element {
           </View>
         </View>
 
-        {/* Streaming buttons */}
         <View style={styles.streamingSection}>
           <View style={styles.actionContainer}>
             {renderStreamingButton(
-              "Source One",
-              handleWatchNow,
-              "primary",
-              null,
-              "watch"
+              "TMDB Source",
+              () => handleStreamAction("tmdb"),
+              "tmdb",
+              styles.primaryButton,
+              "movie"
             )}
           </View>
 
           <View style={styles.actionContainer}>
             {renderStreamingButton(
-              "Source Two (HD)",
-              handleVidfast,
+              "Vidfast (HD)",
+              () => handleStreamAction("vidfast"),
               "vidfast",
               styles.secondaryButton,
-              "vidfast"
+              "hd"
             )}
           </View>
+
           <View style={styles.actionContainer}>
             {renderStreamingButton(
-              "Source Three (wootly)",
+              "Wootly (4K)",
               () => handleStreamAction("wootly"),
               "wootly",
               styles.thirdButton,
-              "wootly"
+              "4k"
             )}
           </View>
-
-          {useFallback && (
-            <View style={styles.fallbackIndicator}>
-              <Text style={styles.fallbackText}>Using Fallback Source</Text>
-            </View>
-          )}
         </View>
 
-        {/* Description */}
         {movieDetails?.description && (
           <View style={styles.descriptionContainer}>
             <Text style={styles.sectionTitle}>Synopsis</Text>
@@ -610,7 +507,6 @@ export default function MovieDetail(): JSX.Element {
           </View>
         )}
 
-        {/* Stats information */}
         {movieDetails?.stats && movieDetails.stats.length > 0 && (
           <View style={styles.infoSection}>
             <Text style={styles.sectionTitle}>Details</Text>
@@ -618,9 +514,14 @@ export default function MovieDetail(): JSX.Element {
           </View>
         )}
 
-        {/* Related content */}
         {renderRelatedContent()}
-      </ScrollView>
+      </Animated.ScrollView>
+
+      {toast && (
+        <Animated.View style={[styles.toast, { opacity: fadeAnim }]}>
+          <Text style={styles.toastText}>{toast}</Text>
+        </Animated.View>
+      )}
     </SafeAreaView>
   );
 }
@@ -630,60 +531,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#121212",
   },
-  thirdButton: {
-    backgroundColor: "#2196F3", // Example color
-    ...Platform.select({
-      ios: {
-        shadowColor: "#2196F3",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-      },
-      android: { elevation: 6 },
-    }),
-  },
   backButton: {
     position: "absolute",
     top: Platform.OS === "ios" ? 60 : 40,
     left: 16,
     zIndex: 10,
-    backgroundColor: "rgba(0,0,0,0.7)",
+    backgroundColor: "rgba(0,0,0,0.8)",
     borderRadius: 25,
     width: 50,
     height: 50,
     justifyContent: "center",
     alignItems: "center",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.25,
-        shadowRadius: 3.84,
-      },
-      android: {
-        elevation: 5,
-      },
-    }),
-  },
-  // TV-specific focus styles
-  focusedButton: {
-    borderWidth: 3,
-    borderColor: "#FF5722",
-    shadowColor: "#FF5722",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 10,
-    elevation: 8,
-  },
-  focusedRelatedItem: {
-    borderWidth: 2,
-    borderColor: "#FF5722",
-    borderRadius: 12,
-    shadowColor: "#FF5722",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
-    elevation: 6,
+    elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   loaderContainer: {
     flex: 1,
@@ -726,7 +589,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     marginTop: 12,
-    backgroundColor: "rgba(0,0,0,0.5)",
+    backgroundColor: "rgba(0,0,0,0.6)",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 15,
@@ -740,14 +603,13 @@ const styles = StyleSheet.create({
   },
   streamingSection: {
     backgroundColor: "#1A1A1A",
-    paddingVertical: 8,
+    paddingVertical: 12,
   },
   actionContainer: {
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 6,
   },
   watchButton: {
-    backgroundColor: "#FF5722",
     borderRadius: 12,
     flexDirection: "row",
     alignItems: "center",
@@ -755,52 +617,38 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 24,
     minHeight: 56,
-    ...Platform.select({
-      ios: {
-        shadowColor: "#FF5722",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 6,
-      },
-    }),
+  },
+  primaryButton: {
+    backgroundColor: "#FF5722",
+    elevation: 6,
+    shadowColor: "#FF5722",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   secondaryButton: {
     backgroundColor: "#4CAF50",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#4CAF50",
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.3,
-        shadowRadius: 8,
-      },
-      android: {
-        elevation: 6,
-      },
-    }),
+    elevation: 6,
+    shadowColor: "#4CAF50",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+  },
+  thirdButton: {
+    backgroundColor: "#2196F3",
+    elevation: 6,
+    shadowColor: "#2196F3",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
   },
   playIcon: {
-    marginRight: 12,
+    marginRight: 8,
   },
   watchButtonText: {
     color: "#FFF",
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: "700",
-  },
-  fallbackIndicator: {
-    marginHorizontal: 16,
-    marginBottom: 8,
-    backgroundColor: "#2196F3",
-    padding: 8,
-    borderRadius: 6,
-    alignSelf: "flex-start",
-  },
-  fallbackText: {
-    color: "#FFF",
-    fontSize: 12,
-    fontWeight: "bold",
   },
   descriptionContainer: {
     padding: 20,
@@ -887,5 +735,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginLeft: 4,
     fontWeight: "500",
+  },
+  toast: {
+    position: "absolute",
+    bottom: 100,
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.9)",
+    padding: 12,
+    borderRadius: 8,
+    zIndex: 1000,
+    maxWidth: screenWidth - 40,
+  },
+  toastText: {
+    color: "#fff",
+    textAlign: "center",
+    fontSize: 14,
   },
 });
