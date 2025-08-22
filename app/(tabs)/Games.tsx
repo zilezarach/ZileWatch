@@ -28,7 +28,7 @@ import {
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "@/types/navigation";
-import { FontAwesome } from "@expo/vector-icons";
+import { FontAwesome, FontAwesome5 } from "@expo/vector-icons";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
@@ -282,7 +282,7 @@ export default function GamesScreen() {
           >
             <View style={styles.sportIconContainer}>
               <View style={styles.sportIconBackground}>
-                <FontAwesome
+                <FontAwesome5
                   name={getSportIcon(item.category)}
                   size={24}
                   color="#FFFFFF"
@@ -429,7 +429,7 @@ export default function GamesScreen() {
           ]}
           android_ripple={{ color: "rgba(255, 107, 53, 0.2)" }}
         >
-          <FontAwesome
+          <FontAwesome5
             name="globe"
             size={14}
             color={!selectedCategory ? "#FFFFFF" : "#CCCCCC"}
@@ -454,7 +454,7 @@ export default function GamesScreen() {
             ]}
             android_ripple={{ color: "rgba(255, 107, 53, 0.2)" }}
           >
-            <FontAwesome
+            <FontAwesome5
               name={getSportIcon(cat)}
               size={14}
               color={selectedCategory === cat ? "#FFFFFF" : "#CCCCCC"}

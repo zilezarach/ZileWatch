@@ -30,6 +30,7 @@ export type DownloadRecord = {
   fileUri: string;
   type: "audio" | "video";
   source: "direct" | "torrent";
+  progress?: number;
   downloadedAt: number;
 };
 
@@ -241,12 +242,12 @@ export default function DownloadsScreen() {
 
   // Render download item
   const renderDownloadItem = ({ item }: { item: DownloadRecord }) => {
-    const progress = activeDownloads[item.id]?.progress; // Get progress from context
+    // ✅ Use active progress if downloading, else fallback to persisted or 100
+    const progress = activeDownloads[item.id]?.progress ?? item.progress ?? 100;
     return (
       <TouchableOpacity
         style={styles.downloadItem}
         onPress={() => openFile(item.fileUri, item.type)}
-        onLongPress={() => shareDownload(item.fileUri)}
       >
         {item.Poster ? (
           <Image source={{ uri: item.Poster }} style={styles.thumbnail} />
@@ -255,25 +256,28 @@ export default function DownloadsScreen() {
             <Text style={styles.placeholderText}>No Image</Text>
           </View>
         )}
+
         <View style={styles.downloadInfo}>
           <Text style={styles.downloadTitle}>{item.title}</Text>
           <Text style={styles.downloadType}>{item.type.toUpperCase()}</Text>
-          {progress !== undefined && progress < 100 && (
-            <View style={styles.progressContainer}>
-              <Progress.Bar
-                progress={progress / 100}
-                width={null}
-                height={10}
-                color="#7d0b02"
-                borderRadius={5}
-              />
+
+          {/* ✅ Always show a progress bar */}
+          <View style={styles.progressContainer}>
+            <Progress.Bar
+              progress={progress / 100}
+              width={null}
+              height={10}
+              color={progress < 100 ? "#7d0b02" : "green"}
+              borderRadius={5}
+            />
+            {progress < 100 ? (
               <Text style={styles.progressText}>{progress}%</Text>
-            </View>
-          )}
-          {(!progress || progress === 100) && (
-            <Text style={styles.downloadComplete}>Complete</Text>
-          )}
+            ) : (
+              <Text style={styles.downloadComplete}>Complete</Text>
+            )}
+          </View>
         </View>
+
         <TouchableOpacity
           style={styles.removeButton}
           onPress={() => removeDownloadRecord(item.id, item.fileUri)}

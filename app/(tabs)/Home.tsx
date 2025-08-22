@@ -172,25 +172,26 @@ export default function Home({ navigation }: any) {
   // Fetch video details for a pasted URL
   const fetchByUrl = async (url: string) => {
     try {
-      const res = await axios.get(`${DOWNLOADER_API}/download-videos`, {
+      const res = await axios.get(`${DOWNLOADER_API}/video-info`, {
         params: { url },
       });
-      console.log("Response", res.data);
-      let formatsArray = [];
-      if (Array.isArray(res.data.formats)) {
-        formatsArray = res.data.formats;
-      } else if (typeof res.data.formats === "string") {
-        formatsArray = res.data.formats
-          .split(",\n")
-          .map((line: string) => line.trim())
-          .filter((line: string) => line.length > 0);
+      if (!res.data.success) {
+        Alert.alert("Error", res.data.message || "Invalid URL");
+        return;
       }
       const video: Video & { url: string } = {
         url,
         Title: res.data.title,
         Plot: "Download",
         Poster: res.data.thumbnail,
-        Formats: formatsArray,
+        Formats: res.data.formats.map((f: any) => ({
+          id: f.format_id,
+          quality: f.resolution || f.ext,
+          size: f.filesize
+            ? `${(f.filesize / 1024 / 1024).toFixed(1)} MB`
+            : "n/a",
+          format: f.ext,
+        })),
       };
       setDownloadVids([video]);
       setSelectedVideo({ url, title: video.Title, poster: video.Poster });
@@ -279,46 +280,60 @@ export default function Home({ navigation }: any) {
   const handleSelectOption = async (option: "audio" | "video") => {
     if (!selectedVideo.url) return Alert.alert("Error", "No video selected");
     setModalVisible(false);
+
     const downloadId = `${Date.now()}-${selectedVideo.url}`;
     setActiveDownloads((prev) => ({
       ...prev,
       [downloadId]: { title: selectedVideo.title, progress: 0 },
     }));
+
     try {
       const dir = await requestStoragePermissions();
-      const response = await axios.post(
-        `${DOWNLOADER_API}/download-videos`,
-        {
-          url: selectedVideo.url,
-          format: option === "video" ? "best" : "bestaudio",
-        },
-        {
-          responseType: "arraybuffer",
-          onDownloadProgress: (e) => {
-            const prog = Math.round((e.loaded / (e.total || 1)) * 100);
-            setActiveDownloads((prev) => ({
-              ...prev,
-              [downloadId]: { ...prev[downloadId], progress: prog },
-            }));
-          },
-        }
-      );
+
+      // 1. Ask backend for a direct download URL (instead of streaming file via Axios)
+      const { data } = await axios.get(`${DOWNLOADER_API}/stream-videos`, {
+        params: { url: selectedVideo.url },
+      });
+
+      if (!data.success || !data.streamUrl) {
+        throw new Error("No direct stream URL available");
+      }
+
       const ext = option === "video" ? "mp4" : "m4a";
       const filename = `${selectedVideo.title.replace(
         /[^a-z0-9]/gi,
         "_"
       )}_${Date.now()}.${ext}`;
       const filepath = `${dir}${filename}`;
-      await FileSystem.writeAsStringAsync(
+
+      // 2. Create resumable download
+      const downloadResumable = FileSystem.createDownloadResumable(
+        data.streamUrl,
         filepath,
-        Buffer.from(response.data).toString("base64"),
-        {
-          encoding: FileSystem.EncodingType.Base64,
+        {},
+        (downloadProgress) => {
+          const progress =
+            downloadProgress.totalBytesWritten /
+            downloadProgress.totalBytesExpectedToWrite;
+          const percent = Math.round(progress * 100);
+
+          setActiveDownloads((prev) => ({
+            ...prev,
+            [downloadId]: { ...prev[downloadId], progress: percent },
+          }));
         }
       );
-      let finalUri = filepath;
-      if (option === "video" && hasMediaPermission)
-        finalUri = await saveFileToGallery(filepath);
+
+      // 3. Start download
+      const result = await downloadResumable.downloadAsync();
+      let finalUri = result?.uri;
+
+      // 4. Save to gallery if video
+      if (option === "video" && hasMediaPermission && finalUri) {
+        finalUri = await saveFileToGallery(finalUri);
+      }
+
+      // 5. Persist record
       await addDownloadRecord({
         id: downloadId,
         title: selectedVideo.title,
@@ -326,18 +341,22 @@ export default function Home({ navigation }: any) {
         fileUri: finalUri,
         type: option,
         downloadedAt: Date.now(),
+        progress: 100,
       });
+
       setCompleteDownloads((prev) => [
         ...prev,
         { id: downloadId, title: `${option.toUpperCase()} Complete` },
       ]);
+
       setActiveDownloads((prev) => {
         const { [downloadId]: _, ...rest } = prev;
         return rest;
       });
+
       Alert.alert("Success", `${option.toUpperCase()} download complete`, [
         { text: "OK" },
-        { text: "Open File", onPress: () => openFile(finalUri) },
+        { text: "Open File", onPress: () => openFile(finalUri!) },
       ]);
     } catch (e) {
       console.error(e);
@@ -350,18 +369,85 @@ export default function Home({ navigation }: any) {
   };
   // Optional: handleLinks for additional pasted link downloads.
   const handleLinks = async (formatId: string) => {
-    setLoading(true);
+    if (!selectedVideo.url) return;
+    const downloadId = `${Date.now()}-${selectedVideo.url}`;
+    setActiveDownloads((prev) => ({
+      ...prev,
+      [downloadId]: { title: selectedVideo.title, progress: 0 },
+    }));
+
     try {
-      const response = await axios.post(`${DOWNLOADER_API}/download-videos`, {
-        url: selectedVideo.url,
-        format: formatId, // Send the actual format ID instead of format name
+      const dir = await requestStoragePermissions();
+
+      // Ask backend for direct URL for this format
+      const { data } = await axios.get(`${DOWNLOADER_API}/stream-videos`, {
+        params: { url: selectedVideo.url, quality: formatId },
       });
-      // Handle download response...
-    } catch (error) {
-      console.error("Download Error:", error);
-      Alert.alert("Error", "Failed to start download. Unsupported URL format.");
-    } finally {
-      setLoading(false);
+
+      if (!data.success || !data.streamUrl) {
+        throw new Error("No direct stream URL available");
+      }
+
+      const filename = `${selectedVideo.title.replace(
+        /[^a-z0-9]/gi,
+        "_"
+      )}_${Date.now()}.mp4`;
+      const filepath = `${dir}${filename}`;
+
+      const downloadResumable = FileSystem.createDownloadResumable(
+        data.streamUrl,
+        filepath,
+        {},
+        (downloadProgress) => {
+          const progress =
+            downloadProgress.totalBytesWritten /
+            downloadProgress.totalBytesExpectedToWrite;
+          const percent = Math.round(progress * 100);
+
+          setActiveDownloads((prev) => ({
+            ...prev,
+            [downloadId]: { ...prev[downloadId], progress: percent },
+          }));
+        }
+      );
+
+      const result = await downloadResumable.downloadAsync();
+      let finalUri = result?.uri;
+
+      if (hasMediaPermission && finalUri) {
+        finalUri = await saveFileToGallery(finalUri);
+      }
+
+      await addDownloadRecord({
+        id: downloadId,
+        title: selectedVideo.title,
+        Poster: selectedVideo.poster,
+        fileUri: finalUri,
+        type: "video",
+        downloadedAt: Date.now(),
+        progress: 100,
+      });
+
+      setCompleteDownloads((prev) => [
+        ...prev,
+        { id: downloadId, title: "Download Complete" },
+      ]);
+
+      setActiveDownloads((prev) => {
+        const { [downloadId]: _, ...rest } = prev;
+        return rest;
+      });
+
+      Alert.alert("Success", "Download complete", [
+        { text: "Open File", onPress: () => openFile(finalUri!) },
+      ]);
+    } catch (err) {
+      console.error("Download Error:", err);
+      Alert.alert("Error", "Failed to download.");
+      setActiveDownloads((prev) => {
+        const { [downloadId]: _, ...rest } = prev;
+        return rest;
+      });
     }
   };
 
