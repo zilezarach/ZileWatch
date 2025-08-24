@@ -68,7 +68,7 @@ export default {
       API_Backend: process.env.API_KEY || "https://api.0xzile.sbs",
       TMBD_KEY: process.env.TMBD_KEY || "3d87c19403c5b4902b9617fc74eb3866",
       TMBD_URL: "https://api.themoviedb.org/3",
-      zileLive: process.env.zileLive || "https://live-zile.0xzile.sbs",
+      zileLive: process.env.zileLive || "http://localhost:4500",
       extractorUrl: process.env.extractorUrl || "https://extractor.0xzile.sbs",
       eas: {
         projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4",

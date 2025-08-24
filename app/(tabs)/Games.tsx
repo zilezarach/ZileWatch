@@ -18,10 +18,11 @@ import {
 } from "react-native";
 import {
   fetchLiveSports,
-  fetchCategories,
+  generateCategoriesFromData,
   fetchChannels,
   getStreamUrl,
   getChannelsStream,
+  preloadSessions,
   LiveItem,
   TVChannels,
 } from "@/utils/liveService";
@@ -37,13 +38,26 @@ interface LoadingState {
   refreshing: boolean;
   error: string | null;
 }
+interface ItemLoadingState {
+  isLoading: boolean;
+  isInitializing: boolean;
+  error: string | null;
+  lastAttempt: number | null;
+}
 
 const ANIMATION_DURATION = 200;
 const CARD_HEIGHT = 140;
 const CHANNEL_CARD_HEIGHT = 140;
+const SESSION_RETRY = 2000;
+const FEATURED_CARD_HEIGHT = 180;
 
 export default function GamesScreen() {
   const [list, setList] = useState<LiveItem[]>([]);
+  const [featuredMatches, setFeaturedMatches] = useState<LiveItem[]>([]);
+  const [itemLoadingStates, setItemLoadingStates] = useState<
+    Map<string, ItemLoadingState>
+  >(new Map());
+  const [regularChannels, setRegularChannels] = useState<LiveItem[]>([]);
   const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
   const [itemErrors, setItemErrors] = useState<Set<string>>(new Set());
   const [categories, setCategories] = useState<string[]>([]);
@@ -56,7 +70,39 @@ export default function GamesScreen() {
     error: null,
   });
   const [imageErrors, setImageErrors] = useState<Set<string>>(new Set());
+  const [sessionStatus, setSessionStatus] = useState<
+    "idle" | "loading" | "completed" | "failed"
+  >("idle");
+  const getItemLoadingState = useCallback(
+    (id: string): ItemLoadingState => {
+      return (
+        itemLoadingStates.get(id) || {
+          isLoading: false,
+          isInitializing: false,
+          error: null,
+          lastAttempt: null,
+        }
+      );
+    },
+    [itemLoadingStates]
+  );
 
+  const updateItemLoadingState = useCallback(
+    (id: string, updates: Partial<ItemLoadingState>) => {
+      setItemLoadingStates((prev) => {
+        const current = prev.get(id) || {
+          isLoading: false,
+          isInitializing: false,
+          error: null,
+          lastAttempt: null,
+        };
+        const newMap = new Map(prev);
+        newMap.set(id, { ...current, ...updates });
+        return newMap;
+      });
+    },
+    []
+  );
   // Animation values
   const [fadeAnim] = useState(() => new Animated.Value(0));
   const [slideAnim] = useState(() => new Animated.Value(50));
@@ -73,25 +119,29 @@ export default function GamesScreen() {
           error: null,
         }));
 
-        const promises = [
-          fetchLiveSports().catch((err) => {
-            console.error("Failed to fetch live sports:", err);
-            return [] as LiveItem[];
-          }),
-          fetchCategories().catch((err) => {
-            console.error("Failed to fetch categories:", err);
-            return [] as string[];
-          }),
-          fetchChannels().catch((err) => {
-            console.error("Failed to fetch channels:", err);
-            return [] as TVChannels[];
-          }),
-        ] as const;
+        // Load live sports first
+        const liveData = await fetchLiveSports().catch((err) => {
+          console.error("Failed to fetch live sports:", err);
+          return [] as LiveItem[];
+        });
+        // Separate featured matches from regular channels
+        const featured = liveData.filter((item) => item.isFeatured);
+        const regular = liveData.filter((item) => !item.isFeatured);
 
-        const [liveData, catData, channelData] = await Promise.all(promises);
+        // Generate categories from the live data
+        const generatedCategories = generateCategoriesFromData(liveData);
+
+        // Load channels separately
+        const channelData = await fetchChannels().catch((err) => {
+          console.error("Failed to fetch channels:", err);
+          return [] as TVChannels[];
+        });
 
         setList(liveData);
-        setCategories(catData);
+        setFeaturedMatches(featured);
+        setRegularChannels(regular);
+        setCategories(generatedCategories);
+
         const processedChannels = channelData.map((channel, index) => {
           const id = channel.id !== undefined ? channel.id : index;
           return {
@@ -103,6 +153,21 @@ export default function GamesScreen() {
         });
 
         setChannels(processedChannels);
+        if (liveData.length > 0 && !isRefresh) {
+          const popularChannelIds = liveData.slice(0, 5).map((item) => item.id);
+          setSessionStatus("loading");
+
+          preloadSessions(popularChannelIds)
+            .then(() => {
+              console.log("Session preloading completed");
+              setSessionStatus("completed");
+            })
+            .catch((error: any) => {
+              console.warn("Session preloading failed:", error);
+              setSessionStatus("failed");
+            });
+        }
+
         // Animate content in
         if (!isRefresh) {
           Animated.parallel([
@@ -145,14 +210,17 @@ export default function GamesScreen() {
   );
 
   const onRefresh = useCallback(() => {
+    setItemLoadingStates(new Map());
+    setSessionStatus("idle");
     loadData(true);
   }, [loadData]);
 
   // Memoized filtered list for performance
   const filteredList = useMemo(() => {
-    if (!selectedCategory) return list;
-    return list.filter((item) => item.category === selectedCategory);
-  }, [list, selectedCategory]);
+    if (!selectedCategory) return regularChannels;
+    if (selectedCategory === "Featured") return featuredMatches;
+    return regularChannels.filter((item) => item.category === selectedCategory);
+  }, [regularChannels, featuredMatches, selectedCategory]);
 
   // Handle image loading errors
   const handleImageError = useCallback((uri: string) => {
@@ -491,6 +559,124 @@ export default function GamesScreen() {
     ),
     [showChannels, loadData]
   );
+  // Matches render
+  const renderFeaturedMatch = useCallback(
+    ({ item, index }: { item: LiveItem; index: number }) => {
+      const itemId = String(item.id);
+      const isDisabled = loadingItems.has(itemId);
+
+      return (
+        <Animated.View
+          style={[
+            styles.featuredCardWrapper,
+            { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
+          ]}
+        >
+          <Pressable
+            style={({ pressed }) => [
+              styles.featuredCard,
+              pressed && styles.cardPressed,
+              { opacity: isDisabled ? 0.6 : 1 },
+            ]}
+            onPress={() =>
+              !isDisabled && navigateToPlayer(item.match, itemId, false)
+            }
+            disabled={isDisabled}
+            android_ripple={{ color: "rgba(255, 107, 53, 0.2)" }}
+          >
+            <View style={styles.featuredImageContainer}>
+              <Image
+                source={{
+                  uri:
+                    item.logo ||
+                    "https://via.placeholder.com/400x200?text=Featured+Match",
+                }}
+                style={styles.featuredMatchImage}
+                onError={() => handleImageError(item.logo || "")}
+                defaultSource={require("../../assets/images/HomeLogo.png")}
+              />
+              <View style={styles.featuredOverlay} />
+
+              {/* Featured Badge */}
+              <View style={styles.featuredBadge}>
+                <FontAwesome name="star" size={12} color="#FFFFFF" />
+                <Text style={styles.featuredBadgeText}>FEATURED</Text>
+              </View>
+
+              {/* Match Info Overlay */}
+              <View style={[styles.featuredMatchInfo]}>
+                <Text style={styles.featuredMatchTitle} numberOfLines={2}>
+                  {item.match}
+                </Text>
+                <View style={[styles.channelThumb, styles.placeholderImage]}>
+                  <FontAwesome name="television" size={24} color="#FF6B35" />
+                </View>
+              </View>
+              <View style={styles.channelOverlay} />
+              <View style={styles.channelQualityBadge}>
+                <Text style={styles.qualityText}>LIVE</Text>
+              </View>
+
+              <View style={styles.channelInfo}>
+                <Text style={styles.channelName} numberOfLines={1}>
+                  {item.channels?.[0]?.name || "TV Channel"}
+                </Text>
+                {item.channels?.[0]?.id &&
+                  renderChannelAction(String(item.channels[0].id))}
+              </View>
+            </View>
+          </Pressable>
+        </Animated.View>
+      );
+    },
+    [
+      fadeAnim,
+      slideAnim,
+      imageErrors,
+      loadingItems,
+      itemErrors,
+      navigateToPlayer,
+      handleImageError,
+    ]
+  );
+
+  //features matches
+  const renderFeaturedSection = useCallback(() => {
+    if (featuredMatches.length === 0) return null;
+
+    return (
+      <View style={styles.featuredSection}>
+        <View style={styles.featuredSectionHeader}>
+          <View style={styles.featuredHeaderLeft}>
+            <FontAwesome name="star" size={20} color="#FF6B35" />
+            <Text style={styles.featuredSectionTitle}>Featured Matches</Text>
+          </View>
+          <Text style={styles.featuredCount}>
+            {featuredMatches.length} live
+          </Text>
+        </View>
+
+        <FlatList
+          data={featuredMatches}
+          renderItem={renderFeaturedMatch}
+          keyExtractor={(item, index) => `featured_${item.id}_${index}`}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.featuredScrollContent}
+          ItemSeparatorComponent={() => (
+            <View style={styles.featuredSeparator} />
+          )}
+          snapToInterval={300}
+          decelerationRate="fast"
+          getItemLayout={(data, index) => ({
+            length: 280,
+            offset: 280 * index,
+            index,
+          })}
+        />
+      </View>
+    );
+  }, [featuredMatches, renderFeaturedMatch]);
 
   // Stats header component
   const renderStatsHeader = useCallback(() => {
@@ -500,12 +686,20 @@ export default function GamesScreen() {
     return (
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {showChannels ? "Live TV Channels" : "Live Sports"}
+          {showChannels
+            ? "Live TV Channels"
+            : selectedCategory === "Featured"
+            ? "Featured Matches"
+            : "Live Sports"}
         </Text>
         <View style={styles.headerStats}>
           <View style={styles.statsItem}>
             <Text style={styles.statsNumber}>{count}</Text>
-            <Text style={styles.statsLabel}>live {label}</Text>
+            <Text style={styles.statsLabel}>
+              {selectedCategory === "Featured"
+                ? "featured matches"
+                : `live ${label}`}
+            </Text>
           </View>
           <View style={styles.liveIndicatorHeader}>
             <View style={styles.pulseDot} />
@@ -514,7 +708,7 @@ export default function GamesScreen() {
         </View>
       </View>
     );
-  }, [showChannels, channels.length, filteredList.length]);
+  }, [showChannels, channels.length, filteredList.length, selectedCategory]);
 
   useEffect(() => {
     loadData();
@@ -632,48 +826,38 @@ export default function GamesScreen() {
           initialNumToRender={6}
           maxToRenderPerBatch={6}
           windowSize={10}
-          getItemLayout={(data, index) => ({
-            length: CHANNEL_CARD_HEIGHT + 16,
-            offset: (CHANNEL_CARD_HEIGHT + 16) * Math.floor(index / 2),
-            index,
-          })}
         />
       ) : (
-        <>
+        <ScrollView
+          refreshControl={
+            <RefreshControl
+              refreshing={loadingState.refreshing}
+              onRefresh={onRefresh}
+              tintColor="#FF6B35"
+              colors={["#FF6B35"]}
+            />
+          }
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {/* Featured Matches Section - Always show if available */}
+          {featuredMatches.length > 0 && renderFeaturedSection()}
+
+          {/* Category Filter */}
           {categories.length > 0 && renderCategoryFilter()}
 
-          <FlatList
-            data={filteredList}
-            keyExtractor={(item, index) =>
-              item?.id?.toString() || `match-${index}`
-            }
-            renderItem={renderMatch}
-            ListHeaderComponent={renderStatsHeader}
-            contentContainerStyle={[
-              styles.listContent,
-              filteredList.length === 0 && styles.emptyContainer,
-            ]}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={loadingState.refreshing}
-                onRefresh={onRefresh}
-                tintColor="#FF6B35"
-                colors={["#FF6B35"]}
-              />
-            }
-            ItemSeparatorComponent={() => <View style={styles.separator} />}
-            ListEmptyComponent={renderEmptyState}
-            initialNumToRender={8}
-            maxToRenderPerBatch={8}
-            windowSize={12}
-            getItemLayout={(data, index) => ({
-              length: CARD_HEIGHT + 16,
-              offset: (CARD_HEIGHT + 16) * index,
-              index,
-            })}
-          />
-        </>
+          {/* Stats Header */}
+          {renderStatsHeader()}
+
+          {/* Regular Matches List */}
+          {filteredList.length > 0
+            ? filteredList.map((item, index) => (
+                <View key={`${item.id}_${index}`}>
+                  {renderMatch({ item, index })}
+                </View>
+              ))
+            : renderEmptyState()}
+        </ScrollView>
       )}
     </SafeAreaView>
   );
@@ -683,6 +867,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#0D0D0D",
+  },
+  scrollContent: {
+    paddingBottom: 40,
   },
   loadingContainer: {
     flex: 1,
@@ -786,6 +973,152 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: "#FFFFFF",
+  },
+  featuredSection: {
+    marginBottom: 32,
+    paddingTop: 8,
+  },
+  featuredSectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  featuredHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  featuredSectionTitle: {
+    fontSize: 24,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    marginLeft: 12,
+  },
+  featuredCount: {
+    fontSize: 14,
+    color: "#FF6B35",
+    fontWeight: "600",
+    backgroundColor: "rgba(255, 107, 53, 0.1)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+  },
+  featuredScrollContent: {
+    paddingLeft: 20,
+    paddingRight: 20,
+  },
+  featuredSeparator: {
+    width: 16,
+  },
+
+  // Featured Card Styles
+  featuredCardWrapper: {
+    width: 280,
+  },
+  featuredCard: {
+    height: FEATURED_CARD_HEIGHT,
+    borderRadius: 20,
+    overflow: "hidden",
+    backgroundColor: "#1A1A1A",
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.3,
+        shadowRadius: 16,
+      },
+      android: {
+        elevation: 12,
+      },
+    }),
+    borderWidth: 2,
+    borderColor: "#FF6B35",
+  },
+  featuredImageContainer: {
+    flex: 1,
+    position: "relative",
+  },
+  featuredMatchImage: {
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#2A2A2A",
+  },
+  featuredOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0,0,0,0.4)",
+  },
+  featuredBadge: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FF6B35",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+  },
+  featuredBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "bold",
+    marginLeft: 6,
+  },
+  featuredMatchInfo: {
+    position: "absolute",
+    bottom: 16,
+    left: 16,
+    right: 80,
+  },
+  featuredMatchTitle: {
+    fontSize: 18,
+    fontWeight: "900",
+    color: "#FFFFFF",
+    marginBottom: 8,
+    textShadowColor: "rgba(0,0,0,0.7)",
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 3,
+  },
+  featuredMatchMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  featuredLeague: {
+    fontSize: 14,
+    color: "#FF6B35",
+    fontWeight: "600",
+    marginRight: 12,
+  },
+  featuredTime: {
+    fontSize: 14,
+    color: "#CCCCCC",
+    fontWeight: "500",
+  },
+  featuredPlayButtonContainer: {
+    position: "absolute",
+    bottom: 16,
+    right: 16,
+  },
+  featuredLiveIndicator: {
+    backgroundColor: "#FF6B35",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  featuredPlayButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(255, 255, 255, 0.2)",
+    justifyContent: "center",
+    alignItems: "center",
+    backdropFilter: "blur(10px)",
   },
   filterScroll: {
     marginVertical: 12,
