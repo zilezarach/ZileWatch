@@ -15,8 +15,11 @@ import {
   Alert,
   Animated,
   SafeAreaView,
+  Modal,
+  TouchableOpacity,
 } from "react-native";
 import {
+  loadCachedStreams,
   fetchLiveSports,
   generateCategoriesFromData,
   fetchChannels,
@@ -48,7 +51,7 @@ interface ItemLoadingState {
 const ANIMATION_DURATION = 200;
 const CARD_HEIGHT = 140;
 const CHANNEL_CARD_HEIGHT = 140;
-const SESSION_RETRY = 2000;
+
 const FEATURED_CARD_HEIGHT = 180;
 
 export default function GamesScreen() {
@@ -73,6 +76,9 @@ export default function GamesScreen() {
   const [sessionStatus, setSessionStatus] = useState<
     "idle" | "loading" | "completed" | "failed"
   >("idle");
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
+  const [showStreamModal, setShowStreamModal] = useState(false);
+
   const getItemLoadingState = useCallback(
     (id: string): ItemLoadingState => {
       return (
@@ -103,6 +109,7 @@ export default function GamesScreen() {
     },
     []
   );
+
   // Animation values
   const [fadeAnim] = useState(() => new Animated.Value(0));
   const [slideAnim] = useState(() => new Animated.Value(50));
@@ -119,40 +126,35 @@ export default function GamesScreen() {
           error: null,
         }));
 
-        // Load live sports first
-        const liveData = await fetchLiveSports().catch((err) => {
-          console.error("Failed to fetch live sports:", err);
-          return [] as LiveItem[];
-        });
-        // Separate featured matches from regular channels
+        const [liveData, channelData] = await Promise.all([
+          fetchLiveSports().catch((err) => {
+            console.error("Failed to fetch live sports:", err);
+            return [] as LiveItem[];
+          }),
+          fetchChannels().catch((err) => {
+            console.error("Failed to fetch channels:", err);
+            return [] as TVChannels[];
+          }),
+        ]);
+
         const featured = liveData.filter((item) => item.isFeatured);
         const regular = liveData.filter((item) => !item.isFeatured);
-
-        // Generate categories from the live data
         const generatedCategories = generateCategoriesFromData(liveData);
-
-        // Load channels separately
-        const channelData = await fetchChannels().catch((err) => {
-          console.error("Failed to fetch channels:", err);
-          return [] as TVChannels[];
-        });
 
         setList(liveData);
         setFeaturedMatches(featured);
         setRegularChannels(regular);
         setCategories(generatedCategories);
 
-        const processedChannels = channelData.map((channel, index) => {
-          const id = channel.id !== undefined ? channel.id : index;
-          return {
-            id: id,
-            name: channel.name || `Channel ${id}`,
-            image: channel.image || "",
-            streamUrl: channel.streamUrl || "",
-          };
-        });
+        const processedChannels = channelData.map((channel, index) => ({
+          id: channel.id !== undefined ? channel.id : index,
+          name: channel.name || `Channel ${index}`,
+          image: channel.image || "",
+          streamUrl: channel.streamUrl || "",
+        }));
 
         setChannels(processedChannels);
+
         if (liveData.length > 0 && !isRefresh) {
           const popularChannelIds = liveData.slice(0, 5).map((item) => item.id);
           setSessionStatus("loading");
@@ -168,7 +170,6 @@ export default function GamesScreen() {
             });
         }
 
-        // Animate content in
         if (!isRefresh) {
           Animated.parallel([
             Animated.timing(fadeAnim, {
@@ -215,21 +216,23 @@ export default function GamesScreen() {
     loadData(true);
   }, [loadData]);
 
-  // Memoized filtered list for performance
   const filteredList = useMemo(() => {
     if (!selectedCategory) return regularChannels;
     if (selectedCategory === "Featured") return featuredMatches;
     return regularChannels.filter((item) => item.category === selectedCategory);
   }, [regularChannels, featuredMatches, selectedCategory]);
 
-  // Handle image loading errors
   const handleImageError = useCallback((uri: string) => {
     setImageErrors((prev) => new Set([...prev, uri]));
   }, []);
 
-  // Enhanced navigation with error handling
   const navigateToPlayer = useCallback(
-    async (title: string, channelId: string, isChannel = false) => {
+    async (
+      title: string,
+      channelId: string,
+      isChannel = false,
+      streamUrl?: string
+    ) => {
       const id = channelId.trim();
       if (!id) {
         Alert.alert("Stream Error", "This stream is currently unavailable.");
@@ -244,9 +247,9 @@ export default function GamesScreen() {
           return newErrors;
         });
 
-        const streamUrl = isChannel
+        const url = isChannel
           ? await getChannelsStream(id)
-          : await getStreamUrl(id);
+          : streamUrl || (await getStreamUrl(id));
 
         setLoadingItems((prev) => {
           const newSet = new Set(prev);
@@ -254,7 +257,7 @@ export default function GamesScreen() {
           return newSet;
         });
 
-        navigation.navigate("LivePlayer", { title, url: streamUrl });
+        navigation.navigate("LivePlayer", { title, url });
       } catch (error) {
         console.error("Stream error:", error);
         setLoadingItems((prev) => {
@@ -263,12 +266,37 @@ export default function GamesScreen() {
           return newSet;
         });
         setItemErrors((prev) => new Set([...prev, id]));
+        Alert.alert("Stream Error", "Failed to load stream. Please try again.");
       }
     },
     [navigation]
   );
 
-  // Get formatted time with error handling
+  const openStreamModal = useCallback((matchId: string) => {
+    setSelectedMatchId(matchId);
+    setShowStreamModal(true);
+  }, []);
+
+  const selectStream = useCallback(
+    (
+      title: string,
+      matchId: string,
+      stream: { streamNo: number; m3u8: string | null }
+    ) => {
+      if (stream.m3u8) {
+        navigateToPlayer(title, matchId, false, stream.m3u8);
+      } else {
+        Alert.alert(
+          "Stream Error",
+          `Stream ${stream.streamNo} is unavailable.`
+        );
+      }
+      setShowStreamModal(false);
+      setSelectedMatchId(null);
+    },
+    [navigateToPlayer]
+  );
+
   const getFormattedTime = useCallback((dateString: string) => {
     try {
       const date = new Date(dateString);
@@ -281,7 +309,6 @@ export default function GamesScreen() {
     }
   }, []);
 
-  // Get sport icon based on category
   const getSportIcon = useCallback((category: string) => {
     const cat = category.toLowerCase();
     if (cat.includes("football") || cat.includes("soccer")) return "futbol-o";
@@ -291,7 +318,7 @@ export default function GamesScreen() {
     if (cat.includes("golf")) return "golf-ball";
     if (cat.includes("hockey")) return "hockey-puck";
     if (cat.includes("boxing") || cat.includes("mma")) return "fist-raised";
-    return "trophy"; // Default icon
+    return "trophy";
   }, []);
 
   const renderMatchAction = (id: string) => {
@@ -481,6 +508,7 @@ export default function GamesScreen() {
       handleImageError,
     ]
   );
+
   const renderCategoryFilter = useCallback(
     () => (
       <ScrollView
@@ -559,7 +587,7 @@ export default function GamesScreen() {
     ),
     [showChannels, loadData]
   );
-  // Matches render
+
   const renderFeaturedMatch = useCallback(
     ({ item, index }: { item: LiveItem; index: number }) => {
       const itemId = String(item.id);
@@ -578,9 +606,7 @@ export default function GamesScreen() {
               pressed && styles.cardPressed,
               { opacity: isDisabled ? 0.6 : 1 },
             ]}
-            onPress={() =>
-              !isDisabled && navigateToPlayer(item.match, itemId, false)
-            }
+            onPress={() => !isDisabled && openStreamModal(itemId)}
             disabled={isDisabled}
             android_ripple={{ color: "rgba(255, 107, 53, 0.2)" }}
           >
@@ -596,15 +622,11 @@ export default function GamesScreen() {
                 defaultSource={require("../../assets/images/HomeLogo.png")}
               />
               <View style={styles.featuredOverlay} />
-
-              {/* Featured Badge */}
               <View style={styles.featuredBadge}>
                 <FontAwesome name="star" size={12} color="#FFFFFF" />
                 <Text style={styles.featuredBadgeText}>FEATURED</Text>
               </View>
-
-              {/* Match Info Overlay */}
-              <View style={[styles.featuredMatchInfo]}>
+              <View style={styles.featuredMatchInfo}>
                 <Text style={styles.featuredMatchTitle} numberOfLines={2}>
                   {item.match}
                 </Text>
@@ -616,13 +638,11 @@ export default function GamesScreen() {
               <View style={styles.channelQualityBadge}>
                 <Text style={styles.qualityText}>LIVE</Text>
               </View>
-
               <View style={styles.channelInfo}>
                 <Text style={styles.channelName} numberOfLines={1}>
-                  {item.channels?.[0]?.name || "TV Channel"}
+                  {item.channels?.[0]?.name || "Premium Stream"}
                 </Text>
-                {item.channels?.[0]?.id &&
-                  renderChannelAction(String(item.channels[0].id))}
+                {renderMatchAction(itemId)}
               </View>
             </View>
           </Pressable>
@@ -635,12 +655,73 @@ export default function GamesScreen() {
       imageErrors,
       loadingItems,
       itemErrors,
-      navigateToPlayer,
+      openStreamModal,
       handleImageError,
     ]
   );
 
-  //features matches
+  const renderStreamModal = useCallback(() => {
+    const selectedMatch = featuredMatches.find(
+      (item) => item.id === selectedMatchId
+    );
+    if (!selectedMatch || !selectedMatch.streams) return null;
+
+    return (
+      <Modal
+        animationType="fade"
+        transparent={true}
+        visible={showStreamModal}
+        onRequestClose={() => setShowStreamModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              Select Stream for {selectedMatch.match}
+            </Text>
+            {selectedMatch.streams.length === 0 ? (
+              <Text style={styles.modalEmptyText}>
+                No English streams available
+              </Text>
+            ) : (
+              selectedMatch.streams.map((stream) => (
+                <TouchableOpacity
+                  key={stream.streamNo}
+                  style={[
+                    styles.streamOption,
+                    !stream.m3u8 && styles.streamOptionDisabled,
+                  ]}
+                  onPress={() =>
+                    stream.m3u8 &&
+                    selectStream(selectedMatch.match, selectedMatchId!, stream)
+                  }
+                  disabled={!stream.m3u8}
+                >
+                  <Text style={styles.streamOptionText}>
+                    Stream {stream.streamNo} {stream.hd ? "(HD)" : "(SD)"} -{" "}
+                    {stream.viewers} viewers
+                  </Text>
+                  {!stream.m3u8 && (
+                    <FontAwesome
+                      name="exclamation-circle"
+                      size={16}
+                      color="#FF6B35"
+                    />
+                  )}
+                </TouchableOpacity>
+              ))
+            )}
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setShowStreamModal(false)}
+            >
+              <Text style={styles.modalCloseButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  }, [selectedMatchId, featuredMatches, showStreamModal, selectStream]);
+
   const renderFeaturedSection = useCallback(() => {
     if (featuredMatches.length === 0) return null;
 
@@ -678,7 +759,6 @@ export default function GamesScreen() {
     );
   }, [featuredMatches, renderFeaturedMatch]);
 
-  // Stats header component
   const renderStatsHeader = useCallback(() => {
     const count = showChannels ? channels.length : filteredList.length;
     const label = showChannels ? "channels" : count === 1 ? "match" : "matches";
@@ -711,10 +791,10 @@ export default function GamesScreen() {
   }, [showChannels, channels.length, filteredList.length, selectedCategory]);
 
   useEffect(() => {
-    loadData();
+    // Load cached streams on mount
+    loadCachedStreams().then(() => loadData());
   }, [loadData]);
 
-  // Refresh data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       if (!loadingState.initial) {
@@ -741,16 +821,12 @@ export default function GamesScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#0D0D0D" />
-
-      {/* Enhanced Header */}
       <View style={styles.headerContainer}>
         <View style={styles.headerContent}>
           <Text style={styles.appTitle}>ZileWatch LiveTV</Text>
           <Text style={styles.appSubtitle}>Live Sports & Entertainment</Text>
         </View>
       </View>
-
-      {/* Enhanced Segment Control */}
       <View style={styles.segmentContainer}>
         <View style={styles.segmentBackground}>
           <Pressable
@@ -798,7 +874,6 @@ export default function GamesScreen() {
           </Pressable>
         </View>
       </View>
-
       {showChannels ? (
         <FlatList
           data={channels}
@@ -840,16 +915,9 @@ export default function GamesScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {/* Featured Matches Section - Always show if available */}
           {featuredMatches.length > 0 && renderFeaturedSection()}
-
-          {/* Category Filter */}
           {categories.length > 0 && renderCategoryFilter()}
-
-          {/* Stats Header */}
           {renderStatsHeader()}
-
-          {/* Regular Matches List */}
           {filteredList.length > 0
             ? filteredList.map((item, index) => (
                 <View key={`${item.id}_${index}`}>
@@ -859,6 +927,7 @@ export default function GamesScreen() {
             : renderEmptyState()}
         </ScrollView>
       )}
+      {renderStreamModal()}
     </SafeAreaView>
   );
 }
@@ -1011,8 +1080,6 @@ const styles = StyleSheet.create({
   featuredSeparator: {
     width: 16,
   },
-
-  // Featured Card Styles
   featuredCardWrapper: {
     width: 280,
   },
@@ -1083,42 +1150,6 @@ const styles = StyleSheet.create({
     textShadowColor: "rgba(0,0,0,0.7)",
     textShadowOffset: { width: 0, height: 1 },
     textShadowRadius: 3,
-  },
-  featuredMatchMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  featuredLeague: {
-    fontSize: 14,
-    color: "#FF6B35",
-    fontWeight: "600",
-    marginRight: 12,
-  },
-  featuredTime: {
-    fontSize: 14,
-    color: "#CCCCCC",
-    fontWeight: "500",
-  },
-  featuredPlayButtonContainer: {
-    position: "absolute",
-    bottom: 16,
-    right: 16,
-  },
-  featuredLiveIndicator: {
-    backgroundColor: "#FF6B35",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    marginBottom: 12,
-  },
-  featuredPlayButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(255, 255, 255, 0.2)",
-    justifyContent: "center",
-    alignItems: "center",
-    backdropFilter: "blur(10px)",
   },
   filterScroll: {
     marginVertical: 12,
@@ -1248,7 +1279,6 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     transform: [{ scale: 0.98 }],
   },
-  // New Sports Card Styles
   sportIconContainer: {
     width: 80,
     justifyContent: "center",
@@ -1407,7 +1437,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "bold",
   },
-
   channelStatus: {
     flexDirection: "row",
     alignItems: "center",
@@ -1469,5 +1498,60 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 16,
     marginLeft: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.7)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalContent: {
+    backgroundColor: "#1A1A1A",
+    borderRadius: 16,
+    padding: 20,
+    width: screenWidth * 0.85,
+    maxHeight: screenHeight * 0.6,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    color: "#FFFFFF",
+    marginBottom: 16,
+    textAlign: "center",
+  },
+  modalEmptyText: {
+    fontSize: 16,
+    color: "#888888",
+    textAlign: "center",
+    marginBottom: 16,
+  },
+  streamOption: {
+    padding: 12,
+    borderRadius: 8,
+    backgroundColor: "#2A2A2A",
+    marginBottom: 8,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  streamOptionDisabled: {
+    opacity: 0.5,
+  },
+  streamOptionText: {
+    fontSize: 16,
+    color: "#FFFFFF",
+    fontWeight: "500",
+  },
+  modalCloseButton: {
+    backgroundColor: "#FF6B35",
+    padding: 12,
+    borderRadius: 8,
+    alignItems: "center",
+    marginTop: 8,
+  },
+  modalCloseButtonText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "bold",
   },
 });

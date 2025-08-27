@@ -1,3 +1,14 @@
+import Constants from "expo-constants";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+const sessionInitPromises = new Map<string, Promise<StreamResponse>>();
+
+const streamUrlCache = new Map<string, { url: string; expires: number }>();
+
+export const API =
+  Constants.expoConfig?.extra?.zileLive ||
+  (Constants.manifest as any)?.extra?.zileLive ||
+  "https://live-zile.0xzile.sbs";
+
 export interface Channel {
   id: number;
   name: string;
@@ -11,6 +22,13 @@ export interface TVChannels {
   streamUrl: string;
 }
 
+export interface Stream {
+  streamNo: number;
+  hd: boolean;
+  viewers: number;
+  m3u8: string | null;
+}
+
 export interface LiveItem {
   id: string;
   name?: string;
@@ -22,7 +40,9 @@ export interface LiveItem {
   channels: Channel[];
   isFeatured?: boolean;
   source?: "gopst" | "streamed";
+  streams?: Stream[];
 }
+
 export interface SessionStatus {
   success: boolean;
   channelId: string;
@@ -53,31 +73,24 @@ export interface StreamedMatch {
   status: string;
 }
 
-import Constants from "expo-constants";
-
-const sessionInitPromises = new Map<string, Promise<StreamResponse>>();
-const API = Constants?.expoConfig?.extra?.zileLive;
-
 export async function fetchLiveSports(): Promise<LiveItem[]> {
   try {
-    // Fetch both featured matches and regular channels concurrently
-    const [featuredMatches, regularChannels] = await Promise.allSettled([
+    const [featured, regular] = await Promise.allSettled([
       fetchFeaturedMatches(),
       fetchRegularChannels(),
     ]);
 
-    const featured =
-      featuredMatches.status === "fulfilled" ? featuredMatches.value : [];
-    const regular =
-      regularChannels.status === "fulfilled" ? regularChannels.value : [];
+    const featuredMatches =
+      featured.status === "fulfilled" ? featured.value : [];
+    const regularChannels = regular.status === "fulfilled" ? regular.value : [];
 
-    // Combine featured matches at the top, then regular channels
-    return [...featured, ...regular];
+    return [...featuredMatches, ...regularChannels];
   } catch (error) {
     console.error("Error fetching live sports:", error);
     throw new Error("Failed to load live sports");
   }
 }
+
 async function fetchRegularChannels(): Promise<LiveItem[]> {
   try {
     const res = await fetch(`${API}/gopst/channels/list`);
@@ -85,7 +98,6 @@ async function fetchRegularChannels(): Promise<LiveItem[]> {
 
     const data = await res.json();
 
-    // Transform predefined channels into LiveItem format
     const liveItems: LiveItem[] = data.channels.map(
       (channel: any, index: number) => {
         const category = extractCategoryFromName(channel.name);
@@ -107,7 +119,7 @@ async function fetchRegularChannels(): Promise<LiveItem[]> {
           isFeatured: false,
           source: "gopst",
         };
-      }
+      },
     );
 
     return liveItems;
@@ -116,6 +128,7 @@ async function fetchRegularChannels(): Promise<LiveItem[]> {
     return [];
   }
 }
+
 function extractCategoryFromName(channelName: string): string {
   if (channelName.toLowerCase().includes("sports")) {
     return "Sports";
@@ -123,8 +136,6 @@ function extractCategoryFromName(channelName: string): string {
     return "Premier Sports";
   } else if (channelName.toLowerCase().includes("sky")) {
     return "Sky Sports";
-  } else if (channelName.toLowerCase().includes("espn")) {
-    return "ESPN";
   } else if (channelName.toLowerCase().includes("fox")) {
     return "Fox Sports";
   } else if (channelName.toLowerCase().includes("tnt")) {
@@ -146,7 +157,6 @@ export async function fetchChannels(): Promise<TVChannels[]> {
 export function generateCategoriesFromData(liveItems: LiveItem[]): string[] {
   const categories = new Set<string>();
 
-  // Add "Featured" category if there are featured items
   const hasFeatured = liveItems.some((item) => item.isFeatured);
   if (hasFeatured) {
     categories.add("Featured");
@@ -159,7 +169,6 @@ export function generateCategoriesFromData(liveItems: LiveItem[]): string[] {
   });
 
   return Array.from(categories).sort((a, b) => {
-    // Put "Featured" first
     if (a === "Featured") return -1;
     if (b === "Featured") return 1;
     return a.localeCompare(b);
@@ -167,11 +176,35 @@ export function generateCategoriesFromData(liveItems: LiveItem[]): string[] {
 }
 
 export async function getStreamUrl(channelId: string): Promise<string> {
+  const cachedStream = streamUrlCache.get(channelId);
+  if (cachedStream && cachedStream.expires > Date.now()) {
+    console.log(`Using cached stream URL for ${channelId}`);
+    return cachedStream.url;
+  }
   try {
     const res = await fetch(`${API}/gopst/channel/${channelId}`);
     if (!res.ok) throw new Error("Failed to get stream URL");
 
-    const data = await res.json();
+    const data: StreamResponse = await res.json();
+    if (!data.success || !data.proxyUrl) {
+      throw new Error(data.message || "Invalid stream response");
+    }
+
+    // Cache the stream URL
+    streamUrlCache.set(channelId, {
+      url: data.proxyUrl,
+      expires: Date.now() + 5 * 60 * 1000,
+    });
+
+    // Optionally persist to AsyncStorage
+    await AsyncStorage.setItem(
+      `streamUrl_${channelId}`,
+      JSON.stringify({
+        url: data.proxyUrl,
+        expires: Date.now() + 5 * 60 * 1000,
+      }),
+    );
+
     return data.proxyUrl;
   } catch (error) {
     console.error("Error getting stream URL:", error);
@@ -180,21 +213,59 @@ export async function getStreamUrl(channelId: string): Promise<string> {
 }
 
 export async function getChannelsStream(id: string): Promise<string> {
+  const cachedStream = streamUrlCache.get(id);
+  if (cachedStream && cachedStream.expires > Date.now()) {
+    console.log(`Using cached stream URL for channel ${id}`);
+    return cachedStream.url;
+  }
   try {
-    console.log("Fetching stream for channel ID:", id); // Debug log
+    console.log("Fetching stream for channel ID:", id);
     const res = await fetch(`${API}/streams/channel/${id}`);
     if (!res.ok) {
       console.error("Failed to get stream URL:", res.status, res.statusText);
       throw new Error("Failed to get Stream url");
     }
-    const data = await res.json();
-    console.log("Stream URL response:", data); // Debug log
+    const data: StreamResponse = await res.json();
+    console.log("Stream URL response:", data);
+
+    // Cache the stream URL
+    streamUrlCache.set(id, {
+      url: data.streamUrl,
+      expires: Date.now() + 5 * 60 * 1000, // Cache for 5 minutes
+    });
+
+    // Optionally persist to AsyncStorage
+    await AsyncStorage.setItem(
+      `streamUrl_${id}`,
+      JSON.stringify({
+        url: data.streamUrl,
+        expires: Date.now() + 5 * 60 * 1000,
+      }),
+    );
+
     return data.streamUrl;
   } catch (error) {
     console.error("Error getting stream url:", error);
     throw new Error("Failed to get Url");
   }
 }
+
+export async function preloadStreamUrls(channelIds: string[]): Promise<void> {
+  console.log(`Preloading stream URLs for ${channelIds.length} channels`);
+
+  const streamPromises = channelIds.map(async (channelId) => {
+    try {
+      const streamUrl = await getStreamUrl(channelId);
+      console.log(`✓ Preloaded stream URL for ${channelId}`);
+    } catch (error) {
+      console.warn(`✗ Failed to preload stream URL for ${channelId}:`, error);
+    }
+  });
+
+  await Promise.allSettled(streamPromises);
+  console.log("Stream URL preloading completed");
+}
+
 export async function fetchFeaturedMatches(): Promise<LiveItem[]> {
   try {
     const res = await fetch(`${API}/streamed/matches`);
@@ -202,7 +273,17 @@ export async function fetchFeaturedMatches(): Promise<LiveItem[]> {
 
     const matches: StreamedMatch[] = await res.json();
 
-    // Transform streamed matches into LiveItem format
+    const streamPromises = matches.slice(0, 5).map((match) =>
+      fetch(`${API}/streamed/m3u8/all?matchId=${match.id}`)
+        .then((res) => res.json())
+        .catch((error) => {
+          console.error(`Error fetching streams for match ${match.id}:`, error);
+          return [];
+        }),
+    );
+
+    const streamResults = await Promise.all(streamPromises);
+
     const featuredItems: LiveItem[] = matches
       .slice(0, 5)
       .map((match, index) => ({
@@ -211,18 +292,19 @@ export async function fetchFeaturedMatches(): Promise<LiveItem[]> {
         category: match.league || "Featured Match",
         start: match.time,
         end: new Date(
-          new Date(match.time).getTime() + 2 * 60 * 60 * 1000
+          new Date(match.time).getTime() + 2 * 60 * 60 * 1000,
         ).toISOString(),
         logo: match.image || "https://via.placeholder.com/150x150?text=Live",
         channels: [
           {
-            id: index + 1000, // Use higher IDs to avoid conflicts
+            id: index + 1000,
             name: "Premium Stream",
             streamUrl: `${API}/streamed/stream?matchId=${match.id}`,
           },
         ],
         isFeatured: true,
         source: "streamed",
+        streams: streamResults[index] || [],
       }));
 
     return featuredItems;
@@ -233,24 +315,51 @@ export async function fetchFeaturedMatches(): Promise<LiveItem[]> {
 }
 
 export async function preloadSessions(channelIds: string[]): Promise<void> {
-  console.log(`Preloading sessions for ${channelIds.length} channels`);
+  console.log(
+    `Preloading sessions and streams for ${channelIds.length} channels`,
+  );
+  await Promise.all([
+    preloadStreamUrls(channelIds),
+    Promise.allSettled(
+      channelIds.map(async (channelId) => {
+        try {
+          await initializeSession(channelId);
+          console.log(`✓ Preloaded session for ${channelId}`);
+        } catch (error) {
+          console.warn(`✗ Failed to preload session for ${channelId}:`, error);
+        }
+      }),
+    ),
+  ]);
+  console.log("Session and stream preloading completed");
+}
 
-  const initPromises = channelIds.map(async (channelId) => {
-    try {
-      await initializeSession(channelId);
-      console.log(`✓ Preloaded session for ${channelId}`);
-    } catch (error) {
-      console.warn(`✗ Failed to preload session for ${channelId}:`, error);
+export async function loadCachedStreams(): Promise<void> {
+  try {
+    const keys = await AsyncStorage.getAllKeys();
+    const streamKeys = keys.filter((key) => key.startsWith("streamUrl_"));
+    const streamItems = await AsyncStorage.multiGet(streamKeys);
+
+    for (const [key, value] of streamItems) {
+      if (value) {
+        const { url, expires } = JSON.parse(value);
+        const channelId = key.replace("streamUrl_", "");
+        if (expires > Date.now()) {
+          streamUrlCache.set(channelId, { url, expires });
+          console.log(`Loaded cached stream URL for ${channelId}`);
+        } else {
+          await AsyncStorage.removeItem(key);
+          console.log(`Removed expired stream URL for ${channelId}`);
+        }
+      }
     }
-  });
-
-  // Wait for all with a timeout
-  await Promise.allSettled(initPromises);
-  console.log("Session preloading completed");
+  } catch (error) {
+    console.error("Error loading cached streams:", error);
+  }
 }
 
 export async function initializeSession(
-  channelId: string
+  channelId: string,
 ): Promise<StreamResponse> {
   if (sessionInitPromises.has(channelId)) {
     console.log(`Session initialization already in progress for ${channelId}`);
@@ -271,21 +380,28 @@ export async function initializeSession(
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         throw new Error(
-          errorData.message || `Session initialization failed (${res.status})`
+          errorData.message || `Session initialization failed (${res.status})`,
         );
       }
 
       const data: StreamResponse = await res.json();
-
       if (!data.success) {
         throw new Error(data.message || "Session initialization failed");
       }
 
-      if (!data.sessionReady) {
-        console.warn(
-          `Session initialized but not ready for ${channelId}: ${data.message}`
-        );
-      }
+      // Cache the stream URL
+      streamUrlCache.set(channelId, {
+        url: data.proxyUrl,
+        expires: Date.now() + 5 * 60 * 1000,
+      });
+
+      await AsyncStorage.setItem(
+        `streamUrl_${channelId}`,
+        JSON.stringify({
+          url: data.proxyUrl,
+          expires: Date.now() + 5 * 60 * 1000,
+        }),
+      );
 
       console.log(`Session successfully initialized for ${channelId}`);
       return data;
@@ -293,7 +409,6 @@ export async function initializeSession(
       console.error(`Failed to initialize session for ${channelId}:`, error);
       throw error;
     } finally {
-      // Clean up the promise cache
       sessionInitPromises.delete(channelId);
     }
   };
