@@ -15,8 +15,6 @@ import {
   Alert,
   Animated,
   SafeAreaView,
-  Modal,
-  TouchableOpacity,
 } from "react-native";
 import {
   loadCachedStreams,
@@ -52,11 +50,8 @@ const ANIMATION_DURATION = 200;
 const CARD_HEIGHT = 140;
 const CHANNEL_CARD_HEIGHT = 140;
 
-const FEATURED_CARD_HEIGHT = 180;
-
 export default function GamesScreen() {
   const [list, setList] = useState<LiveItem[]>([]);
-  const [featuredMatches, setFeaturedMatches] = useState<LiveItem[]>([]);
   const [itemLoadingStates, setItemLoadingStates] = useState<
     Map<string, ItemLoadingState>
   >(new Map());
@@ -76,8 +71,6 @@ export default function GamesScreen() {
   const [sessionStatus, setSessionStatus] = useState<
     "idle" | "loading" | "completed" | "failed"
   >("idle");
-  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null);
-  const [showStreamModal, setShowStreamModal] = useState(false);
 
   const getItemLoadingState = useCallback(
     (id: string): ItemLoadingState => {
@@ -90,7 +83,7 @@ export default function GamesScreen() {
         }
       );
     },
-    [itemLoadingStates]
+    [itemLoadingStates],
   );
 
   const updateItemLoadingState = useCallback(
@@ -107,7 +100,7 @@ export default function GamesScreen() {
         return newMap;
       });
     },
-    []
+    [],
   );
 
   // Animation values
@@ -137,12 +130,11 @@ export default function GamesScreen() {
           }),
         ]);
 
-        const featured = liveData.filter((item) => item.isFeatured);
+        // Filter out featured matches - only get regular channels
         const regular = liveData.filter((item) => !item.isFeatured);
-        const generatedCategories = generateCategoriesFromData(liveData);
+        const generatedCategories = generateCategoriesFromData(regular);
 
-        setList(liveData);
-        setFeaturedMatches(featured);
+        setList(regular);
         setRegularChannels(regular);
         setCategories(generatedCategories);
 
@@ -155,8 +147,8 @@ export default function GamesScreen() {
 
         setChannels(processedChannels);
 
-        if (liveData.length > 0 && !isRefresh) {
-          const popularChannelIds = liveData.slice(0, 5).map((item) => item.id);
+        if (regular.length > 0 && !isRefresh) {
+          const popularChannelIds = regular.slice(0, 5).map((item) => item.id);
           setSessionStatus("loading");
 
           preloadSessions(popularChannelIds)
@@ -197,7 +189,7 @@ export default function GamesScreen() {
           [
             { text: "Retry", onPress: () => loadData(isRefresh) },
             { text: "Cancel", style: "cancel" },
-          ]
+          ],
         );
       } finally {
         setLoadingState((prev) => ({
@@ -207,7 +199,7 @@ export default function GamesScreen() {
         }));
       }
     },
-    [fadeAnim, slideAnim]
+    [fadeAnim, slideAnim],
   );
 
   const onRefresh = useCallback(() => {
@@ -218,9 +210,8 @@ export default function GamesScreen() {
 
   const filteredList = useMemo(() => {
     if (!selectedCategory) return regularChannels;
-    if (selectedCategory === "Featured") return featuredMatches;
     return regularChannels.filter((item) => item.category === selectedCategory);
-  }, [regularChannels, featuredMatches, selectedCategory]);
+  }, [regularChannels, selectedCategory]);
 
   const handleImageError = useCallback((uri: string) => {
     setImageErrors((prev) => new Set([...prev, uri]));
@@ -231,7 +222,7 @@ export default function GamesScreen() {
       title: string,
       channelId: string,
       isChannel = false,
-      streamUrl?: string
+      streamUrl?: string,
     ) => {
       const id = channelId.trim();
       if (!id) {
@@ -269,32 +260,7 @@ export default function GamesScreen() {
         Alert.alert("Stream Error", "Failed to load stream. Please try again.");
       }
     },
-    [navigation]
-  );
-
-  const openStreamModal = useCallback((matchId: string) => {
-    setSelectedMatchId(matchId);
-    setShowStreamModal(true);
-  }, []);
-
-  const selectStream = useCallback(
-    (
-      title: string,
-      matchId: string,
-      stream: { streamNo: number; m3u8: string | null }
-    ) => {
-      if (stream.m3u8) {
-        navigateToPlayer(title, matchId, false, stream.m3u8);
-      } else {
-        Alert.alert(
-          "Stream Error",
-          `Stream ${stream.streamNo} is unavailable.`
-        );
-      }
-      setShowStreamModal(false);
-      setSelectedMatchId(null);
-    },
-    [navigateToPlayer]
+    [navigation],
   );
 
   const getFormattedTime = useCallback((dateString: string) => {
@@ -416,7 +382,7 @@ export default function GamesScreen() {
       itemErrors,
       navigateToPlayer,
       getSportIcon,
-    ]
+    ],
   );
 
   const renderChannelAction = (id: string) => {
@@ -506,7 +472,7 @@ export default function GamesScreen() {
       itemErrors,
       navigateToPlayer,
       handleImageError,
-    ]
+    ],
   );
 
   const renderCategoryFilter = useCallback(
@@ -568,7 +534,7 @@ export default function GamesScreen() {
         ))}
       </ScrollView>
     ),
-    [categories, selectedCategory, getSportIcon]
+    [categories, selectedCategory, getSportIcon],
   );
 
   const renderEmptyState = useCallback(
@@ -585,179 +551,8 @@ export default function GamesScreen() {
         </Pressable>
       </View>
     ),
-    [showChannels, loadData]
+    [showChannels, loadData],
   );
-
-  const renderFeaturedMatch = useCallback(
-    ({ item, index }: { item: LiveItem; index: number }) => {
-      const itemId = String(item.id);
-      const isDisabled = loadingItems.has(itemId);
-
-      return (
-        <Animated.View
-          style={[
-            styles.featuredCardWrapper,
-            { opacity: fadeAnim, transform: [{ translateY: slideAnim }] },
-          ]}
-        >
-          <Pressable
-            style={({ pressed }) => [
-              styles.featuredCard,
-              pressed && styles.cardPressed,
-              { opacity: isDisabled ? 0.6 : 1 },
-            ]}
-            onPress={() => !isDisabled && openStreamModal(itemId)}
-            disabled={isDisabled}
-            android_ripple={{ color: "rgba(255, 107, 53, 0.2)" }}
-          >
-            <View style={styles.featuredImageContainer}>
-              <Image
-                source={{
-                  uri:
-                    item.logo ||
-                    "https://via.placeholder.com/400x200?text=Featured+Match",
-                }}
-                style={styles.featuredMatchImage}
-                onError={() => handleImageError(item.logo || "")}
-                defaultSource={require("../../assets/images/HomeLogo.png")}
-              />
-              <View style={styles.featuredOverlay} />
-              <View style={styles.featuredBadge}>
-                <FontAwesome name="star" size={12} color="#FFFFFF" />
-                <Text style={styles.featuredBadgeText}>FEATURED</Text>
-              </View>
-              <View style={styles.featuredMatchInfo}>
-                <Text style={styles.featuredMatchTitle} numberOfLines={2}>
-                  {item.match}
-                </Text>
-                <View style={[styles.channelThumb, styles.placeholderImage]}>
-                  <FontAwesome name="television" size={24} color="#FF6B35" />
-                </View>
-              </View>
-              <View style={styles.channelOverlay} />
-              <View style={styles.channelQualityBadge}>
-                <Text style={styles.qualityText}>LIVE</Text>
-              </View>
-              <View style={styles.channelInfo}>
-                <Text style={styles.channelName} numberOfLines={1}>
-                  {item.channels?.[0]?.name || "Premium Stream"}
-                </Text>
-                {renderMatchAction(itemId)}
-              </View>
-            </View>
-          </Pressable>
-        </Animated.View>
-      );
-    },
-    [
-      fadeAnim,
-      slideAnim,
-      imageErrors,
-      loadingItems,
-      itemErrors,
-      openStreamModal,
-      handleImageError,
-    ]
-  );
-
-  const renderStreamModal = useCallback(() => {
-    const selectedMatch = featuredMatches.find(
-      (item) => item.id === selectedMatchId
-    );
-    if (!selectedMatch || !selectedMatch.streams) return null;
-
-    return (
-      <Modal
-        animationType="fade"
-        transparent={true}
-        visible={showStreamModal}
-        onRequestClose={() => setShowStreamModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>
-              Select Stream for {selectedMatch.match}
-            </Text>
-            {selectedMatch.streams.length === 0 ? (
-              <Text style={styles.modalEmptyText}>
-                No English streams available
-              </Text>
-            ) : (
-              selectedMatch.streams.map((stream) => (
-                <TouchableOpacity
-                  key={stream.streamNo}
-                  style={[
-                    styles.streamOption,
-                    !stream.m3u8 && styles.streamOptionDisabled,
-                  ]}
-                  onPress={() =>
-                    stream.m3u8 &&
-                    selectStream(selectedMatch.match, selectedMatchId!, stream)
-                  }
-                  disabled={!stream.m3u8}
-                >
-                  <Text style={styles.streamOptionText}>
-                    Stream {stream.streamNo} {stream.hd ? "(HD)" : "(SD)"} -{" "}
-                    {stream.viewers} viewers
-                  </Text>
-                  {!stream.m3u8 && (
-                    <FontAwesome
-                      name="exclamation-circle"
-                      size={16}
-                      color="#FF6B35"
-                    />
-                  )}
-                </TouchableOpacity>
-              ))
-            )}
-            <TouchableOpacity
-              style={styles.modalCloseButton}
-              onPress={() => setShowStreamModal(false)}
-            >
-              <Text style={styles.modalCloseButtonText}>Close</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    );
-  }, [selectedMatchId, featuredMatches, showStreamModal, selectStream]);
-
-  const renderFeaturedSection = useCallback(() => {
-    if (featuredMatches.length === 0) return null;
-
-    return (
-      <View style={styles.featuredSection}>
-        <View style={styles.featuredSectionHeader}>
-          <View style={styles.featuredHeaderLeft}>
-            <FontAwesome name="star" size={20} color="#FF6B35" />
-            <Text style={styles.featuredSectionTitle}>Featured Matches</Text>
-          </View>
-          <Text style={styles.featuredCount}>
-            {featuredMatches.length} live
-          </Text>
-        </View>
-
-        <FlatList
-          data={featuredMatches}
-          renderItem={renderFeaturedMatch}
-          keyExtractor={(item, index) => `featured_${item.id}_${index}`}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.featuredScrollContent}
-          ItemSeparatorComponent={() => (
-            <View style={styles.featuredSeparator} />
-          )}
-          snapToInterval={300}
-          decelerationRate="fast"
-          getItemLayout={(data, index) => ({
-            length: 280,
-            offset: 280 * index,
-            index,
-          })}
-        />
-      </View>
-    );
-  }, [featuredMatches, renderFeaturedMatch]);
 
   const renderStatsHeader = useCallback(() => {
     const count = showChannels ? channels.length : filteredList.length;
@@ -766,20 +561,12 @@ export default function GamesScreen() {
     return (
       <View style={styles.header}>
         <Text style={styles.headerTitle}>
-          {showChannels
-            ? "Live TV Channels"
-            : selectedCategory === "Featured"
-            ? "Featured Matches"
-            : "Live Sports"}
+          {showChannels ? "Live TV Channels" : "Live Sports"}
         </Text>
         <View style={styles.headerStats}>
           <View style={styles.statsItem}>
             <Text style={styles.statsNumber}>{count}</Text>
-            <Text style={styles.statsLabel}>
-              {selectedCategory === "Featured"
-                ? "featured matches"
-                : `live ${label}`}
-            </Text>
+            <Text style={styles.statsLabel}>live {label}</Text>
           </View>
           <View style={styles.liveIndicatorHeader}>
             <View style={styles.pulseDot} />
@@ -788,7 +575,7 @@ export default function GamesScreen() {
         </View>
       </View>
     );
-  }, [showChannels, channels.length, filteredList.length, selectedCategory]);
+  }, [showChannels, channels.length, filteredList.length]);
 
   useEffect(() => {
     // Load cached streams on mount
@@ -800,7 +587,7 @@ export default function GamesScreen() {
       if (!loadingState.initial) {
         loadData(true);
       }
-    }, [loadData, loadingState.initial])
+    }, [loadData, loadingState.initial]),
   );
 
   if (loadingState.initial) {
@@ -915,7 +702,6 @@ export default function GamesScreen() {
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
         >
-          {featuredMatches.length > 0 && renderFeaturedSection()}
           {categories.length > 0 && renderCategoryFilter()}
           {renderStatsHeader()}
           {filteredList.length > 0
@@ -927,7 +713,6 @@ export default function GamesScreen() {
             : renderEmptyState()}
         </ScrollView>
       )}
-      {renderStreamModal()}
     </SafeAreaView>
   );
 }
@@ -1042,114 +827,6 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: "#FFFFFF",
-  },
-  featuredSection: {
-    marginBottom: 32,
-    paddingTop: 8,
-  },
-  featuredSectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    marginBottom: 16,
-  },
-  featuredHeaderLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  featuredSectionTitle: {
-    fontSize: 24,
-    fontWeight: "900",
-    color: "#FFFFFF",
-    marginLeft: 12,
-  },
-  featuredCount: {
-    fontSize: 14,
-    color: "#FF6B35",
-    fontWeight: "600",
-    backgroundColor: "rgba(255, 107, 53, 0.1)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-  },
-  featuredScrollContent: {
-    paddingLeft: 20,
-    paddingRight: 20,
-  },
-  featuredSeparator: {
-    width: 16,
-  },
-  featuredCardWrapper: {
-    width: 280,
-  },
-  featuredCard: {
-    height: FEATURED_CARD_HEIGHT,
-    borderRadius: 20,
-    overflow: "hidden",
-    backgroundColor: "#1A1A1A",
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: { width: 0, height: 8 },
-        shadowOpacity: 0.3,
-        shadowRadius: 16,
-      },
-      android: {
-        elevation: 12,
-      },
-    }),
-    borderWidth: 2,
-    borderColor: "#FF6B35",
-  },
-  featuredImageContainer: {
-    flex: 1,
-    position: "relative",
-  },
-  featuredMatchImage: {
-    width: "100%",
-    height: "100%",
-    backgroundColor: "#2A2A2A",
-  },
-  featuredOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0,0,0,0.4)",
-  },
-  featuredBadge: {
-    position: "absolute",
-    top: 16,
-    left: 16,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FF6B35",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-  },
-  featuredBadgeText: {
-    color: "#FFFFFF",
-    fontSize: 12,
-    fontWeight: "bold",
-    marginLeft: 6,
-  },
-  featuredMatchInfo: {
-    position: "absolute",
-    bottom: 16,
-    left: 16,
-    right: 80,
-  },
-  featuredMatchTitle: {
-    fontSize: 18,
-    fontWeight: "900",
-    color: "#FFFFFF",
-    marginBottom: 8,
-    textShadowColor: "rgba(0,0,0,0.7)",
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 3,
   },
   filterScroll: {
     marginVertical: 12,
@@ -1498,60 +1175,5 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     fontSize: 16,
     marginLeft: 8,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.7)",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  modalContent: {
-    backgroundColor: "#1A1A1A",
-    borderRadius: 16,
-    padding: 20,
-    width: screenWidth * 0.85,
-    maxHeight: screenHeight * 0.6,
-  },
-  modalTitle: {
-    fontSize: 20,
-    fontWeight: "bold",
-    color: "#FFFFFF",
-    marginBottom: 16,
-    textAlign: "center",
-  },
-  modalEmptyText: {
-    fontSize: 16,
-    color: "#888888",
-    textAlign: "center",
-    marginBottom: 16,
-  },
-  streamOption: {
-    padding: 12,
-    borderRadius: 8,
-    backgroundColor: "#2A2A2A",
-    marginBottom: 8,
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  streamOptionDisabled: {
-    opacity: 0.5,
-  },
-  streamOptionText: {
-    fontSize: 16,
-    color: "#FFFFFF",
-    fontWeight: "500",
-  },
-  modalCloseButton: {
-    backgroundColor: "#FF6B35",
-    padding: 12,
-    borderRadius: 8,
-    alignItems: "center",
-    marginTop: 8,
-  },
-  modalCloseButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "bold",
   },
 });
