@@ -14,7 +14,6 @@ export default {
       resizeMode: "cover",
       backgroundColor: "#000000",
     },
-    newArchEnabled: false,
     ios: {
       supportsTablet: true,
       bundleIdentifier: "com.zile.zileWatch",
