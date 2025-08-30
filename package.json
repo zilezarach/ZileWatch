@@ -26,7 +26,6 @@
     "axios": "^1.7.8",
     "buffer": "^6.0.3",
     "dotenv": "^16.4.7",
-    "eas-cli": "^15.0.9",
     "expo": "53.0.22",
     "expo-av": "~15.1.7",
     "expo-blur": "~14.1.5",
@@ -37,7 +36,6 @@
     "expo-haptics": "~14.1.4",
     "expo-linking": "~7.1.7",
     "expo-media-library": "~17.1.7",
-    "expo-modules-core": "^2.2.2",
     "expo-router": "~5.1.5",
     "expo-screen-orientation": "~8.1.7",
     "expo-secure-store": "~14.2.4",
@@ -61,9 +59,11 @@
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",
     "react-native-share": "^12.0.3",
+    "react-native-svg": "15.11.2",
     "react-native-video": "^6.9.0",
     "react-native-web": "^0.20.0",
-    "react-native-webview": "13.13.5"
+    "react-native-webview": "13.13.5",
+    "babel-plugin-module-resolver": "^5.0.2"
   },
   "devDependencies": {
     "@babel/core": "^7.25.2",

@@ -15,10 +15,10 @@ import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { RootStackParamList } from "@/types/navigation";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import streamingService, { StreamingInfo } from "@/utils/streamingService";
+import streamingService, { StreamingInfo } from "../../utils/streamingService";
 import axios from "axios";
 import Constants from "expo-constants";
-import { Episode } from "@/types/models";
+import { Episode } from "../../types/models";
 
 type EpisodeListRouteProp = RouteProp<RootStackParamList, "EpisodeList">;
 
@@ -61,13 +61,13 @@ export default function EpisodeListScreen() {
   const [selectedSource, setSelectedSource] = useState<any>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [currentEpisode, setCurrentEpisode] = useState<EpisodeItem | null>(
-    null
+    null,
   );
   const [error, setError] = useState<string | null>(null);
 
   // New state for source switching
   const [selectedSourceType, setSelectedSourceType] = useState<SourceType>(
-    useFallback ? "fallback" : "primary"
+    useFallback ? "fallback" : "primary",
   );
   const [sourceModalVisible, setSourceModalVisible] = useState(false);
   const [streamLoading, setStreamLoading] = useState(false);
@@ -119,12 +119,12 @@ export default function EpisodeListScreen() {
       if (useFallback) {
         episodesData = await streamingService.getEpisodeTMBD(
           tv_id,
-          seasonNumberForApi
+          seasonNumberForApi,
         );
       } else {
         const resp = await axios.get<{ episodes: EpisodeItem[] }>(
           `${Constants.expoConfig?.extra?.API_Backend}/movie/${slug}-${tv_id}/episodes`,
-          { params: { seasonId } }
+          { params: { seasonId } },
         );
         episodesData = resp.data.episodes.map((e: any) => ({
           id: e.id.toString(),
@@ -172,7 +172,7 @@ export default function EpisodeListScreen() {
       const resp = await streamingService.getEpisodeSources(
         tv_id.toString(),
         episodeId,
-        slug
+        slug,
       );
 
       if (resp.servers && resp.servers.length > 0) {
@@ -181,7 +181,7 @@ export default function EpisodeListScreen() {
         // Auto-select preferred source
         const preferred =
           resp.servers.find(
-            (s) => s.name.toLowerCase().includes("vidcloud") || s.isVidstream
+            (s) => s.name.toLowerCase().includes("vidcloud") || s.isVidstream,
           ) || resp.servers[0];
 
         setSelectedSource(preferred);
@@ -241,7 +241,7 @@ export default function EpisodeListScreen() {
   async function withRetries<T>(
     fn: () => Promise<T>,
     maxRetries: number = 3,
-    delayMs: number = 2000
+    delayMs: number = 2000,
   ): Promise<T> {
     let lastError: any;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -261,7 +261,7 @@ export default function EpisodeListScreen() {
     try {
       setStreamLoading(true);
       console.log(
-        `EpisodeList: Starting stream for episode ${ep.id} (Number: ${ep.number}), sourceType: ${selectedSourceType}`
+        `EpisodeList: Starting stream for episode ${ep.id} (Number: ${ep.number}), sourceType: ${selectedSourceType}`,
       );
       const fetchStream = async () => {
         let info: StreamingInfo;
@@ -276,7 +276,7 @@ export default function EpisodeListScreen() {
               true, // vidfastOnly
               false, // useFallback
               seasonNumberForApi.toString(), // seasonNumber
-              (ep.episode_number || ep.number || 0).toString() // episodeNumber
+              (ep.episode_number || ep.number || 0).toString(), // episodeNumber
             );
             break;
           case "wootly": // New case for wootly
@@ -289,7 +289,7 @@ export default function EpisodeListScreen() {
               false,
               seasonNumberForApi.toString(),
               (ep.episode_number || ep.number || 0).toString(),
-              true
+              true,
             );
             break;
           case "fallback":
@@ -303,7 +303,7 @@ export default function EpisodeListScreen() {
               false, // vidfastOnly
               true, // useFallback
               seasonNumberForApi.toString(), // seasonNumber
-              (ep.episode_number || ep.number || 0).toString() // episodeNumber
+              (ep.episode_number || ep.number || 0).toString(), // episodeNumber
             );
             break;
         }
@@ -320,8 +320,8 @@ export default function EpisodeListScreen() {
         selectedSourceType === "vidfast"
           ? "Vidfast"
           : selectedSourceType === "wootly"
-          ? "Wootly"
-          : "Source One";
+            ? "Wootly"
+            : "Source One";
       navigation.navigate("Stream", {
         mediaType: "tvSeries",
         id: tv_id.toString(),
@@ -338,7 +338,7 @@ export default function EpisodeListScreen() {
       console.error("EpisodeList: Stream error:", err);
       Alert.alert(
         "Error",
-        `Failed to start stream: ${err.message || "Unknown error"}`
+        `Failed to start stream: ${err.message || "Unknown error"}`,
       );
     } finally {
       setStreamLoading(false);

@@ -17,14 +17,14 @@ import {
 } from "react-native";
 import { RouteProp, useRoute, useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { RootStackParamList } from "@/types/navigation";
+import { RootStackParamList } from "../../types/navigation";
 import * as Haptics from "expo-haptics";
 import axios from "axios";
 import Constants from "expo-constants";
 import { FontAwesome, MaterialIcons } from "@expo/vector-icons";
-import streamingService from "@/utils/streamingService";
-import tmdbDetailsService from "@/utils/detailsService";
-import { StreamingInfo } from "@/utils/streamingService";
+import streamingService from "../../utils/streamingService";
+import tmdbDetailsService from "../../utils/detailsService";
+import { StreamingInfo } from "../../utils/streamingService";
 
 import type { IconProps } from "@expo/vector-icons/build/createIconSet";
 
@@ -72,7 +72,7 @@ export default function MovieDetail(): JSX.Element {
   const [loading, setLoading] = useState(true);
   const [streamLoading, setStreamLoading] = useState(false);
   const [activeStreamSource, setActiveStreamSource] = useState<string | null>(
-    null
+    null,
   );
   const [movieDetails, setMovieDetails] = useState<MovieDetails | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -107,7 +107,7 @@ export default function MovieDetail(): JSX.Element {
   async function withRetries<T>(
     fn: () => Promise<T>,
     maxRetries: number = 3,
-    delayMs: number = 2000
+    delayMs: number = 2000,
   ): Promise<T> {
     let lastError: any;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -149,14 +149,14 @@ export default function MovieDetail(): JSX.Element {
         console.log("Primary API - effectiveSlug:", effectiveSlug);
         console.log(
           "Primary API URL:",
-          `${Constants.expoConfig?.extra?.API_Backend}/movie/${effectiveSlug}-${movie_id}`
+          `${Constants.expoConfig?.extra?.API_Backend}/movie/${effectiveSlug}-${movie_id}`,
         );
 
         const response = await axios.get(
           `${Constants.expoConfig?.extra?.API_Backend}/movie/${effectiveSlug}-${movie_id}`,
           {
             timeout: 10000,
-          }
+          },
         );
         setMovieDetails(response.data);
       }
@@ -188,7 +188,7 @@ export default function MovieDetail(): JSX.Element {
   }, [fetchMovieDetails]);
 
   const handleStreamAction = async (
-    sourceType: "tmdb" | "vidfast" | "wootly"
+    sourceType: "tmdb" | "vidfast" | "wootly",
   ) => {
     if (Platform.OS !== "web") {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
@@ -208,7 +208,7 @@ export default function MovieDetail(): JSX.Element {
               movieIdStr,
               undefined,
               false,
-              true
+              true,
             );
           case "wootly":
             return await streamingService.getMovieStreamingUrl(
@@ -216,14 +216,14 @@ export default function MovieDetail(): JSX.Element {
               initialSlug,
               useFallback,
               false,
-              true
+              true,
             );
           case "tmdb":
           default:
             return await streamingService.getMovieStreamingUrl(
               movieIdStr,
               initialSlug,
-              true
+              true,
             );
         }
       };
@@ -246,8 +246,8 @@ export default function MovieDetail(): JSX.Element {
           sourceType === "vidfast"
             ? "Vidfast"
             : sourceType === "wootly"
-            ? "Wootly"
-            : info.selectedServer?.name,
+              ? "Wootly"
+              : info.selectedServer?.name,
         slug: initialSlug,
         subtitles: info.subtitles?.map((sub) => ({
           file: sub.file,
@@ -264,7 +264,7 @@ export default function MovieDetail(): JSX.Element {
       Alert.alert(
         "Streaming Error",
         `Unable to get ${sourceType} streaming information. Try another source.`,
-        [{ text: "OK" }]
+        [{ text: "OK" }],
       );
     } finally {
       setStreamLoading(false);
@@ -361,7 +361,7 @@ export default function MovieDetail(): JSX.Element {
     onPress: () => void,
     sourceType: "tmdb" | "vidfast" | "wootly",
     style?: any,
-    icon?: MaterialIconName
+    icon?: MaterialIconName,
   ) => (
     <TouchableOpacity
       style={[styles.watchButton, style]}
@@ -391,7 +391,7 @@ export default function MovieDetail(): JSX.Element {
     const ratingStat = movieDetails?.stats?.find(
       (stat) =>
         stat.name.toLowerCase().includes("rating") ||
-        stat.name.toLowerCase().includes("imdb")
+        stat.name.toLowerCase().includes("imdb"),
     );
     return ratingStat?.value;
   };
@@ -473,7 +473,7 @@ export default function MovieDetail(): JSX.Element {
               () => handleStreamAction("tmdb"),
               "tmdb",
               styles.primaryButton,
-              "movie"
+              "movie",
             )}
           </View>
 
@@ -483,7 +483,7 @@ export default function MovieDetail(): JSX.Element {
               () => handleStreamAction("vidfast"),
               "vidfast",
               styles.secondaryButton,
-              "hd"
+              "hd",
             )}
           </View>
 
@@ -493,7 +493,7 @@ export default function MovieDetail(): JSX.Element {
               () => handleStreamAction("wootly"),
               "wootly",
               styles.thirdButton,
-              "4k"
+              "4k",
             )}
           </View>
         </View>

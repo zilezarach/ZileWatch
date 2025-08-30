@@ -18,7 +18,7 @@ import { useFocusEffect, useIsFocused } from "@react-navigation/native";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import Slider from "@react-native-community/slider";
-import { RootStackParamList } from "@/types/navigation";
+import { RootStackParamList } from "../../types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "LivePlayer">;
 
@@ -71,7 +71,7 @@ export default function PlayerScreen({ navigation }: Props) {
       handleOrientation(orientation);
     })();
     subscription = ScreenOrientation.addOrientationChangeListener(
-      ({ orientationInfo }) => handleOrientation(orientationInfo.orientation)
+      ({ orientationInfo }) => handleOrientation(orientationInfo.orientation),
     );
     return () => subscription.remove();
   }, []);
@@ -100,14 +100,14 @@ export default function PlayerScreen({ navigation }: Props) {
       };
       BackHandler.addEventListener("hardwareBackPress", onBack);
       return () => BackHandler.removeEventListener("hardwareBackPress", onBack);
-    }, [])
+    }, []),
   );
 
   const exitPlayer = async () => {
     try {
       await videoRef.current?.pauseAsync();
       await ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT_UP
+        ScreenOrientation.OrientationLock.PORTRAIT_UP,
       );
     } catch {}
     router.back();

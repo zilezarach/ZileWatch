@@ -19,8 +19,8 @@ import { Ionicons, MaterialIcons } from "@expo/vector-icons";
 import Constants from "expo-constants";
 import * as ScreenOrientation from "expo-screen-orientation";
 import * as Haptics from "expo-haptics";
-import streamingService from "@/utils/streamingService";
-import { RootStackParamList } from "@/types/navigation";
+import streamingService from "../../utils/streamingService";
+import { RootStackParamList } from "../../types/navigation";
 import { useFocusEffect } from "expo-router";
 import { useIsFocused } from "@react-navigation/native";
 
@@ -118,7 +118,7 @@ export default function StreamVideo() {
       return () => {
         BackHandler.removeEventListener("hardwareBackPress", onBackPress);
       };
-    }, [])
+    }, []),
   );
 
   useEffect(() => {
@@ -129,7 +129,7 @@ export default function StreamVideo() {
         setShouldPlayVideo(false);
       }
       ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT
+        ScreenOrientation.OrientationLock.PORTRAIT,
       ).catch(() => {});
     });
     return unsubscribe;
@@ -139,7 +139,7 @@ export default function StreamVideo() {
     return () => {
       cleanupVideo();
       ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT
+        ScreenOrientation.OrientationLock.PORTRAIT,
       ).catch(() => {});
     };
   }, []);
@@ -154,7 +154,7 @@ export default function StreamVideo() {
     await cleanupVideo();
     try {
       ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT
+        ScreenOrientation.OrientationLock.PORTRAIT,
       ).catch(() => {});
     } catch (error) {
       console.warn("Failed to lock orientation", error);
@@ -168,7 +168,7 @@ export default function StreamVideo() {
         const { seasonNumber, episodeNumber } = route.params;
         if (!seasonNumber || !episodeNumber) {
           throw new Error(
-            "Season and episode numbers are required for fallback"
+            "Season and episode numbers are required for fallback",
           );
         }
 
@@ -176,7 +176,7 @@ export default function StreamVideo() {
           await streamingService.getEpisodeStreamingUrlFallback(
             movieId.toString(),
             seasonNumber,
-            episodeNumber
+            episodeNumber,
           );
 
         setStreamUrl(streamingInfo.streamUrl);
@@ -200,8 +200,8 @@ export default function StreamVideo() {
         quality: server.name.toLowerCase().includes("hd")
           ? "HD"
           : server.name.toLowerCase().includes("4k")
-          ? "4K"
-          : undefined,
+            ? "4K"
+            : undefined,
       }));
 
       setAvailableSources(servers);
@@ -239,7 +239,7 @@ export default function StreamVideo() {
 
       const resp = await axios.get<{ sources: Array<{ src: string }> }>(
         `${BASE_URL}/movie/${effectiveSlug}-${movieId}/sources`,
-        { params, timeout: 30000 }
+        { params, timeout: 30000 },
       );
 
       const src = resp.data.sources?.[0]?.src;
@@ -276,7 +276,7 @@ export default function StreamVideo() {
   const autoRetry = async () => {
     if (availableSources.length > 0) {
       const currentIndex = availableSources.findIndex(
-        (s) => s.name === sourceName
+        (s) => s.name === sourceName,
       );
       const nextSource =
         availableSources[currentIndex + 1] || availableSources[0];
@@ -449,7 +449,7 @@ export default function StreamVideo() {
             style={styles.switchToVidfastButton}
             onPress={() => {
               const vidfastSource = availableSources.find(
-                (s) => s.name === "Vidfast"
+                (s) => s.name === "Vidfast",
               );
               if (vidfastSource) {
                 changeSource(vidfastSource.id, vidfastSource.name);

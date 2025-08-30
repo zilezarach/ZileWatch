@@ -26,10 +26,10 @@ import {
   preloadSessions,
   LiveItem,
   TVChannels,
-} from "@/utils/liveService";
+} from "../../utils/liveService";
 import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
-import { RootStackParamList } from "@/types/navigation";
+import { RootStackParamList } from "../../types/navigation";
 import { FontAwesome, FontAwesome5 } from "@expo/vector-icons";
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");

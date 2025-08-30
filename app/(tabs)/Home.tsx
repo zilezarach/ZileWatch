@@ -15,9 +15,9 @@ import {
 import {
   fetchPopularVids,
   fetchYouTubeSearchResults,
-} from "@/utils/apiService";
-import VideoList from "@/components/videoList";
-import ModalPick from "@/components/DownloadPrompt";
+} from "../../utils/apiService";
+import VideoList from "../../components/videoList";
+import ModalPick from "../../components/DownloadPrompt";
 import axios from "axios";
 import { DownloadContext } from "./_layout";
 import * as FileSystem from "expo-file-system";
@@ -76,7 +76,7 @@ export default function Home({ navigation }: any) {
       const updatedRecords = [newRecord, ...existingRecords];
       await AsyncStorage.setItem(
         "downloadedFiles",
-        JSON.stringify(updatedRecords)
+        JSON.stringify(updatedRecords),
       );
       // Optionally update local state if you want immediate feedback.
       // (If DownloadsScreen is separate, ensure it reloads on focus.)
@@ -144,7 +144,7 @@ export default function Home({ navigation }: any) {
         } else {
           Alert.alert(
             "Permission Denied",
-            "Cannot save files to gallery without permission."
+            "Cannot save files to gallery without permission.",
           );
         }
       }
@@ -302,7 +302,7 @@ export default function Home({ navigation }: any) {
       const ext = option === "video" ? "mp4" : "m4a";
       const filename = `${selectedVideo.title.replace(
         /[^a-z0-9]/gi,
-        "_"
+        "_",
       )}_${Date.now()}.${ext}`;
       const filepath = `${dir}${filename}`;
 
@@ -321,7 +321,7 @@ export default function Home({ navigation }: any) {
             ...prev,
             [downloadId]: { ...prev[downloadId], progress: percent },
           }));
-        }
+        },
       );
 
       // 3. Start download
@@ -390,7 +390,7 @@ export default function Home({ navigation }: any) {
 
       const filename = `${selectedVideo.title.replace(
         /[^a-z0-9]/gi,
-        "_"
+        "_",
       )}_${Date.now()}.mp4`;
       const filepath = `${dir}${filename}`;
 
@@ -408,7 +408,7 @@ export default function Home({ navigation }: any) {
             ...prev,
             [downloadId]: { ...prev[downloadId], progress: percent },
           }));
-        }
+        },
       );
 
       const result = await downloadResumable.downloadAsync();

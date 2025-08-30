@@ -19,7 +19,7 @@ import {
   useNavigation,
   useFocusEffect,
 } from "@react-navigation/native";
-import { RootStackParamList } from "@/types/navigation";
+import { RootStackParamList } from "../../types/navigation";
 import Constants from "expo-constants";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { Ionicons } from "@expo/vector-icons";
@@ -58,7 +58,7 @@ export default function VideoPlayer() {
       BackHandler.addEventListener("hardwareBackPress", onBackPress);
       return () =>
         BackHandler.removeEventListener("hardwareBackPress", onBackPress);
-    }, [])
+    }, []),
   );
 
   // Pause on blur
@@ -90,7 +90,7 @@ export default function VideoPlayer() {
           } else if (response.data.type === "separate_streams") {
             // Not directly playable
             setError(
-              "This video uses separate video/audio streams and cannot be streamed directly. Please download instead."
+              "This video uses separate video/audio streams and cannot be streamed directly. Please download instead.",
             );
           } else {
             setError("Unsupported stream type returned from server.");
@@ -189,7 +189,7 @@ export default function VideoPlayer() {
       const response = await axios.post(
         `${DOWNLOADER_API}/download-videos`,
         { url: videoUrl, format },
-        { responseType: "arraybuffer" }
+        { responseType: "arraybuffer" },
       );
       const downloadDir = `${FileSystem.documentDirectory}Downloads/`;
       const info = await FileSystem.getInfoAsync(downloadDir);
@@ -210,7 +210,7 @@ export default function VideoPlayer() {
         await MediaLibrary.createAlbumAsync(
           option === "video" ? "ZileWatch Videos" : "ZileWatch Audio",
           asset,
-          false
+          false,
         );
       }
       Alert.alert("Download Complete", `${option} saved successfully.`);

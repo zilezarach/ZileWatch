@@ -17,11 +17,11 @@ import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useNavigation } from "@react-navigation/native";
-import { RootStackParamList } from "@/types/navigation";
+import { RootStackParamList } from "../../types/navigation";
 import Constants from "expo-constants";
 import { FontAwesome } from "@expo/vector-icons";
-import streamingService, { SearchItem } from "@/utils/streamingService";
-import dataTMBD from "@/utils/detailsTmbd";
+import streamingService, { SearchItem } from "../../utils/streamingService";
+import dataTMBD from "../../utils/detailsTmbd";
 
 const { width } = Dimensions.get("window");
 const ITEM_WIDTH = width * 0.28;
@@ -112,7 +112,7 @@ export default function Movies(): JSX.Element {
         const results = await streamingService.searchContent(
           query,
           contentType,
-          true // Always use fallback (Source 2)
+          true, // Always use fallback (Source 2)
         );
         if (!isMounted.current) return;
         setMovies(results);
@@ -143,7 +143,7 @@ export default function Movies(): JSX.Element {
     // Check stats paths
     if (Array.isArray(item.stats)) {
       const hasSeasonsInfo = item.stats.some(
-        (stat: any) => stat.name === "seasons" || stat.name === "Seasons"
+        (stat: any) => stat.name === "seasons" || stat.name === "Seasons",
       );
       if (hasSeasonsInfo) return "tvSeries";
     }
