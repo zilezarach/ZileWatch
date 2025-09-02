@@ -8,6 +8,7 @@ const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 const TMBD_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
 const TMBD_URL = Constants.expoConfig?.extra?.TMBD_URL;
+
 export const EXTRA_URL =
   Constants.expoConfig?.extra?.extractorUrl ||
   (Constants.manifest as any)?.extra?.extractorUrl ||
@@ -70,7 +71,7 @@ api.interceptors.response.use(undefined, async (error: AxiosError) => {
     console.log(
       `[API] Retry ${config._retry}/${MAX_RETRIES} for ${
         config.url
-      } after ${delay.toFixed(0)}ms`
+      } after ${delay.toFixed(0)}ms`,
     );
 
     // Wait before retrying
@@ -227,7 +228,7 @@ function handleApiError(error: unknown, customMessage: string): never {
 
     if (status === 404) {
       throw new Error(
-        `Content not found: ${serverMessage || "Resource not available"}`
+        `Content not found: ${serverMessage || "Resource not available"}`,
       );
     } else if (status === 429) {
       throw new Error("Too many requests. Please try again later.");
@@ -235,21 +236,21 @@ function handleApiError(error: unknown, customMessage: string): never {
       throw new Error(`Server error (${status}): Please try again later.`);
     } else if (error.code === "ECONNABORTED" || error.code === "ETIMEDOUT") {
       throw new Error(
-        "Connection timed out. Please check your internet connection."
+        "Connection timed out. Please check your internet connection.",
       );
     }
 
     throw new Error(
       `${customMessage}: ${
         serverMessage || error.message || "Unknown API error"
-      }`
+      }`,
     );
   }
 
   throw new Error(
     `${customMessage}: ${
       error instanceof Error ? error.message : "Unknown error"
-    }`
+    }`,
   );
 }
 
@@ -257,7 +258,7 @@ function handleApiError(error: unknown, customMessage: string): never {
 export async function searchContent(
   query: string,
   contentType: "movie" | "tvSeries",
-  useFallback: boolean = false
+  useFallback: boolean = false,
 ): Promise<SearchItem[]> {
   if (useFallback) {
     // Determine the endpoint based on the content type.
@@ -307,7 +308,7 @@ export async function searchContent(
         `${Constants.expoConfig?.extra?.API_Backend}/content`,
         {
           params: { q: query, type: contentType },
-        }
+        },
       );
       if (res.data && res.data.items) {
         return res.data.items.map((item: any) => ({
@@ -332,7 +333,7 @@ export async function getMovieStreamingUrl(
   incomingSlug?: string,
   useFallback: boolean = false,
   vidfastOnly: boolean = false,
-  useWootly: boolean = false
+  useWootly: boolean = false,
 ): Promise<StreamingInfo> {
   if (vidfastOnly) {
     const vidfastUrl = `${EXTRA_URL}/vidfast/${movieId}`;
@@ -374,7 +375,7 @@ export async function getMovieStreamingUrl(
           }));
           if (otherLinks.length > 0) {
             console.warn(
-              "No .m3u8 links found, using first available link from extractor."
+              "No .m3u8 links found, using first available link from extractor.",
             );
             const firstLink = otherLinks[0];
             return {
@@ -386,7 +387,7 @@ export async function getMovieStreamingUrl(
             };
           }
           throw new Error(
-            "No playable .m3u8 (or any other) stream links found from extractor."
+            "No playable .m3u8 (or any other) stream links found from extractor.",
           );
         }
         let defaultStream =
@@ -403,7 +404,7 @@ export async function getMovieStreamingUrl(
         };
       } else {
         throw new Error(
-          `Fallback extractor returned no data or unsuccessful response for ${fallbackUrl}`
+          `Fallback extractor returned no data or unsuccessful response for ${fallbackUrl}`,
         );
       }
     } catch (error: any) {
@@ -420,7 +421,7 @@ export async function getMovieStreamingUrl(
     // 1) Fetch movie details
     console.log(`[API] Fetching movie details for ID: ${movieId}`);
     const detail = await api.get<MovieDetailResponse>(
-      `/movie/${incomingSlug ? `${incomingSlug}-${movieId}` : movieId}`
+      `/movie/${incomingSlug ? `${incomingSlug}-${movieId}` : movieId}`,
     );
 
     const { title, slug: returnedSlug, episodeId } = detail.data;
@@ -435,11 +436,11 @@ export async function getMovieStreamingUrl(
 
     // 3) Fetch servers
     console.log(
-      `[API] Fetching servers for movie: ${watchSlug}-${movieId}, episodeId: ${episodeId}`
+      `[API] Fetching servers for movie: ${watchSlug}-${movieId}, episodeId: ${episodeId}`,
     );
     const srv = await api.get<{ servers: ServerResponse[]; success?: boolean }>(
       `/movie/${watchSlug}-${movieId}/servers`,
-      { params: { episodeId } }
+      { params: { episodeId } },
     );
 
     if (!srv.data.success || !srv.data.servers?.length) {
@@ -454,13 +455,13 @@ export async function getMovieStreamingUrl(
 
     // 5) Fetch sources
     console.log(
-      `[API] Fetching sources for movie: ${watchSlug}-${movieId}, server: ${selectedServer.name}`
+      `[API] Fetching sources for movie: ${watchSlug}-${movieId}, server: ${selectedServer.name}`,
     );
     const src = await api.get<SourcesResponse>(
       `/movie/${watchSlug}-${movieId}/sources`,
       {
         params: { episodeId, serverId: selectedServer.id },
-      }
+      },
     );
 
     if (!src.data.success || !src.data.sources?.length) {
@@ -487,7 +488,7 @@ export async function getMovieStreamingUrl(
 export async function getEpisodeSources(
   seriesId: string,
   episodeId: string,
-  slug?: string
+  slug?: string,
 ): Promise<{ servers: ServerResponse[] }> {
   try {
     // If slug is provided, format it properly, otherwise just use seriesId
@@ -499,7 +500,7 @@ export async function getEpisodeSources(
       urlPath,
       {
         params: { episodeId },
-      }
+      },
     );
 
     if (!res.data.success || !res.data.servers?.length) {
@@ -517,7 +518,7 @@ export async function getEpisodeSources(
 // 3) Get seasons list for a series
 export async function getSeasons(
   seriesId: string,
-  incomingSlug?: string
+  incomingSlug?: string,
 ): Promise<SeasonItem[]> {
   try {
     if (!seriesId) {
@@ -529,7 +530,7 @@ export async function getSeasons(
     let baseSlug = incomingSlug || "";
     if (!baseSlug) {
       throw new Error(
-        "Slug is required for season requests - provide slug or series title"
+        "Slug is required for season requests - provide slug or series title",
       );
     }
 
@@ -540,7 +541,7 @@ export async function getSeasons(
     console.log(`[DEBUG] Fetching seasons at: ${watchSlug}-${seriesId}`);
 
     const res = await api.get<SeasonResponse>(
-      `/movie/${watchSlug}-${seriesId}/seasons`
+      `/movie/${watchSlug}-${seriesId}/seasons`,
     );
 
     // Handle API response
@@ -559,7 +560,7 @@ export async function getSeasons(
 export async function getEpisodesForSeason(
   seriesId: string,
   seasonId: string,
-  slug?: string
+  slug?: string,
 ): Promise<Episode[]> {
   try {
     if (!seasonId) {
@@ -571,7 +572,7 @@ export async function getEpisodesForSeason(
       `/movie/${slug}-${seriesId}/episodes`,
       {
         params: { seasonId },
-      }
+      },
     );
 
     if (!res.data.success || !res.data.episodes?.length) {
@@ -600,7 +601,7 @@ async function getWootlyStreamingUrl(
   useFallback: boolean = false,
   useWootly: boolean = false,
   seasonNumber?: string,
-  episodeNumber?: string
+  episodeNumber?: string,
 ): Promise<StreamingInfo> {
   if (!useWootly) throw new Error("Wootly not enabled");
 
@@ -679,13 +680,13 @@ export async function getEpisodeStreamingUrl(
   useFallback: boolean = false,
   seasonNumber?: string,
   episodeNumber?: string,
-  useWootly: boolean = false
+  useWootly: boolean = false,
 ): Promise<StreamingInfo> {
   // Handle Vidfast source
   if (vidfastOnly) {
     if (!seasonNumber || !episodeNumber) {
       throw new Error(
-        "Season and episode numbers are required for Vidfast streaming"
+        "Season and episode numbers are required for Vidfast streaming",
       );
     }
     const vidfastUrl = `${EXTRA_URL}/vidfast/${seriesId}/${seasonNumber}/${episodeNumber}`;
@@ -711,13 +712,13 @@ export async function getEpisodeStreamingUrl(
   if (useFallback) {
     if (!seasonNumber || !episodeNumber) {
       throw new Error(
-        "Season and episode numbers are required for fallback streaming"
+        "Season and episode numbers are required for fallback streaming",
       );
     }
     return getEpisodeStreamingUrlFallback(
       seriesId,
       seasonNumber,
-      episodeNumber
+      episodeNumber,
     );
   }
 
@@ -732,7 +733,7 @@ export async function getEpisodeStreamingUrl(
       useFallback,
       useWootly,
       seasonNumber,
-      episodeNumber
+      episodeNumber,
     );
   }
 
@@ -740,7 +741,7 @@ export async function getEpisodeStreamingUrl(
   try {
     if (!incomingSlug) {
       throw new Error(
-        "Slug is required for season requests - provide slug or series title"
+        "Slug is required for season requests - provide slug or series title",
       );
     }
     // Clean existing watch- prefix if present
@@ -749,7 +750,7 @@ export async function getEpisodeStreamingUrl(
     // Get series details for slug
     console.log(`[API] Fetching series details for ID: ${seriesId}`);
     const seriesDetail = await api.get<MovieDetailResponse>(
-      `/movie/${incomingSlug}-${seriesId}`
+      `/movie/${incomingSlug}-${seriesId}`,
     );
     if (!seriesDetail.data) {
       throw new Error(`Series with ID ${seriesId} not found`);
@@ -771,7 +772,7 @@ export async function getEpisodeStreamingUrl(
     }
     // Get sources
     console.log(
-      `[API] Fetching sources for episode: ${episodeId}, server: ${selectedServer.name}`
+      `[API] Fetching sources for episode: ${episodeId}, server: ${selectedServer.name}`,
     );
     const src = await api.get<SourcesResponse>(
       `/movie/${watchSlug}-${seriesId}/sources`,
@@ -780,7 +781,7 @@ export async function getEpisodeStreamingUrl(
           serverId: selectedServer.id,
           episodeId,
         },
-      }
+      },
     );
     if (!src.data.success || !src.data.sources?.length) {
       throw new Error("No playable sources found for this episode");
@@ -806,7 +807,7 @@ export async function getEpisodeStreamingUrl(
 }
 export async function getEpisodeTMBD(
   seriesId: string,
-  seasonNumber: string
+  seasonNumber: string,
 ): Promise<Episode[]> {
   try {
     const response = await axios.get(
@@ -816,7 +817,7 @@ export async function getEpisodeTMBD(
           api_key: TMBD_KEY,
           language: "en-US",
         },
-      }
+      },
     );
     if (response.data && response.data.episodes) {
       return response.data.episodes.map((ep: any) => ({
@@ -839,7 +840,7 @@ export async function getEpisodeTMBD(
 export async function getEpisodeStreamingUrlFallback(
   seriesId: string,
   seasonNumber: string,
-  episodeNumber: string
+  episodeNumber: string,
 ): Promise<StreamingInfo> {
   try {
     const fallbackUrl = `${EXTRA_URL}/tmdb/${seriesId}/${seasonNumber}/${episodeNumber}`;
@@ -866,7 +867,7 @@ export async function getEpisodeStreamingUrlFallback(
         }));
         if (otherLinks.length > 0) {
           console.warn(
-            "No .m3u8 links found, using first available link from extractor."
+            "No .m3u8 links found, using first available link from extractor.",
           );
           const firstLink = otherLinks[0];
           return {
@@ -878,7 +879,7 @@ export async function getEpisodeStreamingUrlFallback(
           };
         }
         throw new Error(
-          "No playable .m3u8 (or any other) stream links found from extractor."
+          "No playable .m3u8 (or any other) stream links found from extractor.",
         );
       }
 
@@ -897,7 +898,7 @@ export async function getEpisodeStreamingUrlFallback(
       };
     } else {
       throw new Error(
-        `Fallback extractor returned no data or unsuccessful response for ${fallbackUrl}`
+        `Fallback extractor returned no data or unsuccessful response for ${fallbackUrl}`,
       );
     }
   } catch (error: any) {

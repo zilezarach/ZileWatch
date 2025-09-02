@@ -61,7 +61,7 @@ export default function DownloadsScreen() {
     useCallback(() => {
       setLoading(true);
       loadDownloads();
-    }, [])
+    }, []),
   );
 
   const onRefresh = () => {
@@ -177,11 +177,11 @@ export default function DownloadsScreen() {
           onPress: async () => {
             try {
               const updatedRecords = downloadRecords.filter(
-                (record) => record.id !== id
+                (record) => record.id !== id,
               );
               await AsyncStorage.setItem(
                 "downloadedFiles",
-                JSON.stringify(updatedRecords)
+                JSON.stringify(updatedRecords),
               );
               setDownloadRecords(updatedRecords);
               ToastAndroid.show("Download record removed", ToastAndroid.SHORT);
@@ -205,16 +205,16 @@ export default function DownloadsScreen() {
                 }
               }
               const updatedRecords = downloadRecords.filter(
-                (record) => record.id !== id
+                (record) => record.id !== id,
               );
               await AsyncStorage.setItem(
                 "downloadedFiles",
-                JSON.stringify(updatedRecords)
+                JSON.stringify(updatedRecords),
               );
               setDownloadRecords(updatedRecords);
               ToastAndroid.show(
                 "Download and file removed",
-                ToastAndroid.SHORT
+                ToastAndroid.SHORT,
               );
             } catch (error) {
               console.error("Error deleting file and record:", error);
@@ -222,7 +222,7 @@ export default function DownloadsScreen() {
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -306,7 +306,7 @@ export default function DownloadsScreen() {
                     try {
                       for (const record of downloadRecords) {
                         const fileInfo = await FileSystem.getInfoAsync(
-                          record.fileUri
+                          record.fileUri,
                         );
                         if (fileInfo.exists) {
                           await FileSystem.deleteAsync(record.fileUri);
@@ -316,7 +316,7 @@ export default function DownloadsScreen() {
                       setDownloadRecords([]);
                       ToastAndroid.show(
                         "Downloads cleared",
-                        ToastAndroid.SHORT
+                        ToastAndroid.SHORT,
                       );
                     } catch (error) {
                       console.error("Error clearing downloads:", error);
@@ -324,7 +324,7 @@ export default function DownloadsScreen() {
                     }
                   },
                 },
-              ]
+              ],
             );
           }}
         >

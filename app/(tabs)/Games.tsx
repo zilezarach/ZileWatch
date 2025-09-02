@@ -112,6 +112,7 @@ export default function GamesScreen() {
 
   const loadData = useCallback(
     async (isRefresh = false) => {
+      console.log("Starting loadData, isRefresh:", isRefresh);
       try {
         setLoadingState((prev) => ({
           ...prev,
@@ -119,20 +120,19 @@ export default function GamesScreen() {
           error: null,
         }));
 
-        const [liveData, channelData] = await Promise.all([
-          fetchLiveSports().catch((err) => {
-            console.error("Failed to fetch live sports:", err);
-            return [] as LiveItem[];
-          }),
-          fetchChannels().catch((err) => {
-            console.error("Failed to fetch channels:", err);
-            return [] as TVChannels[];
-          }),
-        ]);
+        console.log("Fetching live sports...");
+        const liveData = await fetchLiveSports();
+        console.log("Live sports data:", liveData);
 
-        // Filter out featured matches - only get regular channels
+        console.log("Fetching channels...");
+        const channelData = await fetchChannels();
+        console.log("Channel data:", channelData);
+
         const regular = liveData.filter((item) => !item.isFeatured);
+        console.log("Regular channels:", regular);
+
         const generatedCategories = generateCategoriesFromData(regular);
+        console.log("Generated categories:", generatedCategories);
 
         setList(regular);
         setRegularChannels(regular);
@@ -144,11 +144,13 @@ export default function GamesScreen() {
           image: channel.image || "",
           streamUrl: channel.streamUrl || "",
         }));
+        console.log("Processed channels:", processedChannels);
 
         setChannels(processedChannels);
 
         if (regular.length > 0 && !isRefresh) {
           const popularChannelIds = regular.slice(0, 5).map((item) => item.id);
+          console.log("Preloading sessions for:", popularChannelIds);
           setSessionStatus("loading");
 
           preloadSessions(popularChannelIds)
@@ -177,7 +179,7 @@ export default function GamesScreen() {
           ]).start();
         }
       } catch (error: any) {
-        console.error("Critical error loading data:", error);
+        console.error("Critical error loading data:", error, error.stack);
         setLoadingState((prev) => ({
           ...prev,
           error: error.message || "Failed to load content",
@@ -185,13 +187,14 @@ export default function GamesScreen() {
 
         Alert.alert(
           "Connection Error",
-          "Unable to load live content. Please check your internet connection.",
+          `Unable to load live content: ${error.message || "Please check your internet connection."}`,
           [
             { text: "Retry", onPress: () => loadData(isRefresh) },
             { text: "Cancel", style: "cancel" },
           ],
         );
       } finally {
+        console.log("loadData completed, loadingState:", loadingState);
         setLoadingState((prev) => ({
           ...prev,
           initial: false,

@@ -10,8 +10,9 @@ import {
   Platform,
   BackHandler,
   Animated,
+  Alert,
 } from "react-native";
-import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
+import { Video, ResizeMode, AVPlaybackStatus, Audio } from "expo-av";
 import { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as ScreenOrientation from "expo-screen-orientation";
 import { useFocusEffect, useIsFocused } from "@react-navigation/native";
@@ -24,26 +25,71 @@ type Props = NativeStackScreenProps<RootStackParamList, "LivePlayer">;
 
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
+// Constants for better control
+const CONTROLS_TIMEOUT = 5000; // Increased from 3000 for better UX
+const RETRY_DELAY = 2000;
+const MAX_RETRIES = 3;
+
 export default function PlayerScreen({ navigation }: Props) {
   const { title = "", url = "" } = useLocalSearchParams<{
     title: string;
     url: string;
   }>();
+
   const router = useRouter();
   const videoRef = useRef<Video>(null);
   const isFocused = useIsFocused();
 
+  // State management
   const [status, setStatus] = useState<AVPlaybackStatus | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const controlsOpacity = useRef(new Animated.Value(1)).current;
+  const [isLoading, setIsLoading] = useState(true);
+  const [retryCount, setRetryCount] = useState(0);
+  const [volume, setVolume] = useState(1.0);
+  const [playbackRate, setPlaybackRate] = useState(1.0);
+  const [error, setError] = useState<string | null>(null);
+  const [streamStats, setStreamStats] = useState({
+    bitrate: 0,
+    bufferHealth: 0,
+    droppedFrames: 0,
+  });
 
-  // Auto-hide controls
+  const controlsOpacity = useRef(new Animated.Value(1)).current;
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Configure audio session for background playback
   useEffect(() => {
-    if (status && status.isLoaded && status.isPlaying && showControls) {
-      const timer = setTimeout(hideControls, 3000);
-      return () => clearTimeout(timer);
+    (async () => {
+      try {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: false,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: true,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+      } catch (e) {
+        console.warn("Failed to set audio mode:", e);
+      }
+    })();
+  }, []);
+
+  // Auto-hide controls with better timeout management
+  useEffect(() => {
+    if (controlsTimeoutRef.current) {
+      clearTimeout(controlsTimeoutRef.current);
     }
+
+    if (status && status.isLoaded && status.isPlaying && showControls) {
+      controlsTimeoutRef.current = setTimeout(hideControls, CONTROLS_TIMEOUT);
+    }
+
+    return () => {
+      if (controlsTimeoutRef.current) {
+        clearTimeout(controlsTimeoutRef.current);
+      }
+    };
   }, [status, showControls]);
 
   const hideControls = () => {
@@ -66,13 +112,16 @@ export default function PlayerScreen({ navigation }: Props) {
   // Handle orientation
   useEffect(() => {
     let subscription: ScreenOrientation.Subscription;
+
     (async () => {
       const orientation = await ScreenOrientation.getOrientationAsync();
       handleOrientation(orientation);
     })();
+
     subscription = ScreenOrientation.addOrientationChangeListener(
       ({ orientationInfo }) => handleOrientation(orientationInfo.orientation),
     );
+
     return () => subscription.remove();
   }, []);
 
@@ -98,23 +147,90 @@ export default function PlayerScreen({ navigation }: Props) {
         exitPlayer();
         return true;
       };
-      BackHandler.addEventListener("hardwareBackPress", onBack);
-      return () => BackHandler.removeEventListener("hardwareBackPress", onBack);
+      const subscription = BackHandler.addEventListener(
+        "hardwareBackPress",
+        onBack,
+      );
+      return () => subscription.remove();
     }, []),
   );
 
   const exitPlayer = async () => {
     try {
       await videoRef.current?.pauseAsync();
+      await videoRef.current?.unloadAsync();
       await ScreenOrientation.lockAsync(
         ScreenOrientation.OrientationLock.PORTRAIT_UP,
       );
-    } catch {}
+      StatusBar.setHidden(false, "slide");
+    } catch (e) {
+      console.warn("Error cleaning up player:", e);
+    }
     router.back();
   };
 
   const onPlaybackStatusUpdate = (playbackStatus: AVPlaybackStatus) => {
     setStatus(playbackStatus);
+
+    if (playbackStatus.isLoaded) {
+      setIsLoading(false);
+      setError(null);
+      setRetryCount(0);
+
+      // Update stream stats for HLS
+      if (
+        "playableDurationMillis" in playbackStatus &&
+        playbackStatus.playableDurationMillis !== undefined
+      ) {
+        const bufferHealth =
+          playbackStatus.playableDurationMillis - playbackStatus.positionMillis;
+        setStreamStats((prev) => ({
+          ...prev,
+          bufferHealth: Math.round(bufferHealth / 1000), // Convert to seconds
+        }));
+      }
+    } else if ("error" in playbackStatus && playbackStatus.error) {
+      handlePlaybackError(playbackStatus.error);
+    }
+  };
+
+  const handlePlaybackError = async (errorMsg: string) => {
+    console.error("Playback error:", errorMsg);
+    setError(errorMsg);
+    setIsLoading(false);
+
+    // Auto-retry for network errors
+    if (
+      retryCount < MAX_RETRIES &&
+      (errorMsg.includes("network") ||
+        errorMsg.includes("timeout") ||
+        errorMsg.includes("404") ||
+        errorMsg.includes("500"))
+    ) {
+      setRetryCount((prev) => prev + 1);
+      setTimeout(() => {
+        reloadStream();
+      }, RETRY_DELAY);
+    }
+  };
+
+  const reloadStream = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      await videoRef.current?.unloadAsync();
+      await videoRef.current?.loadAsync(
+        { uri: url },
+        {
+          shouldPlay: true,
+          volume: volume,
+          rate: playbackRate,
+        },
+      );
+    } catch (e) {
+      console.error("Failed to reload stream:", e);
+      setError("Failed to reload stream");
+    }
   };
 
   const togglePlayPause = () => {
@@ -127,10 +243,20 @@ export default function PlayerScreen({ navigation }: Props) {
   };
 
   const toggleMute = () => {
-    if (status && status.isLoaded) {
-      videoRef.current?.setIsMutedAsync(!status.isMuted);
+    if (status && status.isLoaded && "isMuted" in status) {
+      const newMuted = !status.isMuted;
+      videoRef.current?.setIsMutedAsync(newMuted);
+      if (!newMuted) {
+        videoRef.current?.setVolumeAsync(volume);
+      }
       showAndResetControls();
     }
+  };
+
+  const adjustVolume = (value: number) => {
+    setVolume(value);
+    videoRef.current?.setVolumeAsync(value);
+    showAndResetControls();
   };
 
   const toggleFullscreen = () => {
@@ -142,19 +268,74 @@ export default function PlayerScreen({ navigation }: Props) {
   };
 
   const seek = (value: number) => {
-    videoRef.current?.setPositionAsync(value);
-    showAndResetControls();
+    // Only allow seeking for non-live content
+    if (
+      status &&
+      status.isLoaded &&
+      "durationMillis" in status &&
+      status.durationMillis > 0
+    ) {
+      videoRef.current?.setPositionAsync(value);
+      showAndResetControls();
+    }
   };
 
-  // Error fallback
-  if (status && !status.isLoaded && "error" in status && status.error) {
+  const skipForward = () => {
+    if (
+      status &&
+      status.isLoaded &&
+      "positionMillis" in status &&
+      "durationMillis" in status
+    ) {
+      const newPosition = Math.min(
+        status.positionMillis + 10000,
+        status.durationMillis || status.positionMillis,
+      );
+      videoRef.current?.setPositionAsync(newPosition);
+      showAndResetControls();
+    }
+  };
+
+  const skipBackward = () => {
+    if (status && status.isLoaded && "positionMillis" in status) {
+      const newPosition = Math.max(status.positionMillis - 10000, 0);
+      videoRef.current?.setPositionAsync(newPosition);
+      showAndResetControls();
+    }
+  };
+
+  const formatTime = (millis: number) => {
+    const totalSeconds = Math.floor(millis / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+  };
+
+  const isLiveStream =
+    !status ||
+    !status.isLoaded ||
+    !("durationMillis" in status) ||
+    status.durationMillis === 0;
+
+  // Error screen
+  if (error && retryCount >= MAX_RETRIES) {
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="warning-outline" size={64} color="#FF6B35" />
-        <Text style={styles.errorText}>Unable to load stream.</Text>
-        <Pressable onPress={exitPlayer} style={styles.errorButton}>
-          <Text style={styles.errorButtonText}>Go Back</Text>
-        </Pressable>
+        <Text style={styles.errorText}>Unable to load stream</Text>
+        <Text style={styles.errorSubtext}>{error}</Text>
+        <View style={styles.errorActions}>
+          <Pressable onPress={reloadStream} style={styles.errorButton}>
+            <Ionicons name="refresh" size={20} color="#fff" />
+            <Text style={styles.errorButtonText}>Retry</Text>
+          </Pressable>
+          <Pressable
+            onPress={exitPlayer}
+            style={[styles.errorButton, styles.errorButtonSecondary]}
+          >
+            <Text style={styles.errorButtonText}>Go Back</Text>
+          </Pressable>
+        </View>
       </View>
     );
   }
@@ -167,88 +348,187 @@ export default function PlayerScreen({ navigation }: Props) {
         style={styles.video}
         resizeMode={ResizeMode.CONTAIN}
         shouldPlay
+        volume={volume}
+        rate={playbackRate}
         onPlaybackStatusUpdate={onPlaybackStatusUpdate}
         useNativeControls={false}
+        progressUpdateIntervalMillis={1000}
       />
+
       <Pressable style={styles.touchArea} onPress={showAndResetControls}>
-        <Animated.View style={[styles.controls, { opacity: controlsOpacity }]}>
-          <View style={styles.topBar}>
-            <Pressable onPress={exitPlayer} style={styles.iconBtn}>
-              <Ionicons name="arrow-back" size={24} color="#fff" />
-            </Pressable>
-            <Text numberOfLines={1} style={styles.title}>
-              {title}
-            </Text>
-            <Pressable onPress={toggleFullscreen} style={styles.iconBtn}>
-              <Ionicons
-                name={isFullscreen ? "contract" : "expand"}
-                size={24}
-                color="#fff"
-              />
-            </Pressable>
-          </View>
+        {showControls && (
+          <Animated.View
+            style={[styles.controls, { opacity: controlsOpacity }]}
+          >
+            {/* Top Bar */}
+            <View style={styles.topBar}>
+              <Pressable onPress={exitPlayer} style={styles.iconBtn}>
+                <Ionicons name="arrow-back" size={24} color="#fff" />
+              </Pressable>
+              <View style={styles.titleContainer}>
+                <Text numberOfLines={1} style={styles.title}>
+                  {title}
+                </Text>
+                {isLiveStream && (
+                  <View style={styles.liveBadge}>
+                    <View style={styles.liveDot} />
+                    <Text style={styles.liveText}>LIVE</Text>
+                  </View>
+                )}
+              </View>
+              <Pressable onPress={toggleFullscreen} style={styles.iconBtn}>
+                <Ionicons
+                  name={isFullscreen ? "contract" : "expand"}
+                  size={24}
+                  color="#fff"
+                />
+              </Pressable>
+            </View>
 
-          <View style={styles.centerBar}>
-            {status && status.isLoaded && status.isBuffering && (
-              <ActivityIndicator size="large" color="#FF6B35" />
-            )}
-            {status &&
-              status.isLoaded &&
-              !status.isPlaying &&
-              !status.isBuffering && (
-                <Pressable onPress={togglePlayPause} style={styles.playBtn}>
-                  <Ionicons name="play" size={48} color="#fff" />
-                </Pressable>
+            {/* Center Controls */}
+            <View style={styles.centerBar}>
+              {isLoading ||
+              (status && status.isLoaded && status.isBuffering) ? (
+                <View style={styles.loadingContainer}>
+                  <ActivityIndicator size="large" color="#FF6B35" />
+                  {retryCount > 0 && (
+                    <Text style={styles.retryText}>
+                      Retrying... ({retryCount}/{MAX_RETRIES})
+                    </Text>
+                  )}
+                </View>
+              ) : (
+                <View style={styles.centerControls}>
+                  {!isLiveStream && (
+                    <Pressable onPress={skipBackward} style={styles.skipBtn}>
+                      <Ionicons name="play-back" size={32} color="#fff" />
+                    </Pressable>
+                  )}
+
+                  <Pressable onPress={togglePlayPause} style={styles.playBtn}>
+                    <Ionicons
+                      name={
+                        status && status.isLoaded && status.isPlaying
+                          ? "pause"
+                          : "play"
+                      }
+                      size={48}
+                      color="#fff"
+                    />
+                  </Pressable>
+
+                  {!isLiveStream && (
+                    <Pressable onPress={skipForward} style={styles.skipBtn}>
+                      <Ionicons name="play-forward" size={32} color="#fff" />
+                    </Pressable>
+                  )}
+                </View>
               )}
-          </View>
+            </View>
 
-          <View style={styles.bottomBar}>
-            <Slider
-              style={styles.slider}
-              minimumValue={0}
-              maximumValue={status?.isLoaded ? status.durationMillis : 0}
-              value={status?.isLoaded ? status.positionMillis : 0}
-              minimumTrackTintColor="#FF6B35"
-              maximumTrackTintColor="#fff"
-              thumbTintColor="#FF6B35"
-              onSlidingComplete={seek}
-            />
-            <Pressable onPress={togglePlayPause} style={styles.iconBtn}>
-              <Ionicons
-                name={
-                  status && status.isLoaded && status.isPlaying
-                    ? "pause"
-                    : "play"
-                }
-                size={24}
-                color="#fff"
-              />
-            </Pressable>
-            <Pressable onPress={toggleMute} style={styles.iconBtn}>
-              <Ionicons
-                name={
-                  status && status.isLoaded && status.isMuted
-                    ? "volume-mute"
-                    : "volume-high"
-                }
-                size={24}
-                color="#fff"
-              />
-            </Pressable>
-          </View>
-        </Animated.View>
+            {/* Bottom Bar */}
+            <View style={styles.bottomBar}>
+              <View style={styles.progressContainer}>
+                {!isLiveStream && status && status.isLoaded && (
+                  <View style={styles.timeInfo}>
+                    <Text style={styles.timeText}>
+                      {formatTime(status.positionMillis)} /{" "}
+                      {formatTime(status.durationMillis || 0)}
+                    </Text>
+                  </View>
+                )}
+
+                {!isLiveStream && (
+                  <Slider
+                    style={styles.slider}
+                    minimumValue={0}
+                    maximumValue={
+                      status?.isLoaded && "durationMillis" in status
+                        ? status.durationMillis
+                        : 1
+                    }
+                    value={
+                      status?.isLoaded && "positionMillis" in status
+                        ? status.positionMillis
+                        : 0
+                    }
+                    minimumTrackTintColor="#FF6B35"
+                    maximumTrackTintColor="rgba(255,255,255,0.3)"
+                    thumbTintColor="#FF6B35"
+                    onSlidingComplete={seek}
+                    disabled={isLiveStream}
+                  />
+                )}
+
+                {isLiveStream && (
+                  <View style={styles.liveStreamInfo}>
+                    <Text style={styles.bufferHealth}>
+                      Buffer: {streamStats.bufferHealth}s
+                    </Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.bottomControls}>
+                <Pressable onPress={toggleMute} style={styles.iconBtn}>
+                  <Ionicons
+                    name={
+                      status &&
+                      status.isLoaded &&
+                      "isMuted" in status &&
+                      status.isMuted
+                        ? "volume-mute"
+                        : "volume-high"
+                    }
+                    size={24}
+                    color="#fff"
+                  />
+                </Pressable>
+
+                {status &&
+                  status.isLoaded &&
+                  "isMuted" in status &&
+                  !status.isMuted && (
+                    <Slider
+                      style={styles.volumeSlider}
+                      minimumValue={0}
+                      maximumValue={1}
+                      value={volume}
+                      minimumTrackTintColor="#FF6B35"
+                      maximumTrackTintColor="rgba(255,255,255,0.3)"
+                      thumbTintColor="#FF6B35"
+                      onValueChange={adjustVolume}
+                    />
+                  )}
+
+                <Pressable onPress={reloadStream} style={styles.iconBtn}>
+                  <Ionicons name="refresh" size={20} color="#fff" />
+                </Pressable>
+              </View>
+            </View>
+          </Animated.View>
+        )}
       </Pressable>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#000" },
-  video: { flex: 1, backgroundColor: "#000" },
-  touchArea: StyleSheet.absoluteFillObject,
+  container: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  video: {
+    flex: 1,
+    backgroundColor: "#000",
+  },
+  touchArea: {
+    ...StyleSheet.absoluteFillObject,
+  },
   controls: {
     ...StyleSheet.absoluteFillObject,
     justifyContent: "space-between",
+    backgroundColor: "rgba(0,0,0,0.3)",
   },
   topBar: {
     flexDirection: "row",
@@ -256,35 +536,154 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingTop: Platform.OS === "ios" ? 50 : 20,
     paddingHorizontal: 16,
+    paddingBottom: 16,
+    backgroundColor: "rgba(0,0,0,0.5)",
   },
-  bottomBar: {
+  titleContainer: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingBottom: Platform.OS === "ios" ? 20 : 12,
+    marginHorizontal: 12,
   },
-  centerBar: { flex: 1, justifyContent: "center", alignItems: "center" },
-  title: { flex: 1, color: "#fff", fontSize: 18, marginHorizontal: 12 },
+  title: {
+    flex: 1,
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  liveBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FF6B35",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginLeft: 12,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#fff",
+    marginRight: 4,
+  },
+  liveText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  centerBar: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  centerControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   playBtn: {
     backgroundColor: "rgba(0,0,0,0.6)",
     borderRadius: 50,
     padding: 20,
+    marginHorizontal: 20,
     elevation: 3,
   },
-  iconBtn: { padding: 8, backgroundColor: "rgba(0,0,0,0.4)", borderRadius: 20 },
-  slider: { flex: 1, marginRight: 8 },
+  skipBtn: {
+    backgroundColor: "rgba(0,0,0,0.4)",
+    borderRadius: 30,
+    padding: 12,
+  },
+  bottomBar: {
+    backgroundColor: "rgba(0,0,0,0.5)",
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === "ios" ? 20 : 12,
+    paddingTop: 12,
+  },
+  progressContainer: {
+    marginBottom: 8,
+  },
+  timeInfo: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 8,
+  },
+  timeText: {
+    color: "#fff",
+    fontSize: 12,
+  },
+  slider: {
+    height: 40,
+  },
+  volumeSlider: {
+    width: 100,
+    height: 40,
+    marginHorizontal: 8,
+  },
+  bottomControls: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  iconBtn: {
+    padding: 8,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    borderRadius: 20,
+  },
+  loadingContainer: {
+    alignItems: "center",
+  },
+  retryText: {
+    color: "#fff",
+    fontSize: 12,
+    marginTop: 8,
+  },
+  liveStreamInfo: {
+    alignItems: "center",
+    paddingVertical: 8,
+  },
+  bufferHealth: {
+    color: "#4CAF50",
+    fontSize: 12,
+  },
   errorContainer: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#000",
+    padding: 20,
   },
-  errorText: { color: "#fff", fontSize: 18, marginTop: 16 },
+  errorText: {
+    color: "#fff",
+    fontSize: 20,
+    fontWeight: "600",
+    marginTop: 16,
+  },
+  errorSubtext: {
+    color: "#888",
+    fontSize: 14,
+    marginTop: 8,
+    textAlign: "center",
+  },
+  errorActions: {
+    flexDirection: "row",
+    marginTop: 24,
+  },
   errorButton: {
-    marginTop: 12,
-    padding: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 8,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     backgroundColor: "#FF6B35",
     borderRadius: 8,
   },
-  errorButtonText: { color: "#fff", fontSize: 16 },
+  errorButtonSecondary: {
+    backgroundColor: "#333",
+  },
+  errorButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    marginLeft: 8,
+  },
 });

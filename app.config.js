@@ -25,11 +25,13 @@ export default {
         backgroundColor: "#ffffff",
       },
       permissions: [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "MEDIA_LIBRARY",
-        "ACCESS_MEDIA_LOCATION", // New permission for Android 10+
-        "READ_MEDIA_VIDEO", // Ensures videos appear in gallery
+        "ACCESS_MEDIA_LOCATION",
+        "READ_MEDIA_VIDEO",
         "READ_MEDIA_AUDIO",
       ],
       hermesEnabled: true,
@@ -49,12 +51,9 @@ export default {
         "expo-build-properties",
         {
           android: {
-            kotlinVersion: "1.9.25",
-            suppressKotlinVersionCompatibilityCheck: true,
-            shrinkResources: true,
-            minifyEnabled: true,
-            enableSeparateBuildPerCPUArchitecture: true,
+            kotlinVersion: "2.0.0",
             enableProguardInReleaseBuilds: true,
+            usesCleartextTraffic: true,
           },
         },
       ],
