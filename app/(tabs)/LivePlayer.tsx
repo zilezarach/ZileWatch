@@ -26,9 +26,10 @@ type Props = NativeStackScreenProps<RootStackParamList, "LivePlayer">;
 const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 // Constants for better control
-const CONTROLS_TIMEOUT = 5000; // Increased from 3000 for better UX
+const CONTROLS_TIMEOUT = 5000;
 const RETRY_DELAY = 2000;
 const MAX_RETRIES = 3;
+const LOADING_TIMEOUT = 30000; // 30 seconds timeout for loading
 
 export default function PlayerScreen({ navigation }: Props) {
   const { title = "", url = "" } = useLocalSearchParams<{
@@ -39,12 +40,14 @@ export default function PlayerScreen({ navigation }: Props) {
   const router = useRouter();
   const videoRef = useRef<Video>(null);
   const isFocused = useIsFocused();
+  const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // State management
   const [status, setStatus] = useState<AVPlaybackStatus | null>(null);
   const [showControls, setShowControls] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isInitialLoad, setIsInitialLoad] = useState(true);
   const [retryCount, setRetryCount] = useState(0);
   const [volume, setVolume] = useState(1.0);
   const [playbackRate, setPlaybackRate] = useState(1.0);
@@ -57,6 +60,16 @@ export default function PlayerScreen({ navigation }: Props) {
 
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Validate URL before loading
+  const isValidUrl = (url: string) => {
+    try {
+      new URL(url);
+      return true;
+    } catch {
+      return false;
+    }
+  };
 
   // Configure audio session for background playback
   useEffect(() => {
@@ -74,6 +87,74 @@ export default function PlayerScreen({ navigation }: Props) {
       }
     })();
   }, []);
+
+  // Initialize video loading with timeout
+  useEffect(() => {
+    if (!url || !isValidUrl(url)) {
+      setError("Invalid video URL");
+      setIsLoading(false);
+      return;
+    }
+
+    loadVideo();
+    return () => {
+      clearLoadingTimeout();
+    };
+  }, [url]);
+
+  const clearLoadingTimeout = () => {
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+  };
+
+  const loadVideo = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      clearLoadingTimeout();
+
+      // Set loading timeout
+      loadingTimeoutRef.current = setTimeout(() => {
+        if (isLoading) {
+          handlePlaybackError("Loading timeout - stream may be unavailable");
+        }
+      }, LOADING_TIMEOUT);
+
+      // Prepare video source with better configuration
+      const source = {
+        uri: url,
+        // Add headers for better compatibility
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; VideoPlayer/1.0)"
+        }
+      };
+
+      const initialConfig = {
+        shouldPlay: false, // Don't autoplay initially to avoid issues
+        volume: volume,
+        rate: playbackRate,
+        isLooping: false,
+        progressUpdateIntervalMillis: 1000,
+        // Better buffering configuration
+        preferredForwardBufferDurationMillis: 5000,
+        preferredMinimumStallThresholdMillis: 500
+      };
+
+      await videoRef.current?.loadAsync(source, initialConfig);
+
+      // Start playback after successful load
+      setTimeout(() => {
+        if (videoRef.current && !error) {
+          videoRef.current.playAsync();
+        }
+      }, 500);
+    } catch (e: any) {
+      console.error("Failed to load video:", e);
+      handlePlaybackError(e.message || "Failed to load video");
+    }
+  };
 
   // Auto-hide controls with better timeout management
   useEffect(() => {
@@ -122,7 +203,7 @@ export default function PlayerScreen({ navigation }: Props) {
       handleOrientation(orientationInfo.orientation)
     );
 
-    return () => subscription.remove();
+    return () => subscription?.remove();
   }, []);
 
   const handleOrientation = (orientation: number) => {
@@ -154,6 +235,7 @@ export default function PlayerScreen({ navigation }: Props) {
 
   const exitPlayer = async () => {
     try {
+      clearLoadingTimeout();
       await videoRef.current?.pauseAsync();
       await videoRef.current?.unloadAsync();
       await ScreenOrientation.lockAsync(ScreenOrientation.OrientationLock.PORTRAIT_UP);
@@ -168,19 +250,26 @@ export default function PlayerScreen({ navigation }: Props) {
     setStatus(playbackStatus);
 
     if (playbackStatus.isLoaded) {
+      clearLoadingTimeout();
       setIsLoading(false);
       setError(null);
       setRetryCount(0);
+
+      // Mark initial load as complete
+      if (isInitialLoad) {
+        setIsInitialLoad(false);
+      }
 
       // Update stream stats for HLS
       if ("playableDurationMillis" in playbackStatus && playbackStatus.playableDurationMillis !== undefined) {
         const bufferHealth = playbackStatus.playableDurationMillis - playbackStatus.positionMillis;
         setStreamStats(prev => ({
           ...prev,
-          bufferHealth: Math.round(bufferHealth / 1000) // Convert to seconds
+          bufferHealth: Math.round(bufferHealth / 1000)
         }));
       }
     } else if ("error" in playbackStatus && playbackStatus.error) {
+      clearLoadingTimeout();
       handlePlaybackError(playbackStatus.error);
     }
   };
@@ -189,6 +278,7 @@ export default function PlayerScreen({ navigation }: Props) {
     console.error("Playback error:", errorMsg);
     setError(errorMsg);
     setIsLoading(false);
+    clearLoadingTimeout();
 
     // Auto-retry for network errors
     if (
@@ -196,7 +286,8 @@ export default function PlayerScreen({ navigation }: Props) {
       (errorMsg.includes("network") ||
         errorMsg.includes("timeout") ||
         errorMsg.includes("404") ||
-        errorMsg.includes("500"))
+        errorMsg.includes("500") ||
+        errorMsg.includes("Loading timeout"))
     ) {
       setRetryCount(prev => prev + 1);
       setTimeout(() => {
@@ -209,18 +300,19 @@ export default function PlayerScreen({ navigation }: Props) {
     try {
       setIsLoading(true);
       setError(null);
+      clearLoadingTimeout();
+
+      // Unload current video first
       await videoRef.current?.unloadAsync();
-      await videoRef.current?.loadAsync(
-        { uri: url },
-        {
-          shouldPlay: true,
-          volume: volume,
-          rate: playbackRate
-        }
-      );
+
+      // Wait a bit before reloading
+      setTimeout(() => {
+        loadVideo();
+      }, 1000);
     } catch (e) {
       console.error("Failed to reload stream:", e);
       setError("Failed to reload stream");
+      setIsLoading(false);
     }
   };
 
@@ -257,7 +349,6 @@ export default function PlayerScreen({ navigation }: Props) {
   };
 
   const seek = (value: number) => {
-    // Only allow seeking for non-live content
     if (
       status &&
       status.isLoaded &&
@@ -295,13 +386,19 @@ export default function PlayerScreen({ navigation }: Props) {
 
   const isLiveStream = !status || !status.isLoaded || !("durationMillis" in status) || status.durationMillis === 0;
 
-  // Error screen
+  // Enhanced error screen with better messaging
   if (error && retryCount >= MAX_RETRIES) {
     return (
       <View style={styles.errorContainer}>
         <Ionicons name="warning-outline" size={64} color="#FF6B35" />
         <Text style={styles.errorText}>Unable to load stream</Text>
-        <Text style={styles.errorSubtext}>{error}</Text>
+        <Text style={styles.errorSubtext}>
+          {error.includes("timeout")
+            ? "The stream is taking too long to load. Please check your internet connection."
+            : error.includes("Invalid video URL")
+              ? "The video URL is not valid."
+              : error}
+        </Text>
         <View style={styles.errorActions}>
           <Pressable onPress={reloadStream} style={styles.errorButton}>
             <Ionicons name="refresh" size={20} color="#fff" />
@@ -319,12 +416,8 @@ export default function PlayerScreen({ navigation }: Props) {
     <View style={styles.container}>
       <Video
         ref={videoRef}
-        source={{ uri: url }}
         style={styles.video}
         resizeMode={ResizeMode.CONTAIN}
-        shouldPlay
-        volume={volume}
-        rate={playbackRate}
         onPlaybackStatusUpdate={onPlaybackStatusUpdate}
         useNativeControls={false}
         progressUpdateIntervalMillis={1000}
@@ -359,6 +452,7 @@ export default function PlayerScreen({ navigation }: Props) {
               {isLoading || (status && status.isLoaded && status.isBuffering) ? (
                 <View style={styles.loadingContainer}>
                   <ActivityIndicator size="large" color="#FF6B35" />
+                  <Text style={styles.loadingText}>{isInitialLoad ? "Loading stream..." : "Buffering..."}</Text>
                   {retryCount > 0 && (
                     <Text style={styles.retryText}>
                       Retrying... ({retryCount}/{MAX_RETRIES})
@@ -578,8 +672,13 @@ const styles = StyleSheet.create({
   loadingContainer: {
     alignItems: "center"
   },
-  retryText: {
+  loadingText: {
     color: "#fff",
+    fontSize: 14,
+    marginTop: 12
+  },
+  retryText: {
+    color: "#FF6B35",
     fontSize: 12,
     marginTop: 8
   },
