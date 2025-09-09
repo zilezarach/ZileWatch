@@ -23,7 +23,8 @@ import { RootStackParamList } from "../../types/navigation";
 
 type Props = NativeStackScreenProps<RootStackParamList, "LivePlayer">;
 
-const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
+let { width: initialScreenWidth, height: initialScreenHeight } =
+  Dimensions.get("window");
 
 // Constants for better control
 const CONTROLS_TIMEOUT = 5000;
@@ -57,9 +58,26 @@ export default function PlayerScreen({ navigation }: Props) {
     bufferHealth: 0,
     droppedFrames: 0,
   });
+  const [dimensions, setDimensions] = useState({
+    width: initialScreenWidth,
+    height: initialScreenHeight,
+  });
 
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Listen to dimension changes for orientation
+  useEffect(() => {
+    const subscription = Dimensions.addEventListener("change", ({ window }) => {
+      setDimensions({
+        width: window.width,
+        height: window.height,
+      });
+      setIsFullscreen(window.width > window.height);
+      StatusBar.setHidden(window.width > window.height, "slide");
+    });
+    return () => subscription?.remove();
+  }, []);
 
   // Validate URL before loading
   const isValidUrl = (url: string) => {
@@ -132,12 +150,11 @@ export default function PlayerScreen({ navigation }: Props) {
       };
 
       const initialConfig = {
-        shouldPlay: false, // Don't autoplay initially to avoid issues
+        shouldPlay: false,
         volume: volume,
         rate: playbackRate,
         isLooping: false,
         progressUpdateIntervalMillis: 1000,
-        // Better buffering configuration
         preferredForwardBufferDurationMillis: 5000,
         preferredMinimumStallThresholdMillis: 500,
       };
@@ -442,7 +459,10 @@ export default function PlayerScreen({ navigation }: Props) {
     <View style={styles.container}>
       <Video
         ref={videoRef}
-        style={styles.video}
+        style={[
+          styles.video,
+          { width: dimensions.width, height: dimensions.height },
+        ]}
         resizeMode={ResizeMode.CONTAIN}
         onPlaybackStatusUpdate={onPlaybackStatusUpdate}
         useNativeControls={false}
@@ -615,16 +635,10 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#000",
   },
-  fullscreenContainer: {
+  video: {
     position: "absolute",
     top: 0,
     left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 999,
-  },
-  video: {
-    flex: 1,
     backgroundColor: "#000",
   },
   touchArea: {
