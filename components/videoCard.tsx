@@ -48,9 +48,11 @@ const VideoCard: React.FC<VideoCardProps> = ({
         <TouchableOpacity onPress={onDownload} style={styles.downloadButton}>
           <Text style={styles.textdown}>Download</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.playButton} onPress={handlePlay}>
-          <Text style={styles.textButton}>Play</Text>
-        </TouchableOpacity>
+        {/* 
+      <TouchableOpacity style={styles.playButton} onPress={handlePlay}>
+        <Text style={styles.textButton}>Play</Text>
+      </TouchableOpacity>
+      */}
       </View>
     </View>
   );

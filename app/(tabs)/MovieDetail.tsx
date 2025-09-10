@@ -106,8 +106,8 @@ export default function MovieDetail(): JSX.Element {
 
   async function withRetries<T>(
     fn: () => Promise<T>,
-    maxRetries: number = 3,
-    delayMs: number = 2000,
+    maxRetries: number = 4,
+    delayMs: number = 4000,
   ): Promise<T> {
     let lastError: any;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
@@ -206,7 +206,7 @@ export default function MovieDetail(): JSX.Element {
           case "vidfast":
             return await streamingService.getMovieStreamingUrl(
               movieIdStr,
-              undefined,
+              initialSlug,
               false,
               true,
             );
