@@ -93,15 +93,23 @@ async function fetchWithRetry(
   options: RequestInit = {},
   retries = MAX_RETRIES,
 ): Promise<Response> {
+  let lastError: Error | null = null;
+
   for (let i = 0; i <= retries; i++) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
     try {
       console.log(`🌐 Attempt ${i + 1}/${retries + 1}: ${url}`);
+
+      // Combine external abort signal with timeout signal
+      const combinedSignal = options.signal
+        ? AbortSignal.any([options.signal, controller.signal])
+        : controller.signal;
+
       const response = await fetch(url, {
         ...options,
-        signal: controller.signal,
+        signal: combinedSignal,
         headers: {
           "User-Agent": "ZileWatch/1.0",
           Accept: "*/*",
@@ -112,24 +120,32 @@ async function fetchWithRetry(
       });
 
       clearTimeout(timeoutId);
+
+      // Check if the response was aborted by external signal
+      if (options.signal?.aborted) {
+        throw new Error("Request aborted by caller");
+      }
+
       console.log(
         `📡 Response: ${response.status} ${response.statusText} for ${url}`,
       );
       return response;
     } catch (error) {
       clearTimeout(timeoutId);
+      lastError = error instanceof Error ? error : new Error(String(error));
+
       const isLastAttempt = i === retries;
-      const errorMessage =
-        error instanceof Error ? error.message : "Unknown error";
-      console.warn(`🚨 Attempt ${i + 1} failed for ${url}: ${errorMessage}`);
+      console.warn(
+        `🚨 Attempt ${i + 1} failed for ${url}: ${lastError.message}`,
+      );
+
+      // Don't retry if the request was aborted by external signal
+      if (options.signal?.aborted || lastError.name === "AbortError") {
+        throw lastError;
+      }
 
       if (isLastAttempt) {
-        if (error instanceof Error && error.name === "AbortError") {
-          throw new Error(`Request timeout after ${REQUEST_TIMEOUT}ms`);
-        }
-        throw new Error(
-          `Network request failed after ${retries + 1} attempts: ${errorMessage}`,
-        );
+        break;
       }
 
       // Progressive delay between retries
@@ -138,21 +154,81 @@ async function fetchWithRetry(
       await new Promise((resolve) => setTimeout(resolve, delay));
     }
   }
-  throw new Error("Unexpected error in fetchWithRetry");
-}
 
+  throw new Error(
+    `Network request failed after ${retries + 1} attempts: ${lastError?.message || "Unknown error"}`,
+  );
+}
 /**
  * Main function to fetch live sports data from CricHD
  */
-export async function fetchLiveSports(): Promise<LiveItem[]> {
+export async function fetchLiveSports(
+  signal?: AbortSignal,
+): Promise<LiveItem[]> {
   try {
     console.log("🏈 Starting fetchLiveSports with CricHD...");
-    return await fetchCricHDChannels();
+    const result = await fetchCricHDChannels(signal);
+
+    if (!result || result.length === 0) {
+      console.warn("⚠️ No live sports data received");
+      return [];
+    }
+
+    console.log(`✅ Successfully fetched ${result.length} live sports`);
+    return result;
   } catch (error) {
     console.error("❌ Error fetching live sports:", error);
+
+    // Return cached data if available and error is network-related
+    if (error instanceof Error && error.message.includes("network")) {
+      const cachedData = await getCachedLiveSports();
+      if (cachedData.length > 0) {
+        console.log(`📦 Returning ${cachedData.length} cached sports items`);
+        return cachedData;
+      }
+    }
+
     throw new Error(
       `Failed to load live sports: ${error instanceof Error ? error.message : "Unknown error"}`,
     );
+  }
+}
+
+function generateStableId(channelName: string): string {
+  return channelName
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "");
+}
+
+async function getCachedLiveSports(): Promise<LiveItem[]> {
+  try {
+    const cached = await AsyncStorage.getItem("cachedLiveSports");
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      const isExpired = Date.now() - parsed.timestamp > CACHE_DURATION;
+      if (!isExpired && Array.isArray(parsed.data)) {
+        return parsed.data;
+      }
+    }
+  } catch (error) {
+    console.warn("⚠️ Failed to get cached live sports:", error);
+  }
+  return [];
+}
+
+async function cacheLiveSports(data: LiveItem[]): Promise<void> {
+  try {
+    await AsyncStorage.setItem(
+      "cachedLiveSports",
+      JSON.stringify({
+        data,
+        timestamp: Date.now(),
+      }),
+    );
+  } catch (error) {
+    console.warn("⚠️ Failed to cache live sports:", error);
   }
 }
 
@@ -217,38 +293,49 @@ function getChannelLogo(channelName: string): string {
 /**
  * Fetch channels from CricHD service
  */
-async function fetchCricHDChannels(): Promise<LiveItem[]> {
+async function fetchCricHDChannels(signal?: AbortSignal): Promise<LiveItem[]> {
   try {
     console.log("📡 Fetching CricHD channels...");
     const url = `${API}/crichd/json`;
     console.log("🌐 CricHD API URL:", url);
 
-    const res = await fetchWithRetry(url);
+    const res = await fetchWithRetry(url, { signal });
     if (!res.ok) {
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
 
     const data = await res.json();
-    console.log(
-      "📦 Raw CricHD API response:",
-      JSON.stringify(data).substring(0, 500),
-    );
+    console.log("📦 Raw CricHD API response structure:", {
+      hasData: !!data,
+      hasSuccess: !!data?.data?.success,
+      hasDirectSuccess: !!data?.success,
+      keys: Object.keys(data || {}),
+    });
 
-    // The CricHD API returns { success: [...], failed: [...] }
-    if (!data?.success || !Array.isArray(data.success)) {
+    // Handle both wrapped and direct response formats
+    let successArray: any[] = [];
+    if (data?.data?.success) {
+      successArray = data.data.success;
+    } else if (data?.success) {
+      successArray = data.success;
+    } else {
       console.error("❌ Invalid CricHD response structure:", data);
-      throw new Error(
-        "Invalid CricHD API response: missing or invalid success array",
-      );
+      throw new Error("Invalid CricHD API response: missing success array");
     }
 
-    console.log(`✅ Received ${data.success.length} streams from CricHD API`);
+    if (!Array.isArray(successArray)) {
+      console.error("❌ Success field is not an array:", successArray);
+      throw new Error("Invalid CricHD API response: success is not an array");
+    }
 
-    const liveItems: LiveItem[] = data.success.map(
+    console.log(`✅ Received ${successArray.length} streams from CricHD API`);
+
+    const liveItems: LiveItem[] = successArray.map(
       (stream: any, index: number) => {
+        // Validate required fields
         if (!stream.channelName) {
-          console.warn("⚠️ Invalid stream data:", stream);
-          throw new Error("Invalid stream data: missing required fields");
+          console.warn("⚠️ Invalid stream data missing channelName:", stream);
+          throw new Error("Invalid stream data: missing channelName");
         }
 
         const category = extractCategoryFromName(stream.channelName);
@@ -256,7 +343,7 @@ async function fetchCricHDChannels(): Promise<LiveItem[]> {
         const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
         return {
-          id: stream.channelName.replace(/\s+/g, "_").toLowerCase(),
+          id: generateStableId(stream.channelName),
           match: stream.channelName,
           category: category,
           start: now.toISOString(),
@@ -266,7 +353,7 @@ async function fetchCricHDChannels(): Promise<LiveItem[]> {
             {
               id: index + 1,
               name: stream.channelName,
-              streamUrl: stream.m3u8Url || "",
+              streamUrl: stream.m3u8Url || stream.streamUrl || "",
             },
           ],
           isFeatured: false,
@@ -275,6 +362,9 @@ async function fetchCricHDChannels(): Promise<LiveItem[]> {
       },
     );
 
+    // Cache the successful result
+    await cacheLiveSports(liveItems);
+
     console.log(`✅ Successfully processed ${liveItems.length} live items`);
     return liveItems;
   } catch (error) {
@@ -282,6 +372,7 @@ async function fetchCricHDChannels(): Promise<LiveItem[]> {
     throw error;
   }
 }
+
 function extractCategoryFromName(channelName: string): string {
   const name = channelName.toLowerCase();
   const categoryMap: { [key: string]: string } = {

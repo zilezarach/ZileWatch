@@ -3,7 +3,7 @@ import Constants from "expo-constants";
 
 // Configuration
 const BASE_URL = Constants.expoConfig?.extra?.API_Backend;
-const DEFAULT_TIMEOUT = 15_000; // Extended from 10s to 15s
+const DEFAULT_TIMEOUT = 15_000;
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000;
 const TMBD_KEY = Constants.expoConfig?.extra?.TMBD_KEY;
