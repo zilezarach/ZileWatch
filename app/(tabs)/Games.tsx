@@ -155,7 +155,7 @@ export default function GamesScreen() {
           if (regular.length > 0 && sessionStatus === "idle") {
             const popularChannelIds = regular
               .slice(0, 5)
-              .map((item) => item.id);
+              .map((item) => item.match);
             setSessionStatus("loading");
 
             preloadSessions(popularChannelIds)
@@ -395,7 +395,7 @@ export default function GamesScreen() {
           return newSet;
         });
 
-        navigation.navigate("LivePlayer", { title, url });
+        navigation.navigate("LivePlayer", { title, url, channelId, isChannel });
       } catch (error) {
         console.error("Stream error:", error);
         setLoadingItems((prev) => {

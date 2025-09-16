@@ -70,6 +70,8 @@ export type RootStackParamList = {
   LivePlayer: {
     title: string;
     url: string;
+    channelId: string;
+    isChannel?: boolean;
   };
   Favorites: undefined;
   Profile: undefined;
@@ -79,4 +81,6 @@ export type RootStackParamList = {
     videoUrl?: string;
   };
   Movies: undefined;
+  Account: undefined;
+  Games: undefined;
 };

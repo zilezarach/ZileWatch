@@ -8,9 +8,11 @@ import StreamVideo from "./Stream";
 import SeriesDetail from "./SeriesDetail";
 import EpisodeListScreen from "./EpisodeList";
 import MovieDetail from "./MovieDetail";
-import { RootStackParamList } from "@/types/navigation";
+import GamesScreen from "./Games";
+import LivePlayer from "./LivePlayer";
+import Account from "./Account";
 import UpdateManager from "@/components/updateChecker";
-
+import { RootStackParamList } from "@/types/navigation";
 // Enhanced header component with better styling
 const HeaderLogo = ({
   source,
@@ -75,6 +77,48 @@ const AppNavigator = () => {
               />
             ),
             headerShadowVisible: true,
+          }}
+        />
+
+        {/* ADD MISSING GAMES SCREEN */}
+        <Stack.Screen
+          name="Games"
+          component={GamesScreen}
+          options={{
+            headerTitle: () => (
+              <HeaderLogo
+                source={require("../../assets/images/HomeLogo.png")}
+                width={100}
+                height={50}
+              />
+            ),
+            headerShadowVisible: true,
+          }}
+        />
+
+        {/* ADD MISSING LIVE PLAYER SCREEN */}
+        <Stack.Screen
+          name="LivePlayer"
+          component={LivePlayer}
+          options={{
+            headerTitle: "Live Stream",
+            presentation: "fullScreenModal",
+            headerStyle: { backgroundColor: "#000" }, // Dark theme for video
+            headerTintColor: "#fff",
+            headerShadowVisible: false,
+            gestureEnabled: true,
+            gestureDirection: "vertical",
+          }}
+        />
+
+        {/* ADD MISSING ACCOUNT SCREEN */}
+        <Stack.Screen
+          name="Account"
+          component={Account}
+          options={{
+            headerTitle: "Account",
+            headerStyle: { backgroundColor: "#fff" },
+            headerBackground: () => <View style={styles.shadowMedium} />,
           }}
         />
 

@@ -9,7 +9,9 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from "react-native";
-import DeviceInfo from "react-native-device-info";
+// REPLACED: DeviceInfo with Expo alternatives
+import * as Application from "expo-application";
+import * as Device from "expo-device";
 import * as FileSystem from "expo-file-system";
 import * as Linking from "expo-linking";
 import SHA256 from "crypto-js/sha256";
@@ -32,6 +34,7 @@ export default function UpdateManager() {
   const [update, setUpdate] = useState<Update | null>(null);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+
   useEffect(() => {
     checkForUpdates();
   }, []);
@@ -40,9 +43,14 @@ export default function UpdateManager() {
     try {
       const res = await fetch(UPDATE_URL);
       const data: Update = await res.json();
-      const currentVersion = DeviceInfo.getVersion();
 
-      if (data.version !== currentVersion) setUpdate(data);
+      // REPLACED: DeviceInfo.getVersion() with Application.nativeApplicationVersion
+      const currentVersion = Application.nativeApplicationVersion;
+
+      if (data.version !== currentVersion) {
+        setUpdate(data);
+        setModalVisible(true); // Show modal when update is available
+      }
     } catch (err) {
       console.log("Update check failed:", err);
     }
@@ -70,12 +78,26 @@ export default function UpdateManager() {
 
       setLoading(false);
       Alert.alert("Update ready", "Opening installer...");
-      Linking.openURL(downloadRes.uri);
+      await Linking.openURL(downloadRes.uri);
     } catch (err: any) {
       setLoading(false);
       Alert.alert("Update failed", err.message);
     }
   }
+
+  // Additional device info logging for debugging (optional)
+  useEffect(() => {
+    if (__DEV__) {
+      console.log("Device Info:", {
+        brand: Device.brand,
+        modelName: Device.modelName,
+        osName: Device.osName,
+        osVersion: Device.osVersion,
+        appVersion: Application.nativeApplicationVersion,
+        buildVersion: Application.nativeBuildVersion,
+      });
+    }
+  }, []);
 
   if (!update) return null;
 
@@ -90,6 +112,9 @@ export default function UpdateManager() {
         <View style={styles.modal}>
           <Text style={styles.title}>🚀 Update Available!</Text>
           <Text style={styles.version}>v{update.version}</Text>
+          <Text style={styles.currentVersion}>
+            Current: v{Application.nativeApplicationVersion}
+          </Text>
           <Text style={styles.changelog}>{update.changelog}</Text>
 
           {loading ? (
@@ -136,15 +161,26 @@ const styles = StyleSheet.create({
     padding: 20,
     alignItems: "center",
     elevation: 5,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
   },
   title: {
     fontSize: 20,
     fontWeight: "700",
     marginBottom: 8,
+    textAlign: "center",
   },
   version: {
-    fontSize: 16,
-    fontWeight: "500",
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#7d0b02",
+    marginBottom: 4,
+  },
+  currentVersion: {
+    fontSize: 14,
+    color: "#666",
     marginBottom: 12,
   },
   changelog: {
@@ -152,6 +188,7 @@ const styles = StyleSheet.create({
     color: "#333",
     textAlign: "center",
     marginBottom: 20,
+    lineHeight: 20,
   },
   buttonRow: {
     flexDirection: "row",
