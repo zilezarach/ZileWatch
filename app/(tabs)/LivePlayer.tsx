@@ -27,7 +27,7 @@ export default function PlayerScreen() {
   const [isLive, setIsLive] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ Hide tabs while focused
+  // Hide tabs while focused
   useFocusEffect(
     React.useCallback(() => {
       navigation.getParent()?.setOptions({ tabBarStyle: { display: "none" } });
@@ -36,9 +36,14 @@ export default function PlayerScreen() {
       };
     }, [navigation]),
   );
-
-  // ✅ Orientation & StatusBar
   useEffect(() => {
+    ScreenOrientation.getOrientationAsync().then((orientation) => {
+      const land =
+        orientation === ScreenOrientation.Orientation.LANDSCAPE_LEFT ||
+        orientation === ScreenOrientation.Orientation.LANDSCAPE_RIGHT;
+      setIsLandscape(land);
+      StatusBar.setHidden(land);
+    });
     ScreenOrientation.unlockAsync();
     const sub = ScreenOrientation.addOrientationChangeListener((evt) => {
       const o = evt.orientationInfo.orientation;
@@ -57,9 +62,7 @@ export default function PlayerScreen() {
 
   useEffect(() => {
     const unsubscribe = navigation.addListener("beforeRemove", (e) => {
-      // Prevent immediate navigation
       e.preventDefault();
-
       const cleanupAndExit = async () => {
         if (videoRef.current) {
           try {
@@ -78,8 +81,6 @@ export default function PlayerScreen() {
         } catch (error) {
           console.warn("Failed to lock orientation", error);
         }
-
-        // 🔑 Now replay the original back action
         navigation.dispatch(e.data.action);
       };
 
@@ -128,13 +129,24 @@ export default function PlayerScreen() {
     setLoading(false);
   };
 
-  const handleRetry = () => {
+  const handleRetry = async () => {
     setError(null);
     setLoading(true);
     if (videoRef.current) {
-      videoRef.current.unloadAsync().then(() => {
-        // Video will reload automatically due to source prop
-      });
+      try {
+        await videoRef.current.unloadAsync();
+        await videoRef.current.loadAsync(
+          {
+            uri: String(url),
+          },
+          { shouldPlay: true },
+          false,
+        );
+      } catch (err) {
+        console.error("Unable to catch stream", err);
+        setError("Failed to fetch stream try again");
+        setLoading(false);
+      }
     }
   };
 
@@ -324,15 +336,15 @@ const styles = StyleSheet.create({
   },
   video: {
     width: "100%",
-    height: (width * 9) / 16,
+    aspectRatio: 16 / 9,
   },
   fullscreenVideoContainer: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "#000",
   },
   fullscreenVideo: {
-    width: height,
-    height: width,
+    width: "100%",
+    height: "100%",
   },
 
   // Loading Styles
@@ -387,7 +399,7 @@ const styles = StyleSheet.create({
     top: 0,
     left: 0,
     right: 0,
-    zIndex: 5,
+    zIndex: 100,
     backgroundColor: "rgba(0,0,0,0.7)",
   },
   landscapeHeaderSafe: {

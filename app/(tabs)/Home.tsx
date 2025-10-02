@@ -78,8 +78,6 @@ export default function Home({ navigation }: any) {
         "downloadedFiles",
         JSON.stringify(updatedRecords),
       );
-      // Optionally update local state if you want immediate feedback.
-      // (If DownloadsScreen is separate, ensure it reloads on focus.)
     } catch (error) {
       console.error("Error saving download record:", error);
     }
@@ -291,14 +289,21 @@ export default function Home({ navigation }: any) {
       const dir = await requestStoragePermissions();
 
       // 1. Ask backend for a direct download URL (instead of streaming file via Axios)
-      const { data } = await axios.get(`${DOWNLOADER_API}/stream-videos`, {
-        params: { url: selectedVideo.url },
-      });
+      const streamResponse = await axios.get(
+        `${DOWNLOADER_API}/stream-videos`,
+        {
+          params: {
+            url: selectedVideo.url,
+            quality: option === "audio" ? "audio" : "best",
+          },
+        },
+      );
 
-      if (!data.success || !data.streamUrl) {
+      if (!streamResponse.data.success || !streamResponse.data.streamUrl) {
         throw new Error("No direct stream URL available");
       }
 
+      const downloadUrl = streamResponse.data.streamUrl;
       const ext = option === "video" ? "mp4" : "m4a";
       const filename = `${selectedVideo.title.replace(
         /[^a-z0-9]/gi,
@@ -308,7 +313,7 @@ export default function Home({ navigation }: any) {
 
       // 2. Create resumable download
       const downloadResumable = FileSystem.createDownloadResumable(
-        data.streamUrl,
+        downloadUrl,
         filepath,
         {},
         (downloadProgress) => {
@@ -326,6 +331,9 @@ export default function Home({ navigation }: any) {
 
       // 3. Start download
       const result = await downloadResumable.downloadAsync();
+      if (!result) {
+        throw new Error("Download Failed");
+      }
       let finalUri = result?.uri;
 
       // 4. Save to gallery if video

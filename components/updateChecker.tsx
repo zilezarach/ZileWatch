@@ -9,7 +9,7 @@ import {
   StyleSheet,
   TouchableOpacity,
 } from "react-native";
-// REPLACED: DeviceInfo with Expo alternatives
+
 import * as Application from "expo-application";
 import * as Device from "expo-device";
 import * as FileSystem from "expo-file-system";
@@ -44,12 +44,11 @@ export default function UpdateManager() {
       const res = await fetch(UPDATE_URL);
       const data: Update = await res.json();
 
-      // REPLACED: DeviceInfo.getVersion() with Application.nativeApplicationVersion
       const currentVersion = Application.nativeApplicationVersion;
 
       if (data.version !== currentVersion) {
         setUpdate(data);
-        setModalVisible(true); // Show modal when update is available
+        setModalVisible(true);
       }
     } catch (err) {
       console.log("Update check failed:", err);
@@ -113,7 +112,7 @@ export default function UpdateManager() {
           <Text style={styles.title}>🚀 Update Available!</Text>
           <Text style={styles.version}>v{update.version}</Text>
           <Text style={styles.currentVersion}>
-            Current: v{Application.nativeApplicationVersion}
+            Current: version{Application.nativeApplicationVersion}
           </Text>
           <Text style={styles.changelog}>{update.changelog}</Text>
 

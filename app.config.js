@@ -35,6 +35,8 @@ export default {
         "READ_MEDIA_AUDIO",
       ],
       hermesEnabled: true,
+      enableProguardInReleaseBuilds: true,
+      enableShrinkResourcesInReleaseBuilds: true,
     },
     web: {
       bundler: "metro",
