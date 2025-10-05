@@ -39,7 +39,8 @@ export default function DownloadsScreen() {
   const [loading, setLoading] = useState<boolean>(true);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
-  const { activeDownloads, completeDownloads } = useContext(DownloadContext);
+  const { activeDownloads, completeDownloads } = useContext(DownloadContext); // Integrate DownloadContext
+
   // Load persisted downloads from AsyncStorage
   const loadDownloads = async () => {
     try {
@@ -68,94 +69,81 @@ export default function DownloadsScreen() {
     loadDownloads();
   };
 
-  // Helper: Check permissions
-  const ensurePermissions = async () => {
-    const { status } = await MediaLibrary.requestPermissionsAsync();
-    if (status !== "granted") {
-      Alert.alert(
-        "Permission Required",
-        "Media access is needed to open files.",
-      );
-      return false;
-    }
-    return true;
-  };
-
-  // Helper: Verify file existence based on URI type
-  const verifyFileExists = async (fileUri: string): Promise<boolean> => {
-    try {
-      if (fileUri.startsWith("content://")) {
-        // MediaLibrary URI: Check via asset info
-        const assetInfo = await MediaLibrary.getAssetInfoAsync(fileUri);
-        return !!assetInfo.localUri || !!assetInfo.uri;
-      } else {
-        // file:// or path: Use FileSystem
-        const fileInfo = await FileSystem.getInfoAsync(fileUri);
-        return fileInfo.exists;
-      }
-    } catch (error) {
-      console.error("Error verifying file:", error);
-      return false;
-    }
-  };
-
   // Open the downloaded fileUri
   const openFile = async (fileUri: string, fileType: string) => {
     try {
-      // Ensure permissions
-      if (!(await ensurePermissions())) return;
-
-      console.log("Opening file URI:", fileUri, "of type:", fileType);
-
-      // Verify existence first
-      if (!(await verifyFileExists(fileUri))) {
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (!fileInfo.exists) {
         Alert.alert("Error", "File not found or may have been deleted.");
         return;
       }
+      console.log("Opening file URI:", fileUri, "of type:", fileType);
 
-      let uriToOpen = fileUri;
+      // For Android, we need special handling for media files
+      if (Platform.OS === "android") {
+        // First, try to save to MediaLibrary for media files
+        if (fileType === "audio" || fileType === "video") {
+          try {
+            // Make sure the file is saved to the MediaLibrary
+            await MediaLibrary.createAssetAsync(fileUri);
 
-      // For Android content://, try direct Linking first
-      if (Platform.OS === "android" && fileUri.startsWith("content://")) {
-        try {
-          await Linking.openURL(fileUri);
-          if (Platform.OS === "android") {
-            ToastAndroid.show("Opening file...", ToastAndroid.SHORT);
+            // Use content URI with the appropriate MIME type
+            const contentUri = await FileSystem.getContentUriAsync(fileUri);
+            const mimeType = getMimeType(fileUri);
+
+            // Use Intent to open the file with the default app
+            await Linking.openURL(contentUri);
+            return;
+          } catch (mediaError) {
+            console.log("MediaLibrary error:", mediaError);
+            // Fall through to other methods if this fails
           }
+        }
+
+        // Alternate approach: Try to open with content URI
+        try {
+          const contentUri = await FileSystem.getContentUriAsync(fileUri);
+          await Linking.openURL(contentUri);
           return;
-        } catch (linkError) {
-          console.error("Direct Linking failed:", linkError);
-          // Fallback: Copy to cache for reliable access
-          const cacheUri = `${FileSystem.cacheDirectory}temp_open_${Date.now()}.${fileType === "video" ? "mp4" : "m4a"}`;
-          await FileSystem.copyAsync({ from: fileUri, to: cacheUri });
-          uriToOpen = `file://${cacheUri}`;
+        } catch (contentError) {
+          console.error("Error opening with content URI:", contentError);
+        }
+
+        // Fallback to sharing if direct opening fails
+        if (await Sharing.isAvailableAsync()) {
+          const mimeType = getMimeType(fileUri);
+          await Sharing.shareAsync(fileUri, { mimeType });
+          return;
         }
       }
-
-      // General opening: Try Linking
-      const canOpen = await Linking.canOpenURL(uriToOpen);
-      if (canOpen) {
-        await Linking.openURL(uriToOpen);
-        if (Platform.OS === "android") {
-          ToastAndroid.show("Opening file...", ToastAndroid.SHORT);
+      // iOS handling
+      else if (Platform.OS === "ios") {
+        // Try direct opening first for iOS
+        try {
+          const canOpen = await Linking.canOpenURL(fileUri);
+          if (canOpen) {
+            await Linking.openURL(fileUri);
+            return;
+          }
+        } catch (error) {
+          console.log("iOS direct open error:", error);
         }
-        return;
-      }
 
-      // Fallback to sharing
-      if (await Sharing.isAvailableAsync()) {
-        const mimeType = getMimeType(fileUri);
-        await Sharing.shareAsync(uriToOpen, { mimeType });
-        return;
+        // Fall back to sharing
+        if (await Sharing.isAvailableAsync()) {
+          const mimeType = getMimeType(fileUri);
+          // Note: Removed the 'uti' property as it's not supported
+          await Sharing.shareAsync(fileUri, { mimeType });
+          return;
+        }
       }
 
       Alert.alert("Error", "No app found to open this file.");
-    } catch (error: any) {
+    } catch (error) {
       console.error("Error opening file:", error);
-      Alert.alert("Error", `Unable to open the file: ${error.message}`);
+      Alert.alert("Error", "Unable to open the file: ");
     }
   };
-
   //get Mime mimeType
   const getMimeType = (fileUri: string) => {
     const extension = fileUri.split(".").pop()?.toLowerCase();
@@ -168,7 +156,7 @@ export default function DownloadsScreen() {
 
     // Audio formats
     if (extension === "mp3") return "audio/mpeg";
-    if (extension === "m4a") return "audio/mp4";
+    if (extension === "m4a") return "audio/m4a";
     if (extension === "aac") return "audio/aac";
     if (extension === "wav") return "audio/wav";
     if (extension === "ogg") return "audio/ogg";
@@ -176,29 +164,6 @@ export default function DownloadsScreen() {
 
     return "application/octet-stream"; // Fallback
   };
-
-  // Helper: Delete file based on URI type
-  const deleteFile = async (fileUri: string): Promise<boolean> => {
-    try {
-      if (fileUri.startsWith("content://")) {
-        // MediaLibrary URI: Delete via asset
-        const asset = await MediaLibrary.getAssetInfoAsync(fileUri);
-        if (asset) {
-          await MediaLibrary.deleteAssetsAsync([asset]);
-          return true;
-        }
-      } else {
-        // file://: Use FileSystem
-        await FileSystem.deleteAsync(fileUri);
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error("Error deleting file:", error);
-      return false;
-    }
-  };
-
   // Remove a download record and optionally delete the file
   const removeDownloadRecord = async (id: string, fileUri: string) => {
     Alert.alert(
@@ -218,12 +183,7 @@ export default function DownloadsScreen() {
                 JSON.stringify(updatedRecords),
               );
               setDownloadRecords(updatedRecords);
-              if (Platform.OS === "android") {
-                ToastAndroid.show(
-                  "Download record removed",
-                  ToastAndroid.SHORT,
-                );
-              }
+              ToastAndroid.show("Download record removed", ToastAndroid.SHORT);
             } catch (error) {
               console.error("Error removing download record:", error);
               Alert.alert("Error", "Failed to remove download record.");
@@ -234,7 +194,15 @@ export default function DownloadsScreen() {
           text: "Delete File",
           onPress: async () => {
             try {
-              const deleted = await deleteFile(fileUri);
+              const fileInfo = await FileSystem.getInfoAsync(fileUri);
+              if (fileInfo.exists) {
+                await FileSystem.deleteAsync(fileUri);
+                // Remove from MediaLibrary if it’s in the gallery
+                const asset = await MediaLibrary.getAssetInfoAsync(fileUri);
+                if (asset) {
+                  await MediaLibrary.deleteAssetsAsync([asset]);
+                }
+              }
               const updatedRecords = downloadRecords.filter(
                 (record) => record.id !== id,
               );
@@ -243,14 +211,10 @@ export default function DownloadsScreen() {
                 JSON.stringify(updatedRecords),
               );
               setDownloadRecords(updatedRecords);
-              if (Platform.OS === "android") {
-                ToastAndroid.show(
-                  deleted
-                    ? "Download and file removed"
-                    : "Download record removed (file not found)",
-                  ToastAndroid.SHORT,
-                );
-              }
+              ToastAndroid.show(
+                "Download and file removed",
+                ToastAndroid.SHORT,
+              );
             } catch (error) {
               console.error("Error deleting file and record:", error);
               Alert.alert("Error", "Failed to delete file and record.");
@@ -299,15 +263,14 @@ export default function DownloadsScreen() {
           {/* ✅ Always show a progress bar */}
           <View style={styles.progressContainer}>
             <Progress.Bar
-              progress={Math.min(progress / 100, 1)} // Clamp to 0-1
+              progress={progress / 100}
               width={null}
               height={10}
               color={progress < 100 ? "#7d0b02" : "green"}
-              unfilledColor="#333"
               borderRadius={5}
             />
             {progress < 100 ? (
-              <Text style={styles.progressText}>{Math.round(progress)}%</Text>
+              <Text style={styles.progressText}>{progress}%</Text>
             ) : (
               <Text style={styles.downloadComplete}>Complete</Text>
             )}
@@ -327,9 +290,7 @@ export default function DownloadsScreen() {
   return (
     <View style={[styles.container, isDarkMode && styles.darkMode]}>
       <View style={styles.headerContainer}>
-        <Text style={[styles.title, isDarkMode && styles.darkTitle]}>
-          My Downloads
-        </Text>
+        <Text style={styles.title}>My Downloads</Text>
         <TouchableOpacity
           style={styles.clearButton}
           onPress={async () => {
@@ -343,16 +304,19 @@ export default function DownloadsScreen() {
                   onPress: async () => {
                     try {
                       for (const record of downloadRecords) {
-                        await deleteFile(record.fileUri);
+                        const fileInfo = await FileSystem.getInfoAsync(
+                          record.fileUri,
+                        );
+                        if (fileInfo.exists) {
+                          await FileSystem.deleteAsync(record.fileUri);
+                        }
                       }
                       await AsyncStorage.removeItem("downloadedFiles");
                       setDownloadRecords([]);
-                      if (Platform.OS === "android") {
-                        ToastAndroid.show(
-                          "Downloads cleared",
-                          ToastAndroid.SHORT,
-                        );
-                      }
+                      ToastAndroid.show(
+                        "Downloads cleared",
+                        ToastAndroid.SHORT,
+                      );
                     } catch (error) {
                       console.error("Error clearing downloads:", error);
                       Alert.alert("Error", "Failed to clear downloads.");
@@ -368,25 +332,17 @@ export default function DownloadsScreen() {
         <Switch value={isDarkMode} onValueChange={setIsDarkMode} />
       </View>
       {loading ? (
-        <ActivityIndicator size="large" color={isDarkMode ? "#fff" : "#555"} />
+        <ActivityIndicator size="large" color="#555" />
       ) : (
         <FlatList
           data={downloadRecords}
           keyExtractor={(item) => item.id}
           renderItem={renderDownloadItem}
           ListEmptyComponent={
-            <Text
-              style={[styles.noDownloads, isDarkMode && styles.darkNoDownloads]}
-            >
-              No downloads found.
-            </Text>
+            <Text style={styles.noDownloads}>No downloads found.</Text>
           }
           refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor={isDarkMode ? "#fff" : "#7d0b02"}
-            />
+            <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
           }
         />
       )}
@@ -404,7 +360,6 @@ const styles = StyleSheet.create({
     marginBottom: 15,
   },
   title: { fontSize: 20, fontWeight: "bold", color: "#7d0b02" },
-  darkTitle: { color: "#fff" },
   clearButton: {
     backgroundColor: "#FF5722",
     paddingVertical: 5,
@@ -422,11 +377,11 @@ const styles = StyleSheet.create({
   },
   thumbnail: { width: 80, height: 80, borderRadius: 5, marginRight: 10 },
   placeholderThumbnail: {
-    backgroundColor: "#333",
+    backgroundColor: "#ccc",
     justifyContent: "center",
     alignItems: "center",
   },
-  placeholderText: { fontSize: 10, color: "#ccc" },
+  placeholderText: { fontSize: 10, color: "#333" },
   downloadInfo: { flex: 1 },
   downloadTitle: { fontSize: 16, fontWeight: "bold", color: "#fff" },
   downloadType: { fontSize: 14, color: "#bbb" },
@@ -434,7 +389,6 @@ const styles = StyleSheet.create({
   progressText: { fontSize: 12, color: "#7d0b02", marginTop: 2 },
   downloadComplete: { fontSize: 12, color: "green", marginTop: 5 },
   noDownloads: { textAlign: "center", color: "#999", fontStyle: "italic" },
-  darkNoDownloads: { color: "#bbb" },
   removeButton: { backgroundColor: "#FF5722", padding: 5, borderRadius: 5 },
   removeButtonText: { color: "#fff", fontSize: 12 },
 });
