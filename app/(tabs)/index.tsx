@@ -80,7 +80,6 @@ const AppNavigator = () => {
           }}
         />
 
-        {/* ADD MISSING GAMES SCREEN */}
         <Stack.Screen
           name="Games"
           component={GamesScreen}
@@ -96,7 +95,6 @@ const AppNavigator = () => {
           }}
         />
 
-        {/* ADD MISSING LIVE PLAYER SCREEN */}
         <Stack.Screen
           name="LivePlayer"
           component={LivePlayer}
@@ -111,7 +109,6 @@ const AppNavigator = () => {
           }}
         />
 
-        {/* ADD MISSING ACCOUNT SCREEN */}
         <Stack.Screen
           name="Account"
           component={Account}

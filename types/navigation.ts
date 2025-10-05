@@ -79,6 +79,10 @@ export type RootStackParamList = {
   Register: undefined;
   VideoPlayer: {
     videoUrl?: string;
+    streamUrl?: string;
+    type?: string;
+    originalUrl?: string;
+    isStreaming?: boolean;
   };
   Movies: undefined;
   Account: undefined;

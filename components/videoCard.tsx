@@ -36,8 +36,13 @@ const VideoCard: React.FC<VideoCardProps> = ({
   const navigation = useNavigation<VideoCardScreenNavigationProp>();
 
   const handlePlay = () => {
-    navigation.navigate("VideoPlayer", { videoUrl });
+    if (onPlay) {
+      onPlay(videoUrl);
+    } else {
+      navigation.navigate("VideoPlayer", { videoUrl });
+    }
   };
+
   return (
     <View style={styles.card}>
       <Image source={{ uri: thumbnail }} style={styles.thumbnail} />
