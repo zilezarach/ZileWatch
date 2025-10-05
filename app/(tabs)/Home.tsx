@@ -26,6 +26,9 @@ import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as MediaLibrary from "expo-media-library";
 import FileViewer from "react-native-file-viewer";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { RootStackParamList } from "@/types/navigation";
 import * as Progress from "react-native-progress";
 
 // Types
@@ -48,7 +51,9 @@ type SelectedVideo = {
   poster: string;
 };
 
-export default function Home({ navigation }: any) {
+type NavigationProp = NativeStackNavigationProp<RootStackParamList, "Home">;
+
+export default function Home() {
   const [videos, setVideos] = useState<any[]>([]);
   const [downloadVids, setDownloadVids] = useState<Video[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
@@ -62,7 +67,8 @@ export default function Home({ navigation }: any) {
   });
   const [isDarkMode, setIsDarkMode] = useState<boolean>(true);
   const [isVisible, setVisible] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false); // Add streaming state
+  const navigation = useNavigation<NavigationProp>();
+  const [isStreaming, setIsStreaming] = useState(false);
 
   const DOWNLOADER_API = Constants.expoConfig?.extra?.API_Backend;
   const { setActiveDownloads, setCompleteDownloads, activeDownloads } =

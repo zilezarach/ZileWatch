@@ -12,36 +12,42 @@ export const fetchPopularVids = async () => {
         chart: "mostPopular",
         regionCode: "US",
         maxResults: 10,
-        key: YOUTUBE_API // Pass API Key here
-      }
+        key: YOUTUBE_API,
+      },
     });
 
-    const videos = response.data.items.map(item => ({
+    const videos = response.data.items.map((item) => ({
       id: item.id,
       title: item.snippet?.title,
       thumbnails: item.snippet?.thumbnails || {
-        medium: { url: "https://via.placeholder.com/150" }
+        medium: { url: "https://via.placeholder.com/150" },
       },
-      channelTitle: item.snippet?.channelTitle
+      channelTitle: item.snippet?.channelTitle,
     }));
     return videos;
   } catch (error) {
-    console.error("Error Fetching Videos:", error.response?.data || error.message);
+    console.error(
+      "Error Fetching Videos:",
+      error.response?.data || error.message,
+    );
     throw error;
   }
 };
 
-export const fetchYouTubeSearchResults = async query => {
+export const fetchYouTubeSearchResults = async (query) => {
   try {
-    const response = await axios.get(`https://www.googleapis.com/youtube/v3/search`, {
-      params: {
-        part: "snippet",
-        q: query,
-        type: "video",
-        key: YOUTUBE_API,
-        maxResults: 10
-      }
-    });
+    const response = await axios.get(
+      `https://www.googleapis.com/youtube/v3/search`,
+      {
+        params: {
+          part: "snippet",
+          q: query,
+          type: "video",
+          key: YOUTUBE_API,
+          maxResults: 10,
+        },
+      },
+    );
 
     // Check if the response contains items
     if (!response.data.items) {
@@ -50,7 +56,7 @@ export const fetchYouTubeSearchResults = async query => {
     }
 
     // Map the results to the expected format
-    const videos = response.data.items.map(item => {
+    const videos = response.data.items.map((item) => {
       if (!item.id?.videoId || !item.snippet) {
         console.warn("Skipping item due to missing videoId or snippet:", item);
         return null;
@@ -62,17 +68,22 @@ export const fetchYouTubeSearchResults = async query => {
         description: item.snippet.description || "No description available.",
         thumbnails: {
           medium: {
-            url: item.snippet.thumbnails?.medium?.url || "https://via.placeholder.com/150"
-          }
+            url:
+              item.snippet.thumbnails?.medium?.url ||
+              "https://via.placeholder.com/150",
+          },
         },
-        channelTitle: item.snippet.channelTitle || "Unknown Channel"
+        channelTitle: item.snippet.channelTitle || "Unknown Channel",
       };
     });
 
     // Filter out null results from skipped items
-    return videos.filter(video => video !== null);
+    return videos.filter((video) => video !== null);
   } catch (error) {
-    console.error("Error fetching YouTube search results:", error.response?.data || error.message);
+    console.error(
+      "Error fetching YouTube search results:",
+      error.response?.data || error.message,
+    );
     throw error;
   }
 };

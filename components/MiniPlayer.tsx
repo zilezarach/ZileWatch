@@ -1,5 +1,11 @@
 import React, { useRef, useState } from "react";
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from "react-native";
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  Dimensions,
+} from "react-native";
 import Video, { VideoRef } from "react-native-video";
 import { Ionicons } from "@expo/vector-icons";
 import { useMiniPlayer } from "../context/MiniPlayerContext";
@@ -14,7 +20,7 @@ const MiniPlayer = () => {
   if (!miniPlayer.visible || !miniPlayer.videoUrl) return null;
 
   const togglePlayPause = () => {
-    setIsPaused(prev => !prev);
+    setIsPaused((prev) => !prev);
   };
 
   const handleClose = () => {
@@ -51,7 +57,10 @@ const MiniPlayer = () => {
       </View>
 
       <View style={styles.controls}>
-        <TouchableOpacity onPress={togglePlayPause} style={styles.controlButton}>
+        <TouchableOpacity
+          onPress={togglePlayPause}
+          style={styles.controlButton}
+        >
           <Ionicons name={isPaused ? "play" : "pause"} size={24} color="#fff" />
         </TouchableOpacity>
 
@@ -76,15 +85,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     zIndex: 1000,
     borderTopWidth: 1,
-    borderTopColor: "#333"
+    borderTopColor: "#333",
   },
   videoContainer: {
-    position: "relative"
+    position: "relative",
   },
   video: {
     width: 120,
     height: 70,
-    borderRadius: 5
+    borderRadius: 5,
   },
   playOverlay: {
     position: "absolute",
@@ -94,24 +103,24 @@ const styles = StyleSheet.create({
     bottom: 0,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0,0,0,0.5)"
+    backgroundColor: "rgba(0,0,0,0.5)",
   },
   info: {
     flex: 1,
-    marginHorizontal: 10
+    marginHorizontal: 10,
   },
   title: {
     color: "#fff",
     fontSize: 16,
-    maxWidth: SCREEN_WIDTH - 250 // Adjust based on your layout
+    maxWidth: SCREEN_WIDTH - 250,
   },
   controls: {
     flexDirection: "row",
-    alignItems: "center"
+    alignItems: "center",
   },
   controlButton: {
-    padding: 10
-  }
+    padding: 10,
+  },
 });
 
 export default MiniPlayer;

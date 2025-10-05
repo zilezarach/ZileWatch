@@ -79,7 +79,7 @@ const AppNavigator = () => {
             headerShadowVisible: true,
           }}
         />
-
+        {/* ADD MISSING GAMES SCREEN */}
         <Stack.Screen
           name="Games"
           component={GamesScreen}
@@ -191,6 +191,7 @@ const AppNavigator = () => {
             headerBackground: () => <View style={styles.shadowStrong} />,
           }}
         />
+        <Stack.Screen name="VideoPlayer" component={VideoPlayer} />
       </Stack.Navigator>
     </>
   );
