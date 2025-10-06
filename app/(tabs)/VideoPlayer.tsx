@@ -8,11 +8,11 @@ import {
   Alert,
   Platform,
   StatusBar,
+  BackHandler,
 } from "react-native";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import { ResizeMode, Video } from "expo-av";
 import * as ScreenOrientation from "expo-screen-orientation";
-import { useMiniPlayer } from "@/context/MiniPlayerContext";
 
 export default function VideoPlayer() {
   const navigation = useNavigation();
@@ -25,8 +25,27 @@ export default function VideoPlayer() {
   const videoRef = useRef<Video>(null);
   const [loading, setLoading] = useState(false);
   const [isLandscape, setIsLandscape] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
 
-  const { setMiniPlayer } = useMiniPlayer();
+  useEffect(() => {
+    navigation.setOptions({
+      gestureEnabled: false,
+      headerShown: false,
+    });
+  }, [navigation]);
+
+  // Handle Android hardware back button
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener(
+      "hardwareBackPress",
+      () => {
+        handleGoBack();
+        return true;
+      },
+    );
+
+    return () => backHandler.remove();
+  }, []);
 
   // Listen to orientation changes
   useEffect(() => {
@@ -40,36 +59,54 @@ export default function VideoPlayer() {
         );
       },
     );
+
     return () => {
       ScreenOrientation.removeOrientationChangeListener(subscription);
     };
   }, []);
 
+  // Cleanup on unmount
   useEffect(() => {
     return () => {
-      if (videoRef.current) {
-        videoRef.current.stopAsync().catch(() => {});
-        videoRef.current.unloadAsync().catch(() => {});
-      }
-
-      ScreenOrientation.lockAsync(
-        ScreenOrientation.OrientationLock.PORTRAIT,
-      ).catch(() => {});
-
-      StatusBar.setHidden(false, "fade");
-
-      setMiniPlayer({
-        visible: false,
-        videoUrl: null,
-        title: "",
-        mediaType: "",
-        id: 0,
-        quality: "",
-        sourceId: "",
-        videoCurrent: 0,
-      });
+      cleanupVideo();
     };
   }, []);
+
+  const cleanupVideo = async () => {
+    try {
+      if (videoRef.current) {
+        await videoRef.current.stopAsync();
+        await videoRef.current.unloadAsync();
+      }
+      await ScreenOrientation.lockAsync(
+        ScreenOrientation.OrientationLock.PORTRAIT,
+      );
+      StatusBar.setHidden(false, "fade");
+    } catch (error) {
+      console.error("Cleanup error:", error);
+    }
+  };
+
+  const handleGoBack = async () => {
+    const status = await videoRef.current?.getStatusAsync();
+
+    // Check if video is loaded and playing
+    if (status && status.isLoaded && status.isPlaying) {
+      Alert.alert("Exit Video?", "Are you sure you want to stop playing?", [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Exit",
+          onPress: async () => {
+            await cleanupVideo();
+            navigation.goBack();
+          },
+        },
+      ]);
+    } else {
+      await cleanupVideo();
+      navigation.goBack();
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -87,7 +124,6 @@ export default function VideoPlayer() {
         onLoadStart={() => setLoading(true)}
         onReadyForDisplay={() => {
           setLoading(false);
-
           videoRef.current?.playAsync();
         }}
         onError={(err) => {
@@ -99,10 +135,7 @@ export default function VideoPlayer() {
 
       {/* Back button only in portrait */}
       {!isLandscape && (
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
+        <TouchableOpacity style={styles.backButton} onPress={handleGoBack}>
           <Text style={styles.backText}>← Back</Text>
         </TouchableOpacity>
       )}
