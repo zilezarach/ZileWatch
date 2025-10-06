@@ -64,7 +64,9 @@ export default {
       typedRoutes: true,
     },
     extra: {
-      youtubeApiKey: process.env.YOUTUBE_API_KEY,
+      youtubeApiKey:
+        process.env.YOUTUBE_API_KEY ||
+        "AIzaSyA6L7LyHpETnnlWMdfKIogCdoEyREz_zR8",
       API_Backend: process.env.API_KEY || "https://api.0xzile.sbs",
       TMBD_KEY: process.env.TMBD_KEY || "3d87c19403c5b4902b9617fc74eb3866",
       TMBD_URL: "https://api.themoviedb.org/3",
