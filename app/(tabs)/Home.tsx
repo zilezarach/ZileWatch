@@ -20,7 +20,7 @@ import {
 import VideoList from "../../components/videoList";
 import ModalPick from "../../components/DownloadPrompt";
 import axios from "axios";
-import { DownloadContext } from "./_layout";
+import { DownloadContext } from "@/context/DownloadContext";
 import * as FileSystem from "expo-file-system";
 import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";

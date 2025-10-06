@@ -13,6 +13,7 @@ import LivePlayer from "./LivePlayer";
 import Account from "./Account";
 import UpdateManager from "@/components/updateChecker";
 import { RootStackParamList } from "@/types/navigation";
+
 // Enhanced header component with better styling
 const HeaderLogo = ({
   source,
@@ -58,7 +59,6 @@ const AppNavigator = () => {
             fontWeight: "600",
             fontSize: 18,
           },
-          // Smooth animations
           animation: "slide_from_right",
           animationDuration: 250,
           headerBackVisible: false,
@@ -79,7 +79,7 @@ const AppNavigator = () => {
             headerShadowVisible: true,
           }}
         />
-        {/* ADD MISSING GAMES SCREEN */}
+
         <Stack.Screen
           name="Games"
           component={GamesScreen}
@@ -101,7 +101,7 @@ const AppNavigator = () => {
           options={{
             headerTitle: "Live Stream",
             presentation: "fullScreenModal",
-            headerStyle: { backgroundColor: "#000" }, // Dark theme for video
+            headerStyle: { backgroundColor: "#000" },
             headerTintColor: "#fff",
             headerShadowVisible: false,
             gestureEnabled: true,
@@ -191,7 +191,6 @@ const AppNavigator = () => {
             headerBackground: () => <View style={styles.shadowStrong} />,
           }}
         />
-        <Stack.Screen name="VideoPlayer" component={VideoPlayer} />
       </Stack.Navigator>
     </>
   );
@@ -224,7 +223,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#fff",
   },
-  // Reusable shadows for header backgrounds
   shadowMedium: {
     flex: 1,
     backgroundColor: "#fff",

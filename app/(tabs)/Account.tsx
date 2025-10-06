@@ -20,7 +20,7 @@ import * as MediaLibrary from "expo-media-library";
 import * as Sharing from "expo-sharing";
 import * as Linking from "expo-linking";
 import * as Progress from "react-native-progress";
-import { DownloadContext } from "./_layout";
+import { DownloadContext } from "@/context/DownloadContext";
 
 // Define DownloadRecord type (aligned with Home)
 export type DownloadRecord = {
