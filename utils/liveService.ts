@@ -21,6 +21,8 @@ export interface Channel {
   streamUrl: string;
 }
 
+export type Source = "crichd" | "live-ru" | "streamed";
+
 export interface TVChannels {
   id: number;
   name: string;
@@ -45,8 +47,26 @@ export interface LiveItem {
   end: string;
   channels: Channel[];
   isFeatured?: boolean;
-  source?: "crichd" | "streamed";
+  source?: Source;
   streams?: Stream[];
+}
+
+export interface LiveRuStreams {
+  success: boolean;
+  data?: {
+    channelName: string;
+    proxyUrl: string;
+    status: "success" | "failed" | "pending";
+  };
+}
+
+export interface LiveRuChannel {
+  success: boolean;
+  data?: Array<{
+    channelName: string;
+    proxyUrl: string;
+    status: "success" | "failed" | "pending";
+  }>;
 }
 
 export interface SessionStatus {
@@ -81,18 +101,41 @@ export interface StreamedMatch {
 }
 
 // Constants - Increased timeouts for production
-const CACHE_DURATION = 60 * 60 * 1000; // 1 hour
-const REQUEST_TIMEOUT = 15000; // 15 seconds
-const MAX_RETRIES = 3; // Reduced retries for faster feedback
+const CACHE_DURATION = 60 * 60 * 1000;
+const REQUEST_TIMEOUT = 15000;
+const MAX_RETRIES = 3;
+const prefferedSourceKey = "SetprefferedSourceKey";
 
 /**
- * Enhanced fetch wrapper with retry logic and better error handling
+ * Get Preffered Source
  */
-async function fetchWithRetry(
-  url: string,
-  options: RequestInit = {},
-  retries = MAX_RETRIES,
-): Promise<Response> {
+
+export async function getPrefferedSource(): Promise<Source> {
+  try {
+    const prefference = await AsyncStorage.getItem(prefferedSourceKey);
+    return (prefference as Source) || "live-ru";
+  } catch (error: any) {
+    console.warn("unable to get user's prefference");
+    return "live-ru";
+  }
+}
+
+/**
+ * Set Preffered Source
+ */
+export async function setPrefferedSource(source: Source): Promise<void> {
+  try {
+    await AsyncStorage.setItem(prefferedSourceKey, source);
+    console.log(`Set Preffered Source to: ${source}`);
+  } catch (error: any) {
+    console.error("Failed to set Preffered Source", error);
+  }
+}
+
+/**
+ * Enhanced fetch wrapper with retry logic
+ */
+async function fetchWithRetry(url: string, options: RequestInit = {}, retries = MAX_RETRIES): Promise<Response> {
   let lastError: Error | null = null;
 
   for (let i = 0; i <= retries; i++) {
@@ -103,9 +146,7 @@ async function fetchWithRetry(
       console.log(`🌐 Attempt ${i + 1}/${retries + 1}: ${url}`);
 
       // Combine external abort signal with timeout signal
-      const combinedSignal = options.signal
-        ? AbortSignal.any([options.signal, controller.signal])
-        : controller.signal;
+      const combinedSignal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
 
       const response = await fetch(url, {
         ...options,
@@ -115,8 +156,8 @@ async function fetchWithRetry(
           Accept: "*/*",
           "Cache-Control": "max-age=300",
           Connection: "keep-alive",
-          ...options.headers,
-        },
+          ...options.headers
+        }
       });
 
       clearTimeout(timeoutId);
@@ -126,18 +167,14 @@ async function fetchWithRetry(
         throw new Error("Request aborted by caller");
       }
 
-      console.log(
-        `📡 Response: ${response.status} ${response.statusText} for ${url}`,
-      );
+      console.log(`📡 Response: ${response.status} ${response.statusText} for ${url}`);
       return response;
     } catch (error) {
       clearTimeout(timeoutId);
       lastError = error instanceof Error ? error : new Error(String(error));
 
       const isLastAttempt = i === retries;
-      console.warn(
-        `🚨 Attempt ${i + 1} failed for ${url}: ${lastError.message}`,
-      );
+      console.warn(`🚨 Attempt ${i + 1} failed for ${url}: ${lastError.message}`);
 
       // Don't retry if the request was aborted by external signal
       if (options.signal?.aborted || lastError.name === "AbortError") {
@@ -151,28 +188,94 @@ async function fetchWithRetry(
       // Progressive delay between retries
       const delay = Math.min(500 * Math.pow(1.5, i), 5000);
       console.log(`⏳ Retrying in ${delay}ms...`);
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      await new Promise(resolve => setTimeout(resolve, delay));
     }
   }
 
-  throw new Error(
-    `Network request failed after ${retries + 1} attempts: ${lastError?.message || "Unknown error"}`,
-  );
+  throw new Error(`Network request failed after ${retries + 1} attempts: ${lastError?.message || "Unknown error"}`);
 }
 
 /**
- * Main function to fetch live sports data from CricHD
+ * Main function to fetch live sports data from LiveRu
  */
-export async function fetchLiveSports(
-  signal?: AbortSignal,
-): Promise<LiveItem[]> {
-  try {
-    console.log("🏈 Starting fetchLiveSports with CricHD...");
-    const result = await fetchCricHDChannels(signal);
 
+export async function fetchLiveRuChannels(signal?: AbortSignal): Promise<LiveItem[]> {
+  try {
+    console.log("Fetching Data for LiveRu");
+    const url = `${API}/live-ru/proxied`;
+    const res = await fetchWithRetry(url, { signal });
+    if (!res.ok) {
+      throw new Error(`${res.status}: ${res.statusText}`);
+    }
+    const resData: LiveRuChannel = await res.json();
+    if (!resData.success || !resData.data) {
+      throw new Error("Invalid API Response");
+    }
+    const liveItems: LiveItem[] = resData.data.map((stream, index) => {
+      const category = extractCategoryFromName(stream.channelName);
+      const now = new Date();
+      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      return {
+        id: generateStableId(stream.channelName),
+        match: stream.channelName,
+        category: category,
+        start: now.toISOString(),
+        end: tomorrow.toISOString(),
+        logo: getChannelLogo(stream.channelName),
+        channels: [
+          {
+            id: index + 1,
+            name: stream.channelName,
+            streamUrl: stream.proxyUrl
+          }
+        ],
+        isFeatured: false,
+        source: "live-ru" as const
+      };
+    });
+    console.log(`Successfully gotten LiveRu ${liveItems.length}`);
+    return liveItems;
+  } catch (error: any) {
+    console.error("Unable to fetch Channels for LiveRu", error);
+    return [];
+  }
+}
+/**
+ * Main function to fetch liveStreams for LiveRu
+ */
+
+export async function fetchStreamsLiveRu(channelName: string, signal?: AbortSignal): Promise<string> {
+  const url = `${API}/live-ru/proxied/${encodeURIComponent(channelName)}`;
+  const res = await fetchWithRetry(url, { signal });
+  if (!res.ok) {
+    throw new Error(`${res.status}: ${res.statusText}`);
+  }
+  const resData: LiveRuStreams = await res.json();
+  if (!resData.success || !resData.data?.proxyUrl) {
+    throw new Error("No stream URL found");
+  }
+  return resData.data.proxyUrl;
+}
+
+/**
+ * Main function to fetch live sports data from CricHD and LiveRu
+ */
+export async function fetchLiveSports(prefferedSource?: Source, signal?: AbortSignal): Promise<LiveItem[]> {
+  try {
+    const selectSource = prefferedSource || (await getPrefferedSource());
+    console.log("Fetching Data for Selected fetchLiveSports Source");
+    let result: LiveItem[] = [];
+    switch (selectSource) {
+      case "live-ru":
+        result = await fetchLiveRuChannels(signal);
+        break;
+      case "crichd":
+        result = await fetchCricHDChannels(signal);
+      default:
+        result = await fetchLiveRuChannels(signal);
+    }
     if (!result || result.length === 0) {
       console.warn("⚠️ No live sports data received from API");
-      // Try to return cached data if available
       const cachedData = await getCachedLiveSports();
       if (cachedData.length > 0) {
         console.log(`📦 Returning ${cachedData.length} cached sports items`);
@@ -180,29 +283,22 @@ export async function fetchLiveSports(
       }
       return [];
     }
-
-    console.log(`✅ Successfully fetched ${result.length} live sports`);
+    await cacheLiveSports(result);
+    console.log(`Successfully found Channels for: ${selectSource} with ${result.length}`);
     return result;
   } catch (error) {
     console.error("❌ Error fetching live sports:", error);
 
     // Return cached data if available and error is network-related
-    if (
-      error instanceof Error &&
-      (error.message.includes("network") || error.message.includes("fetch"))
-    ) {
+    if (error instanceof Error && (error.message.includes("network") || error.message.includes("fetch"))) {
       const cachedData = await getCachedLiveSports();
       if (cachedData.length > 0) {
-        console.log(
-          `📦 Fallback: Returning ${cachedData.length} cached sports items`,
-        );
+        console.log(`📦 Fallback: Returning ${cachedData.length} cached sports items`);
         return cachedData;
       }
     }
 
-    throw new Error(
-      `Failed to load live sports: ${error instanceof Error ? error.message : "Unknown error"}`,
-    );
+    throw new Error(`Failed to load live sports: ${error instanceof Error ? error.message : "Unknown error"}`);
   }
 }
 
@@ -228,7 +324,7 @@ async function getCachedLiveSports(): Promise<LiveItem[]> {
       const isExpired = Date.now() - parsed.timestamp > CACHE_DURATION;
       if (!isExpired && Array.isArray(parsed.data)) {
         console.log(
-          `📦 Retrieved ${parsed.data.length} cached live sports (age: ${Math.round((Date.now() - parsed.timestamp) / 60000)}min)`,
+          `📦 Retrieved ${parsed.data.length} cached live sports (age: ${Math.round((Date.now() - parsed.timestamp) / 60000)}min)`
         );
         return parsed.data;
       } else {
@@ -251,8 +347,8 @@ async function cacheLiveSports(data: LiveItem[]): Promise<void> {
       JSON.stringify({
         data,
         timestamp: Date.now(),
-        version: "1.0",
-      }),
+        version: "1.0"
+      })
     );
     console.log(`💾 Cached ${data.length} live sports items`);
   } catch (error) {
@@ -263,9 +359,7 @@ async function cacheLiveSports(data: LiveItem[]): Promise<void> {
 /**
  * Fetch TV channels from API
  */
-export async function fetchChannels(
-  signal?: AbortSignal,
-): Promise<TVChannels[]> {
+export async function fetchChannels(signal?: AbortSignal): Promise<TVChannels[]> {
   try {
     console.log("📺 Fetching TV channels...");
     const url = `${API}/streams/channels`;
@@ -275,13 +369,9 @@ export async function fetchChannels(
 
     if (!res.ok) {
       if (res.status === 503) {
-        throw new Error(
-          "Channel service temporarily unavailable. Please try again in a few minutes.",
-        );
+        throw new Error("Channel service temporarily unavailable. Please try again in a few minutes.");
       } else if (res.status === 404) {
-        throw new Error(
-          "Channel service not found. Please check your connection.",
-        );
+        throw new Error("Channel service not found. Please check your connection.");
       }
       throw new Error(`HTTP ${res.status}: ${res.statusText}`);
     }
@@ -297,7 +387,7 @@ export async function fetchChannels(
       hasChannels: !!json?.channels,
       hasData: !!json?.data,
       isArray: Array.isArray(json),
-      keys: Object.keys(json || {}),
+      keys: Object.keys(json || {})
     });
 
     // Handle different possible response formats
@@ -330,10 +420,7 @@ export async function fetchChannels(
       .map((channel, index) => {
         // Skip invalid entries
         if (!channel || typeof channel !== "object") {
-          console.warn(
-            `⚠️ Skipping invalid channel at index ${index}:`,
-            channel,
-          );
+          console.warn(`⚠️ Skipping invalid channel at index ${index}:`, channel);
           return null;
         }
 
@@ -347,14 +434,12 @@ export async function fetchChannels(
           id: channel.id !== undefined ? channel.id : index,
           name: channel.name || `Channel ${index + 1}`,
           image: channel.image || channel.logo || "",
-          streamUrl: channel.streamUrl || channel.url || "",
+          streamUrl: channel.streamUrl || channel.url || ""
         };
       })
       .filter((channel): channel is TVChannels => channel !== null);
 
-    console.log(
-      `✅ Processed ${validChannels.length}/${channelsArray.length} valid channels`,
-    );
+    console.log(`✅ Processed ${validChannels.length}/${channelsArray.length} valid channels`);
 
     // Cache the successful result
     await cacheChannels(validChannels);
@@ -366,21 +451,41 @@ export async function fetchChannels(
     // Try to return cached channels if available and error is network-related
     if (
       error instanceof Error &&
-      (error.message.includes("network") ||
-        error.message.includes("timeout") ||
-        error.message.includes("fetch"))
+      (error.message.includes("network") || error.message.includes("timeout") || error.message.includes("fetch"))
     ) {
       const cachedChannels = await getCachedChannels();
       if (cachedChannels.length > 0) {
-        console.log(
-          `📦 Fallback: Returning ${cachedChannels.length} cached channels due to network error`,
-        );
+        console.log(`📦 Fallback: Returning ${cachedChannels.length} cached channels due to network error`);
         return cachedChannels;
       }
     }
 
     throw error;
   }
+}
+
+async function getCricHDStreamUrl(channelName: string, signal?: AbortSignal): Promise<string> {
+  const url = `${API}/crichd/channel/${encodeURIComponent(channelName)}`;
+  const res = await fetchWithRetry(url, { signal });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      throw new Error(`Channel "${channelName}" not found`);
+    }
+    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  }
+
+  const data: StreamResponse = await res.json();
+
+  if (data.status === "success" && data.m3u8Url) {
+    return data.m3u8Url;
+  } else if (data.streamUrl) {
+    return data.streamUrl;
+  } else if (data.error) {
+    throw new Error(data.error);
+  }
+
+  throw new Error("No valid stream URL found");
 }
 
 /**
@@ -411,8 +516,8 @@ async function cacheChannels(data: TVChannels[]): Promise<void> {
       "cachedChannels",
       JSON.stringify({
         data,
-        timestamp: Date.now(),
-      }),
+        timestamp: Date.now()
+      })
     );
     console.log(`💾 Cached ${data.length} channels`);
   } catch (error) {
@@ -426,32 +531,20 @@ async function cacheChannels(data: TVChannels[]): Promise<void> {
 function getChannelLogo(channelName: string): string {
   const name = channelName.toLowerCase();
   const logoMap: { [key: string]: string } = {
-    "sky sports main event":
-      "https://logos-world.net/wp-content/uploads/2020/06/Sky-Sports-Logo.png",
-    "sky sports premier":
-      "https://logos-world.net/wp-content/uploads/2020/06/Sky-Sports-Logo.png",
-    "sky sports football":
-      "https://logos-world.net/wp-content/uploads/2020/06/Sky-Sports-Logo.png",
-    "sky sports f1":
-      "https://logos-world.net/wp-content/uploads/2020/06/Sky-Sports-Logo.png",
-    "la liga":
-      "https://upload.wikimedia.org/wikipedia/commons/1/13/LaLiga_EA_Sports_2023_Vertical_Logo.svg",
-    "super sports football":
-      "https://upload.wikimedia.org/wikipedia/en/0/0d/SuperSport_logo.png",
-    "tnt sports 1":
-      "https://logos-world.net/wp-content/uploads/2023/08/TNT-Sports-Logo.png",
-    "tnt sports 2":
-      "https://logos-world.net/wp-content/uploads/2023/08/TNT-Sports-Logo.png",
-    "tnt sports 3":
-      "https://logos-world.net/wp-content/uploads/2023/08/TNT-Sports-Logo.png",
+    "sky sports main event": "https://logos-world.net/wp-content/uploads/2020/06/Sky-Sports-Logo.png",
+    "sky sports premier": "https://logos-world.net/wp-content/uploads/2020/06/Sky-Sports-Logo.png",
+    "sky sports football": "https://logos-world.net/wp-content/uploads/2020/06/Sky-Sports-Logo.png",
+    "sky sports f1": "https://logos-world.net/wp-content/uploads/2020/06/Sky-Sports-Logo.png",
+    "la liga": "https://upload.wikimedia.org/wikipedia/commons/1/13/LaLiga_EA_Sports_2023_Vertical_Logo.svg",
+    "super sports football": "https://upload.wikimedia.org/wikipedia/en/0/0d/SuperSport_logo.png",
+    "tnt sports 1": "https://logos-world.net/wp-content/uploads/2023/08/TNT-Sports-Logo.png",
+    "tnt sports 2": "https://logos-world.net/wp-content/uploads/2023/08/TNT-Sports-Logo.png",
+    "tnt sports 3": "https://logos-world.net/wp-content/uploads/2023/08/TNT-Sports-Logo.png"
   };
 
   return logoMap[name] || "https://via.placeholder.com/150x150?text=Live";
 }
 
-/**
- * Fetch channels from CricHD service - FIXED VERSION
- */
 async function fetchCricHDChannels(signal?: AbortSignal): Promise<LiveItem[]> {
   try {
     console.log("📡 Fetching CricHD channels...");
@@ -470,17 +563,14 @@ async function fetchCricHDChannels(signal?: AbortSignal): Promise<LiveItem[]> {
       hasDirectSuccess: !!responseData?.success,
       hasNestedSuccess: !!responseData?.data?.success,
       topLevelKeys: Object.keys(responseData || {}),
-      dataKeys: responseData?.data ? Object.keys(responseData.data) : [],
+      dataKeys: responseData?.data ? Object.keys(responseData.data) : []
     });
 
     // Handle the actual API response format: data.data.success
     let successArray: any[] = [];
     let failedArray: any[] = [];
 
-    if (
-      responseData?.data?.success &&
-      Array.isArray(responseData.data.success)
-    ) {
+    if (responseData?.data?.success && Array.isArray(responseData.data.success)) {
       // This is the correct format for your API
       successArray = responseData.data.success;
       failedArray = responseData.data.failed || [];
@@ -495,84 +585,71 @@ async function fetchCricHDChannels(signal?: AbortSignal): Promise<LiveItem[]> {
       console.error("   Format 1: { data: { success: [...] } }");
       console.error("   Format 2: { success: [...] }");
       console.error("   Received:", responseData);
-      throw new Error(
-        "Invalid CricHD API response: missing success array in expected location",
-      );
+      throw new Error("Invalid CricHD API response: missing success array in expected location");
     }
 
     if (successArray.length === 0) {
       console.warn("⚠️ No successful channels found in API response");
       if (failedArray.length > 0) {
-        console.warn(
-          `⚠️ Found ${failedArray.length} failed channels:`,
-          failedArray.slice(0, 3),
-        );
+        console.warn(`⚠️ Found ${failedArray.length} failed channels:`, failedArray.slice(0, 3));
       }
       return [];
     }
 
-    console.log(
-      `✅ Found ${successArray.length} successful streams, ${failedArray.length} failed`,
-    );
+    console.log(`✅ Found ${successArray.length} successful streams, ${failedArray.length} failed`);
 
-    const liveItems: LiveItem[] = successArray.map(
-      (stream: any, index: number) => {
-        // Validate required fields
-        if (!stream.channelName) {
-          console.warn("⚠️ Invalid stream data missing channelName:", stream);
-          throw new Error(
-            `Invalid stream data at index ${index}: missing channelName`,
-          );
-        }
+    const liveItems: LiveItem[] = successArray.map((stream: any, index: number) => {
+      // Validate required fields
+      if (!stream.channelName) {
+        console.warn("⚠️ Invalid stream data missing channelName:", stream);
+        throw new Error(`Invalid stream data at index ${index}: missing channelName`);
+      }
 
-        // Validate that we have a valid m3u8 URL
-        if (!stream.m3u8Url && !stream.streamUrl) {
-          console.warn("⚠️ Stream missing both m3u8Url and streamUrl:", stream);
-          // Don't throw error, just log warning and continue
-        }
+      // Validate that we have a valid m3u8 URL
+      if (!stream.m3u8Url && !stream.streamUrl) {
+        console.warn("⚠️ Stream missing both m3u8Url and streamUrl:", stream);
+        // Don't throw error, just log warning and continue
+      }
 
-        const category = extractCategoryFromName(stream.channelName);
-        const now = new Date();
-        const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const category = extractCategoryFromName(stream.channelName);
+      const now = new Date();
+      const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
-        return {
-          id: generateStableId(stream.channelName),
-          match: stream.channelName,
-          category: category,
-          start: now.toISOString(),
-          end: tomorrow.toISOString(),
-          logo: getChannelLogo(stream.channelName),
-          channels: [
-            {
-              id: index + 1,
-              name: stream.channelName,
-              streamUrl: stream.m3u8Url || stream.streamUrl || "",
-            },
-          ],
-          isFeatured: false,
-          source: "crichd" as const,
-        };
-      },
-    );
+      return {
+        id: generateStableId(stream.channelName),
+        match: stream.channelName,
+        category: category,
+        start: now.toISOString(),
+        end: tomorrow.toISOString(),
+        logo: getChannelLogo(stream.channelName),
+        channels: [
+          {
+            id: index + 1,
+            name: stream.channelName,
+            streamUrl: stream.m3u8Url || stream.streamUrl || ""
+          }
+        ],
+        isFeatured: false,
+        source: "crichd" as const
+      };
+    });
 
     // Cache the successful result
     await cacheLiveSports(liveItems);
 
-    console.log(
-      `✅ Successfully processed ${liveItems.length} live items from CricHD`,
-    );
+    console.log(`✅ Successfully processed ${liveItems.length} live items from CricHD`);
 
     // Log the first few items for debugging
     if (liveItems.length > 0) {
       console.log(
         "📋 Sample processed items:",
-        liveItems.slice(0, 2).map((item) => ({
+        liveItems.slice(0, 2).map(item => ({
           id: item.id,
           match: item.match,
           category: item.category,
           hasChannels: item.channels.length > 0,
-          hasStreamUrl: !!item.channels[0]?.streamUrl,
-        })),
+          hasStreamUrl: !!item.channels[0]?.streamUrl
+        }))
       );
     }
 
@@ -598,7 +675,7 @@ function extractCategoryFromName(channelName: string): string {
     bein: "beIN Sports",
     nbc: "NBC Sports",
     cbs: "CBS Sports",
-    sports: "Sports",
+    sports: "Sports"
   };
 
   for (const [keyword, category] of Object.entries(categoryMap)) {
@@ -614,7 +691,7 @@ function extractCategoryFromName(channelName: string): string {
  */
 export function generateCategoriesFromData(liveItems: LiveItem[]): string[] {
   const categories = new Set<string>();
-  liveItems.forEach((item) => {
+  liveItems.forEach(item => {
     if (item.category) {
       categories.add(item.category);
     }
@@ -644,136 +721,64 @@ function isValidStreamUrl(url: string): boolean {
 }
 
 /**
- * Get stream URL for CricHD channel
+ * Get stream URL for CricHD/LiveRu channels
  */
-export async function getStreamUrl(
-  channelName: string,
-  signal?: AbortSignal,
-): Promise<string> {
+export async function getStreamUrl(channelName: string, signal?: AbortSignal, source?: Source): Promise<string> {
   if (!channelName?.trim()) {
     throw new Error("Channel name is required and cannot be empty");
   }
-
   const cleanChannelName = channelName.trim();
-  console.log(`🎬 Getting stream URL for CricHD channel: ${cleanChannelName}`);
+  const streamSource = source || (await getPrefferedSource());
+
+  console.log(`🎬 Getting stream URL for: ${cleanChannelName} (source: ${streamSource})`);
 
   // Check cache first
-  const cachedStream = streamUrlCache.get(cleanChannelName);
+  const cacheKey = `${streamSource}_${cleanChannelName}`;
+  const cachedStream = streamUrlCache.get(cacheKey);
   if (cachedStream && cachedStream.expires > Date.now()) {
     console.log(`💾 Using cached stream URL for ${cleanChannelName}`);
     return cachedStream.url;
   }
 
   try {
-    const url = `${API}/crichd/channel/${encodeURIComponent(cleanChannelName)}`;
-    const res = await fetchWithRetry(url, { signal });
+    let streamUrl: string;
 
-    if (!res.ok) {
-      // Handle specific HTTP errors
-      if (res.status === 404) {
-        throw new Error(`Channel "${cleanChannelName}" not found`);
-      } else if (res.status === 503) {
-        throw new Error(
-          "Service temporarily unavailable, please try again later",
-        );
-      }
-      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    switch (streamSource) {
+      case "live-ru":
+        streamUrl = await fetchStreamsLiveRu(cleanChannelName, signal);
+        break;
+      case "crichd":
+        streamUrl = await getCricHDStreamUrl(cleanChannelName, signal);
+        break;
+      default:
+        streamUrl = await fetchStreamsLiveRu(cleanChannelName, signal);
     }
 
-    let data: StreamResponse;
-    try {
-      data = await res.json();
-    } catch (parseError) {
-      throw new Error("Invalid response format from server");
-    }
-
-    console.log(`📡 CricHD Stream response for ${cleanChannelName}:`, {
-      status: data.status,
-      hasM3u8: !!data.m3u8Url,
-      hasStreamUrl: !!data.streamUrl,
-      hasError: !!data.error,
-    });
-
-    // Handle different response formats from optimized backend
-    let streamUrl: string | null = null;
-
-    if (data.status === "success" && data.m3u8Url) {
-      streamUrl = data.m3u8Url;
-    } else if (data.streamUrl) {
-      streamUrl = data.streamUrl;
-    } else if (data.status === "failed" && data.error) {
-      // Check if it's a cache miss from optimized backend
-      if (data.error.includes("not currently cached")) {
-        throw new Error(
-          `Stream not ready. The service is updating its cache. Please try again in 30-60 seconds.`,
-        );
-      }
-      throw new Error(data.error);
-    }
-
-    if (!streamUrl) {
-      throw new Error("No valid stream URL found in response");
-    }
-
-    // Validate URL format
-    if (!isValidStreamUrl(streamUrl)) {
-      throw new Error("Invalid stream URL format received");
-    }
-
-    // Cache the successful result
     const cacheEntry = {
       url: streamUrl,
-      expires: Date.now() + CACHE_DURATION,
+      expires: Date.now() + CACHE_DURATION
     };
-    streamUrlCache.set(cleanChannelName, cacheEntry);
+    streamUrlCache.set(cacheKey, cacheEntry);
 
-    // Persist to AsyncStorage (fire and forget)
-    AsyncStorage.setItem(
-      `streamUrl_${cleanChannelName}`,
-      JSON.stringify(cacheEntry),
-    ).catch((error) =>
-      console.warn(
-        `⚠️ Failed to cache stream URL for ${cleanChannelName}:`,
-        error,
-      ),
-    );
-
-    console.log(`✅ Successfully got stream URL for ${cleanChannelName}`);
+    console.log(`Successfully got stream URL for ${cleanChannelName}`);
     return streamUrl;
   } catch (error) {
-    console.error(
-      `❌ Error getting stream URL for ${cleanChannelName}:`,
-      error,
-    );
+    console.error(` Error getting stream URL:`, error);
 
-    // Try to return stale cache if available and error is network-related
-    const staleCache = streamUrlCache.get(cleanChannelName);
-    if (
-      staleCache &&
-      error instanceof Error &&
-      error.message.includes("network")
-    ) {
-      console.log(
-        `🔄 Using stale cache for ${cleanChannelName} due to network error`,
-      );
+    const staleCache = streamUrlCache.get(cacheKey);
+    if (staleCache) {
+      console.log(`🔄 Using stale cache for ${cleanChannelName}`);
       return staleCache.url;
     }
 
-    throw new Error(
-      `Failed to get stream URL for ${cleanChannelName}: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`,
-    );
+    throw error;
   }
 }
 
 /**
  * Get TV channel stream URL
  */
-export async function getChannelsStream(
-  id: string,
-  signal?: AbortSignal,
-): Promise<string> {
+export async function getChannelsStream(id: string, signal?: AbortSignal): Promise<string> {
   if (!id?.trim()) {
     throw new Error("Channel ID is required and cannot be empty");
   }
@@ -811,7 +816,7 @@ export async function getChannelsStream(
     console.log(`📡 Channels stream response for ${cleanId}:`, {
       hasStreamUrl: !!data.streamUrl,
       hasM3u8: !!data.m3u8Url,
-      status: data.status || "unknown",
+      status: data.status || "unknown"
     });
 
     const streamUrl = data.streamUrl || data.m3u8Url;
@@ -827,44 +832,29 @@ export async function getChannelsStream(
     // Cache the successful result
     const cacheEntry = {
       url: streamUrl,
-      expires: Date.now() + CACHE_DURATION,
+      expires: Date.now() + CACHE_DURATION
     };
     streamUrlCache.set(cleanId, cacheEntry);
 
     // Persist to AsyncStorage
-    AsyncStorage.setItem(
-      `streamUrl_${cleanId}`,
-      JSON.stringify(cacheEntry),
-    ).catch((error) =>
-      console.warn(
-        `⚠️ Failed to cache channels stream URL for ${cleanId}:`,
-        error,
-      ),
+    AsyncStorage.setItem(`streamUrl_${cleanId}`, JSON.stringify(cacheEntry)).catch(error =>
+      console.warn(`⚠️ Failed to cache channels stream URL for ${cleanId}:`, error)
     );
 
     console.log(`✅ Successfully got channels stream URL for ${cleanId}`);
     return streamUrl;
   } catch (error) {
-    console.error(
-      `❌ Error getting channels stream URL for ${cleanId}:`,
-      error,
-    );
+    console.error(`❌ Error getting channels stream URL for ${cleanId}:`, error);
 
     // Try stale cache for network errors
     const staleCache = streamUrlCache.get(cleanId);
-    if (
-      staleCache &&
-      error instanceof Error &&
-      error.message.includes("network")
-    ) {
+    if (staleCache && error instanceof Error && error.message.includes("network")) {
       console.log(`🔄 Using stale cache for channel ${cleanId}`);
       return staleCache.url;
     }
 
     throw new Error(
-      `Failed to get channels stream URL for ${cleanId}: ${
-        error instanceof Error ? error.message : "Unknown error"
-      }`,
+      `Failed to get channels stream URL for ${cleanId}: ${error instanceof Error ? error.message : "Unknown error"}`
     );
   }
 }
@@ -881,25 +871,18 @@ export async function preloadStreamUrls(channelNames: string[]): Promise<void> {
   console.log(`🚀 Preloading stream URLs for ${channelNames.length} channels`);
 
   const results = await Promise.allSettled(
-    channelNames.map(async (channelName) => {
+    channelNames.map(async channelName => {
       try {
         await getStreamUrl(channelName);
         console.log(`✅ Preloaded stream URL for ${channelName}`);
       } catch (error) {
-        console.warn(
-          `⚠️ Failed to preload stream URL for ${channelName}:`,
-          error,
-        );
+        console.warn(`⚠️ Failed to preload stream URL for ${channelName}:`, error);
       }
-    }),
+    })
   );
 
-  const successful = results.filter(
-    (result) => result.status === "fulfilled",
-  ).length;
-  console.log(
-    `🎯 Preloading completed: ${successful}/${channelNames.length} successful`,
-  );
+  const successful = results.filter(result => result.status === "fulfilled").length;
+  console.log(`🎯 Preloading completed: ${successful}/${channelNames.length} successful`);
 }
 
 /**
@@ -911,9 +894,7 @@ export async function preloadSessions(channelNames: string[]): Promise<void> {
     return;
   }
 
-  console.log(
-    `🔄 Preloading sessions and streams for ${channelNames.length} channels`,
-  );
+  console.log(`🔄 Preloading sessions and streams for ${channelNames.length} channels`);
   await preloadStreamUrls(channelNames);
   console.log("🎉 Session and stream preloading completed");
 }
@@ -925,7 +906,7 @@ export async function loadCachedStreams(): Promise<void> {
   try {
     console.log("💾 Loading cached streams from AsyncStorage...");
     const keys = await AsyncStorage.getAllKeys();
-    const streamKeys = keys.filter((key) => key.startsWith("streamUrl_"));
+    const streamKeys = keys.filter(key => key.startsWith("streamUrl_"));
 
     if (streamKeys.length === 0) {
       console.log("ℹ️ No cached streams found");
@@ -947,10 +928,7 @@ export async function loadCachedStreams(): Promise<void> {
             expiredKeys.push(key);
           }
         } catch (parseError) {
-          console.warn(
-            `⚠️ Failed to parse cached stream for ${key}:`,
-            parseError,
-          );
+          console.warn(`⚠️ Failed to parse cached stream for ${key}:`, parseError);
           expiredKeys.push(key);
         }
       }
@@ -962,9 +940,7 @@ export async function loadCachedStreams(): Promise<void> {
       console.log(`🧹 Removed ${expiredKeys.length} expired stream URLs`);
     }
 
-    console.log(
-      `💾 Cache loading completed: ${streamUrlCache.size} streams in memory`,
-    );
+    console.log(`💾 Cache loading completed: ${streamUrlCache.size} streams in memory`);
   } catch (error) {
     console.error("❌ Error loading cached streams:", error);
   }
@@ -978,7 +954,7 @@ export async function clearStreamCache(): Promise<void> {
     console.log("🧹 Clearing stream cache...");
     streamUrlCache.clear();
     const keys = await AsyncStorage.getAllKeys();
-    const streamKeys = keys.filter((key) => key.startsWith("streamUrl_"));
+    const streamKeys = keys.filter(key => key.startsWith("streamUrl_"));
     if (streamKeys.length > 0) {
       await AsyncStorage.multiRemove(streamKeys);
       console.log(`🧹 Cleared ${streamKeys.length} cached stream URLs`);
@@ -994,7 +970,7 @@ export async function clearStreamCache(): Promise<void> {
 export function getCacheStats(): { size: number; entries: string[] } {
   return {
     size: streamUrlCache.size,
-    entries: Array.from(streamUrlCache.keys()),
+    entries: Array.from(streamUrlCache.keys())
   };
 }
 
@@ -1023,8 +999,8 @@ export async function testConnectivity(): Promise<{
           endpoint: crichdHealthUrl,
           status: crichdResponse.status,
           responseTime: "< 1s",
-          cacheStatus: data?.cache?.status || "unknown",
-        },
+          cacheStatus: data?.cache?.status || "unknown"
+        }
       };
     } else {
       return {
@@ -1033,8 +1009,8 @@ export async function testConnectivity(): Promise<{
         details: {
           endpoint: crichdHealthUrl,
           status: crichdResponse.status,
-          statusText: crichdResponse.statusText,
-        },
+          statusText: crichdResponse.statusText
+        }
       };
     }
   } catch (error) {
@@ -1042,13 +1018,12 @@ export async function testConnectivity(): Promise<{
 
     return {
       success: false,
-      message:
-        error instanceof Error ? error.message : "Unknown connectivity error",
+      message: error instanceof Error ? error.message : "Unknown connectivity error",
       details: {
         error: error instanceof Error ? error.message : "Unknown error",
         endpoint: `${API}/crichd/health`,
-        suggestion: "Check network connection and API server status",
-      },
+        suggestion: "Check network connection and API server status"
+      }
     };
   }
 }
@@ -1068,7 +1043,7 @@ export async function testApiResponseParsing(): Promise<number> {
       hasDirectSuccess: !!data.success,
       hasNestedSuccess: !!data.data?.success,
       successCount: data.data?.success?.length || 0,
-      firstChannel: data.data?.success?.[0]?.channelName || "None",
+      firstChannel: data.data?.success?.[0]?.channelName || "None"
     });
 
     return data.data?.success?.length || 0;
