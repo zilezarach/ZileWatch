@@ -362,15 +362,12 @@ export default function GamesScreen() {
         let url: string;
 
         // Priority order: m3u8Url -> streamUrl -> fetch from API
-        if (streamSource === "live-ru" && (m3u8Url || streamUrl)) {
-          console.log(`Using proxied LiveRu URL for ${title}`);
-          url = m3u8Url || streamUrl!;
-        } else if (m3u8Url) {
-          console.log(`Using direct m3u8Url for ${title}`);
-          url = m3u8Url;
-        } else if (streamUrl) {
+        if (streamUrl) {
           console.log(`Using provided streamUrl for ${title}`);
           url = streamUrl;
+        } else if (m3u8Url) {
+          console.log(`Using m3u8Url for ${title}`);
+          url = m3u8Url;
         } else {
           console.log(`Fetching stream URL for ${title}`);
           url = isChannel ? await getChannelsStream(id) : await getStreamUrl(id, undefined, streamSource);
@@ -425,7 +422,7 @@ export default function GamesScreen() {
     (id: string, item?: LiveItem) => {
       const isLoading = loadingItems.has(id);
       const hasError = itemErrors.has(id);
-      const m3u8Url = item?.channels?.[0]?.streamUrl;
+      const streamUrl = item?.channels?.[0]?.streamUrl;
 
       return (
         <View style={styles.actionContainer}>
@@ -433,7 +430,7 @@ export default function GamesScreen() {
             <ActivityIndicator size="small" color="#FFFFFF" />
           ) : hasError ? (
             <Pressable
-              onPress={() => navigateToPlayer(item?.match || "", id, false, undefined, m3u8Url)}
+              onPress={() => navigateToPlayer(item?.match || "", id, false, streamUrl, streamUrl)}
               style={styles.retryButton}>
               <FontAwesome name="refresh" size={14} color="#FFFFFF" />
             </Pressable>
@@ -458,7 +455,7 @@ export default function GamesScreen() {
     ({ item, index }: { item: LiveItem; index: number }) => {
       const itemId = String(item.id);
       const isDisabled = loadingItems.has(itemId);
-      const m3u8Url = item.channels?.[0]?.streamUrl;
+      const streamUrl = item.channels?.[0]?.streamUrl;
 
       return (
         <Animated.View style={[styles.cardWrapper, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
@@ -468,7 +465,7 @@ export default function GamesScreen() {
               pressed && styles.cardPressed,
               { height: CARD_HEIGHT, opacity: isDisabled ? 0.6 : 1 }
             ]}
-            onPress={() => !isDisabled && navigateToPlayer(item.match, itemId, false, undefined, m3u8Url)}
+            onPress={() => !isDisabled && navigateToPlayer(item.match, itemId, false, streamUrl, streamUrl)}
             disabled={isDisabled}
             android_ripple={{ color: "rgba(255, 107, 53, 0.2)" }}>
             <View style={styles.sportIconContainer}>

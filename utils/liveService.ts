@@ -2,7 +2,6 @@ import Constants from "expo-constants";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // Global caches and promises
-const sessionInitPromises = new Map<string, Promise<StreamResponse>>();
 const streamUrlCache = new Map<string, { url: string; expires: number }>();
 
 // API endpoint configuration
@@ -83,6 +82,7 @@ export interface StreamResponse {
   channelUrl: string;
   status: "success" | "failed";
   m3u8Url?: string;
+  proxyUrl?: string;
   streamUrl?: string;
   error?: string;
   timestamp?: string;
@@ -143,7 +143,7 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
     try {
-      console.log(`🌐 Attempt ${i + 1}/${retries + 1}: ${url}`);
+      console.log(` Attempt ${i + 1}/${retries + 1}: ${url}`);
 
       // Combine external abort signal with timeout signal
       const combinedSignal = options.signal ? AbortSignal.any([options.signal, controller.signal]) : controller.signal;
@@ -275,10 +275,10 @@ export async function fetchLiveSports(prefferedSource?: Source, signal?: AbortSi
         result = await fetchLiveRuChannels(signal);
     }
     if (!result || result.length === 0) {
-      console.warn("⚠️ No live sports data received from API");
+      console.warn(" No live sports data received from API");
       const cachedData = await getCachedLiveSports();
       if (cachedData.length > 0) {
-        console.log(`📦 Returning ${cachedData.length} cached sports items`);
+        console.log(` Returning ${cachedData.length} cached sports items`);
         return cachedData;
       }
       return [];
@@ -361,9 +361,9 @@ async function cacheLiveSports(data: LiveItem[]): Promise<void> {
  */
 export async function fetchChannels(signal?: AbortSignal): Promise<TVChannels[]> {
   try {
-    console.log("📺 Fetching TV channels...");
+    console.log(" Fetching TV channels...");
     const url = `${API}/streams/channels`;
-    console.log("🌐 Channels API URL:", url);
+    console.log(" Channels API URL:", url);
 
     const res = await fetchWithRetry(url, { signal });
 
@@ -383,7 +383,7 @@ export async function fetchChannels(signal?: AbortSignal): Promise<TVChannels[]>
       throw new Error("Invalid response format from channel service");
     }
 
-    console.log("📦 Channels response structure:", {
+    console.log(" Channels response structure:", {
       hasChannels: !!json?.channels,
       hasData: !!json?.data,
       isArray: Array.isArray(json),
@@ -420,13 +420,13 @@ export async function fetchChannels(signal?: AbortSignal): Promise<TVChannels[]>
       .map((channel, index) => {
         // Skip invalid entries
         if (!channel || typeof channel !== "object") {
-          console.warn(`⚠️ Skipping invalid channel at index ${index}:`, channel);
+          console.warn(` Skipping invalid channel at index ${index}:`, channel);
           return null;
         }
 
         // Validate required fields
         if (!channel.name && !channel.id) {
-          console.warn(`⚠️ Skipping channel missing name and id:`, channel);
+          console.warn(` Skipping channel missing name and id:`, channel);
           return null;
         }
 
@@ -439,7 +439,7 @@ export async function fetchChannels(signal?: AbortSignal): Promise<TVChannels[]>
       })
       .filter((channel): channel is TVChannels => channel !== null);
 
-    console.log(`✅ Processed ${validChannels.length}/${channelsArray.length} valid channels`);
+    console.log(`Processed ${validChannels.length}/${channelsArray.length} valid channels`);
 
     // Cache the successful result
     await cacheChannels(validChannels);
@@ -455,7 +455,7 @@ export async function fetchChannels(signal?: AbortSignal): Promise<TVChannels[]>
     ) {
       const cachedChannels = await getCachedChannels();
       if (cachedChannels.length > 0) {
-        console.log(`📦 Fallback: Returning ${cachedChannels.length} cached channels due to network error`);
+        console.log(`Fallback: Returning ${cachedChannels.length} cached channels due to network error`);
         return cachedChannels;
       }
     }
@@ -465,7 +465,7 @@ export async function fetchChannels(signal?: AbortSignal): Promise<TVChannels[]>
 }
 
 async function getCricHDStreamUrl(channelName: string, signal?: AbortSignal): Promise<string> {
-  const url = `${API}/crichd/channel/${encodeURIComponent(channelName)}`;
+  const url = `${API}/crichd/proxied/${encodeURIComponent(channelName)}`;
   const res = await fetchWithRetry(url, { signal });
 
   if (!res.ok) {
@@ -477,10 +477,10 @@ async function getCricHDStreamUrl(channelName: string, signal?: AbortSignal): Pr
 
   const data: StreamResponse = await res.json();
 
-  if (data.status === "success" && data.m3u8Url) {
+  if (data.status === "success" && data.proxyUrl) {
+    return data.proxyUrl;
+  } else if (data.m3u8Url) {
     return data.m3u8Url;
-  } else if (data.streamUrl) {
-    return data.streamUrl;
   } else if (data.error) {
     throw new Error(data.error);
   }
@@ -571,17 +571,15 @@ async function fetchCricHDChannels(signal?: AbortSignal): Promise<LiveItem[]> {
     let failedArray: any[] = [];
 
     if (responseData?.data?.success && Array.isArray(responseData.data.success)) {
-      // This is the correct format for your API
       successArray = responseData.data.success;
       failedArray = responseData.data.failed || [];
-      console.log("✅ Using nested data format: data.data.success");
+      console.log(" Using nested data format: data.data.success");
     } else if (responseData?.success && Array.isArray(responseData.success)) {
-      // Fallback: direct success array
       successArray = responseData.success;
       failedArray = responseData.failed || [];
-      console.log("✅ Using direct success format: data.success");
+      console.log(" Using direct success format: data.success");
     } else {
-      console.error("❌ Invalid CricHD response structure. Expected formats:");
+      console.error(" Invalid CricHD response structure. Expected formats:");
       console.error("   Format 1: { data: { success: [...] } }");
       console.error("   Format 2: { success: [...] }");
       console.error("   Received:", responseData);
@@ -599,16 +597,12 @@ async function fetchCricHDChannels(signal?: AbortSignal): Promise<LiveItem[]> {
     console.log(`✅ Found ${successArray.length} successful streams, ${failedArray.length} failed`);
 
     const liveItems: LiveItem[] = successArray.map((stream: any, index: number) => {
-      // Validate required fields
       if (!stream.channelName) {
         console.warn("⚠️ Invalid stream data missing channelName:", stream);
         throw new Error(`Invalid stream data at index ${index}: missing channelName`);
       }
-
-      // Validate that we have a valid m3u8 URL
       if (!stream.m3u8Url && !stream.streamUrl) {
         console.warn("⚠️ Stream missing both m3u8Url and streamUrl:", stream);
-        // Don't throw error, just log warning and continue
       }
 
       const category = extractCategoryFromName(stream.channelName);
