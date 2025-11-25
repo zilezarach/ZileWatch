@@ -3,7 +3,7 @@ import * as FileSystem from "expo-file-system";
 
 const Cache_Keys = {
   LAST_CLEAN: "@cache_last_clean",
-  CLEAN_INTERVAL: 24 * 60 * 60 * 1000
+  CLEAN_INTERVAL: 24 * 60 * 60 * 1000,
 };
 
 export class CacheManager {
@@ -55,7 +55,9 @@ export class CacheManager {
       const imgPathExist = await FileSystem.getInfoAsync(imageCachePath);
       if (imgPathExist.exists) {
         await FileSystem.deleteAsync(imageCachePath, { idempotent: true });
-        await FileSystem.makeDirectoryAsync(imageCachePath, { intermediates: true });
+        await FileSystem.makeDirectoryAsync(imageCachePath, {
+          intermediates: true,
+        });
         console.log("Image cache cleaned");
       }
     } catch (e) {
@@ -69,11 +71,41 @@ export class CacheManager {
       const vidPathExist = await FileSystem.getInfoAsync(videoCachePath);
       if (vidPathExist.exists) {
         await FileSystem.deleteAsync(videoCachePath, { idempotent: true });
-        await FileSystem.makeDirectoryAsync(videoCachePath, { intermediates: true });
+        await FileSystem.makeDirectoryAsync(videoCachePath, {
+          intermediates: true,
+        });
         console.log("Video Cache Cleaned");
       }
     } catch (e) {
       console.log("Unable to clean Cache on Video", e);
+    }
+  }
+  //Clean Expo ImageCache
+  async cleanExpoCache(): Promise<void> {
+    try {
+      const cacheDir = FileSystem.cacheDirectory;
+      if (!cacheDir) return;
+
+      const files = await FileSystem.readDirectoryAsync(cacheDir);
+
+      for (const file of files) {
+        if (
+          file.startsWith("ImageManipulator") ||
+          file.startsWith("ExponentAsset") ||
+          file.startsWith("RCTAsyncLocalStorage")
+        ) {
+          try {
+            await FileSystem.deleteAsync(`${cacheDir}${file}`, {
+              idempotent: true,
+            });
+          } catch (e) {
+            console.log("Unable to Clean ImageManipulator for Expo", e);
+          }
+        }
+      }
+      console.log("✓ Expo cache cleaned");
+    } catch (error) {
+      console.error("Error cleaning Expo cache:", error);
     }
   }
   //Clean Thumbnail Cache
@@ -83,7 +115,9 @@ export class CacheManager {
       const thumbPathExist = await FileSystem.getInfoAsync(thumbnailCache);
       if (thumbPathExist) {
         await FileSystem.deleteAsync(thumbnailCache, { idempotent: true });
-        await FileSystem.makeDirectoryAsync(thumbnailCache, { intermediates: true });
+        await FileSystem.makeDirectoryAsync(thumbnailCache, {
+          intermediates: true,
+        });
         console.log("Thumbnail Cache Cleaned");
       }
     } catch (e) {
@@ -95,15 +129,22 @@ export class CacheManager {
       images?: boolean;
       videos?: boolean;
       thumbnails?: boolean;
-    } = {}
+      expo?: boolean;
+    } = {},
   ): Promise<{ success: boolean; savedSpace?: number }> {
-    const { images = true, videos = true, thumbnails = true } = options;
+    const {
+      images = true,
+      videos = true,
+      thumbnails = true,
+      expo = true,
+    } = options;
     try {
       const sizeBef = await this.getCacheSize();
       console.log(`Starting Cache....`);
       if (images) await this.cleanImageCache();
       if (videos) await this.cleanVideoCache();
       if (thumbnails) await this.cleanThumbnailCache();
+      if (expo) await this.cleanExpoCache();
       const sizeAft = await this.getCacheSize();
       const savedSpace = sizeBef - sizeAft;
       await AsyncStorage.setItem(Cache_Keys.LAST_CLEAN, Date.now().toString());
@@ -113,4 +154,21 @@ export class CacheManager {
       return { success: false };
     }
   }
+  async autoClean(): Promise<void> {
+    const startClean = await this.checkCache();
+    if (startClean) {
+      console.log("Starting Cache Clean after 24 hrs");
+      await this.performClean();
+    } else {
+      const lastClean = await AsyncStorage.getItem(Cache_Keys.LAST_CLEAN);
+      if (lastClean) {
+        const nxtClean = parseInt(lastClean, 10) + Cache_Keys.CLEAN_INTERVAL;
+        const hoursLeft = Math.round(
+          (nxtClean - Date.now()) / (1000 * 60 * 60),
+        );
+        console.log(`Next auto-clean in ~${hoursLeft} hours`);
+      }
+    }
+  }
 }
+export const cacheCleaner = CacheManager.getInstance();
