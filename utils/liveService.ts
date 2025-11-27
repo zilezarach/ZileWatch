@@ -251,6 +251,12 @@ export async function fetchStreamsLiveRu(channelName: string, signal?: AbortSign
     throw new Error(`${res.status}: ${res.statusText}`);
   }
   const resData: LiveRuStreams = await res.json();
+  console.log(`LiveRu proxy response:`, {
+    success: resData.success,
+    hasData: !!resData.data,
+    hasProxyUrl: !!resData.data?.proxyUrl,
+    status: resData.data?.status
+  });
   if (!resData.success || !resData.data?.proxyUrl) {
     throw new Error("No stream URL found");
   }
@@ -477,7 +483,7 @@ async function getCricHDStreamUrl(channelName: string, signal?: AbortSignal): Pr
 
   const data: StreamResponse = await res.json();
 
-  if (data.status === "success" && data.proxyUrl) {
+  if (data.success && data.proxyUrl) {
     return data.proxyUrl;
   } else if (data.m3u8Url) {
     return data.m3u8Url;
@@ -728,6 +734,7 @@ export async function getStreamUrl(channelName: string, signal?: AbortSignal, so
 
   // Check cache first
   const cacheKey = `${streamSource}_${cleanChannelName}`;
+  console.log(`Getting Key from: ${cacheKey}`);
   const cachedStream = streamUrlCache.get(cacheKey);
   if (cachedStream && cachedStream.expires > Date.now()) {
     console.log(`💾 Using cached stream URL for ${cleanChannelName}`);
@@ -745,7 +752,7 @@ export async function getStreamUrl(channelName: string, signal?: AbortSignal, so
         streamUrl = await getCricHDStreamUrl(cleanChannelName, signal);
         break;
       default:
-        streamUrl = await fetchStreamsLiveRu(cleanChannelName, signal);
+        streamUrl = await getCricHDStreamUrl(cleanChannelName, signal);
     }
 
     const cacheEntry = {

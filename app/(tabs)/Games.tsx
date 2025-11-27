@@ -20,6 +20,7 @@ import {
   loadCachedStreams,
   Source,
   fetchLiveSports,
+  clearStreamCache,
   generateCategoriesFromData,
   fetchChannels,
   getStreamUrl,
@@ -326,7 +327,7 @@ export default function GamesScreen() {
       setItemLoadingStates(new Map());
       setItemErrors(new Set());
       setSessionStatus("idle");
-
+      clearStreamCache();
       // Reload data with new source
       loadData(true, true);
     },
@@ -344,7 +345,14 @@ export default function GamesScreen() {
   }, []);
 
   const navigateToPlayer = useCallback(
-    async (title: string, channelId: string, isChannel = false, streamUrl?: string, m3u8Url?: string) => {
+    async (
+      title: string,
+      channelId: string,
+      isChannel = false,
+      streamUrl?: string,
+      m3u8Url?: string,
+      proxyUrl?: string
+    ) => {
       const id = channelId.trim();
       if (!id) {
         Alert.alert("Stream Error", "This stream is currently unavailable.");
@@ -362,15 +370,18 @@ export default function GamesScreen() {
         let url: string;
 
         // Priority order: m3u8Url -> streamUrl -> fetch from API
-        if (streamUrl) {
+        if (proxyUrl) {
           console.log(`Using provided streamUrl for ${title}`);
-          url = streamUrl;
+          console.log(`Full Url: ${proxyUrl}`);
+          url = proxyUrl;
         } else if (m3u8Url) {
           console.log(`Using m3u8Url for ${title}`);
+          console.log(`Full Url: ${m3u8Url}`);
           url = m3u8Url;
         } else {
           console.log(`Fetching stream URL for ${title}`);
           url = isChannel ? await getChannelsStream(id) : await getStreamUrl(id, undefined, streamSource);
+          console.log(`Fetched Url: ${url}`);
         }
         setLoadingItems(prev => {
           const newSet = new Set(prev);
