@@ -50,6 +50,16 @@ export interface LiveItem {
   streams?: Stream[];
 }
 
+export interface StreamedMatch {
+  id: string;
+  homeTeam: string;
+  awayTeam: string;
+  category: string;
+  time: string;
+  image?: string;
+  status: string;
+}
+
 export interface LiveRuStreams {
   success: boolean;
   data?: {
@@ -240,6 +250,40 @@ export async function fetchLiveRuChannels(signal?: AbortSignal): Promise<LiveIte
     return [];
   }
 }
+
+/**
+ * Get best stream URL for a streamed match
+ */
+export async function getStreamedBestStream(matchId: string, signal?: AbortSignal): Promise<string> {
+  try {
+    console.log(`🎬 Getting best stream for match: ${matchId}`);
+
+    const url = `${API}/streamed/stream/best?matchId=${encodeURIComponent(matchId)}`;
+    const res = await fetchWithRetry(url, { signal });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+
+    const data = await res.json();
+
+    if (!data.m3u8) {
+      throw new Error("No stream available for this match");
+    }
+
+    console.log("✅ Got best stream:", {
+      streamNo: data.streamNo,
+      hd: data.hd,
+      server: data.server
+    });
+
+    return data.m3u8;
+  } catch (error) {
+    console.error("❌ Error getting best stream:", error);
+    throw error;
+  }
+}
+
 /**
  * Main function to fetch liveStreams for LiveRu
  */
@@ -263,6 +307,98 @@ export async function fetchStreamsLiveRu(channelName: string, signal?: AbortSign
   return resData.data.proxyUrl;
 }
 
+/*** Fetch the latest matches available **/
+
+export async function fetchStreamed(signal?: AbortSignal): Promise<LiveItem[]> {
+  try {
+    console.log("Fetching Matches from Sources");
+    const url = `${API}/streamed/matches`;
+    const res = await fetchWithRetry(url, { signal });
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+    }
+    const matches = await res.json();
+    console.log("Raw Streamed API response:", {
+      hasMatches: !!matches,
+      isArray: Array.isArray(matches),
+      count: Array.isArray(matches) ? matches.length : 0
+    });
+    if (!Array.isArray(matches) || matches.length === 0) {
+      console.warn("No matches found in Streamed response");
+      return [];
+    }
+    const liveItems: LiveItem[] = matches.map((match: any, index: number) => {
+      const homeTeam = match.homeTeam || match.home || "";
+      const awayTeam = match.awayTeam || match.away || "";
+      const matchName = `${homeTeam} vs ${awayTeam}`;
+      const category = mapStreamedCategory(match.category || match.league || "Sports");
+      return {
+        id: match.id || generateStableId(matchName),
+        match: matchName,
+        name: matchName,
+        category: category,
+        start: match.time || new Date().toISOString(),
+        end: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
+        logo: match.image || getStreamedLogo(category),
+        channels: [
+          {
+            id: index + 1,
+            name: `${homeTeam} vs ${awayTeam}`,
+            streamUrl: ""
+          }
+        ],
+        isFeatured: false,
+        source: "streamed" as const,
+        streams: []
+      };
+    });
+    console.log(`✅ Successfully processed ${liveItems.length} streamed matches`);
+    return liveItems;
+  } catch (e) {
+    console.error("Unable to fetch Matches from API", e);
+    throw e;
+  }
+}
+
+/**
+ * Map Streamed categories to display categories
+ */
+function mapStreamedCategory(category: string): string {
+  const cat = category.toLowerCase();
+
+  if (cat.includes("basketball") || cat.includes("nba")) {
+    return "Basketball";
+  }
+  if (cat.includes("football")) {
+    return "Football";
+  }
+  if (cat.includes("american-football") || cat.includes("nfl")) {
+    return "American Football";
+  }
+  if (cat.includes("mma")) {
+    return "MMA";
+  }
+
+  return "Sports";
+}
+
+function getStreamedLogo(category: string): string {
+  const cat = category.toLowerCase();
+
+  const logoMap: { [key: string]: string } = {
+    basketball: "https://cdn-icons-png.flaticon.com/512/889/889456.png",
+    football: "https://cdn-icons-png.flaticon.com/512/53/53283.png",
+    "american football": "https://cdn-icons-png.flaticon.com/512/1099/1099986.png"
+  };
+
+  for (const [key, logo] of Object.entries(logoMap)) {
+    if (cat.includes(key)) {
+      return logo;
+    }
+  }
+  return "https://via.placeholder.com/150x150?text=Live";
+}
+
 /**
  * Main function to fetch live sports data from CricHD and LiveRu
  */
@@ -277,6 +413,8 @@ export async function fetchLiveSports(prefferedSource?: Source, signal?: AbortSi
         break;
       case "crichd":
         result = await fetchCricHDChannels(signal);
+      case "streamed":
+        result = await fetchStreamed(signal);
       default:
         result = await fetchLiveRuChannels(signal);
     }

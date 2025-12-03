@@ -467,7 +467,7 @@ export default function GamesScreen() {
       const itemId = String(item.id);
       const isDisabled = loadingItems.has(itemId);
       const streamUrl = item.channels?.[0]?.streamUrl;
-
+      const isStreamedMatch = item.source === "streamed";
       return (
         <Animated.View style={[styles.cardWrapper, { opacity: fadeAnim, transform: [{ translateY: slideAnim }] }]}>
           <Pressable
@@ -494,8 +494,10 @@ export default function GamesScreen() {
               </Text>
               <View style={styles.matchMetaContainer}>
                 <View style={styles.channelInfo}>
-                  <FontAwesome name="tv" size={12} color="#FF6B35" />
-                  <Text style={styles.channelName}>{item.channels?.[0]?.name || "Channel 1"}</Text>
+                  <FontAwesome name={isStreamedMatch ? "play-circle" : "tv"} size={12} color="#FF6B35" />
+                  <Text style={styles.channelName}>
+                    {isStreamedMatch ? "Live Match" : item.channels?.[0]?.name || "Channel 1"}
+                  </Text>{" "}
                 </View>
                 <Text style={styles.matchTime}>{getFormattedTime(item.start)}</Text>
               </View>
@@ -622,29 +624,56 @@ export default function GamesScreen() {
     [categories, selectedCategory, getSportIcon]
   );
 
-  const renderEmptyState = useCallback(
-    () => (
+  const renderEmptyState = useCallback(() => {
+    const isStreamedSource = streamSource === "streamed";
+    return (
       <View style={styles.emptyState}>
-        <FontAwesome name="tv" size={64} color="#444444" />
-        <Text style={styles.emptyTitle}>No Content Available</Text>
-        <Text style={styles.emptySubtitle}>{showChannels ? "No TV channels found" : "No live matches available"}</Text>
+        <FontAwesome name={isStreamedSource ? "calendar-times-o" : "tv"} size={64} color="#444444" />
+        <Text style={styles.emptyTitle}>{isStreamedSource ? "No Live Matches" : "No Content Available"}</Text>
+        <Text style={styles.emptySubtitle}>
+          {isStreamedSource
+            ? "No Basketball, Football, or American Football matches are currently available. Check back later for live streams."
+            : showChannels
+              ? "No TV channels found"
+              : "No live matches available"}
+        </Text>
+        {isStreamedSource && (
+          <View style={styles.streamedInfo}>
+            <Text style={styles.streamedInfoText}>Available Categories:</Text>
+            <View style={styles.categoriesList}>
+              <View style={styles.categoryChip}>
+                <FontAwesome5 name="basketball-ball" size={12} color="#FF6B35" />
+                <Text style={styles.categoryChipText}>Basketball</Text>
+              </View>
+              <View style={styles.categoryChip}>
+                <FontAwesome5 name="futbol" size={12} color="#FF6B35" />
+                <Text style={styles.categoryChipText}>Football</Text>
+              </View>
+              <View style={styles.categoryChip}>
+                <FontAwesome5 name="football-ball" size={12} color="#FF6B35" />
+                <Text style={styles.categoryChipText}>American Football</Text>
+              </View>
+            </View>
+          </View>
+        )}
         <Pressable style={styles.retryButton} onPress={() => loadData(false, true)}>
           <FontAwesome name="refresh" size={16} color="#FFFFFF" />
           <Text style={styles.retryButtonText}>Retry</Text>
         </Pressable>
       </View>
-    ),
-    [showChannels, loadData]
-  );
+    );
+  }, [showChannels, streamSource, loadData]);
 
   const renderStatsHeader = useCallback(() => {
     const count = showChannels ? channels.length : filteredList.length;
     const label = showChannels ? "channels" : count === 1 ? "match" : "matches";
     const isLoading = showChannels ? loadingState.channelsLoading : loadingState.sportsLoading;
+    const sourceLabel =
+      streamSource === "streamed" ? "Live Matches" : streamSource === "live-ru" ? "Sports Channels" : "Premium Sports";
 
     return (
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>{showChannels ? "Live TV Channels" : "Live Sports"}</Text>
+        <Text style={styles.headerTitle}>{showChannels ? "Live TV Channels" : sourceLabel}</Text>
         <View style={styles.headerStats}>
           <View style={styles.statsItem}>
             {isLoading ? (
@@ -656,12 +685,19 @@ export default function GamesScreen() {
           </View>
           <View style={styles.liveIndicatorHeader}>
             <View style={styles.pulseDot} />
-            <Text style={styles.liveStatusText}>Broadcasting</Text>
+            <Text style={styles.liveStatusText}>{streamSource === "streamed" ? "Live Now" : "Broadcasting"}</Text>
           </View>
         </View>
       </View>
     );
-  }, [showChannels, channels.length, filteredList.length, loadingState.channelsLoading, loadingState.sportsLoading]);
+  }, [
+    showChannels,
+    channels.length,
+    filteredList.length,
+    loadingState.channelsLoading,
+    loadingState.sportsLoading,
+    streamSource
+  ]);
 
   // Effect for initial load and cleanup
   useEffect(() => {
@@ -936,6 +972,39 @@ const styles = StyleSheet.create({
   },
   segmentTextActive: {
     color: "#FFFFFF"
+  },
+  streamedInfo: {
+    marginTop: 24,
+    marginBottom: 16,
+    alignItems: "center"
+  },
+  streamedInfoText: {
+    fontSize: 14,
+    color: "#888888",
+    marginBottom: 12,
+    fontWeight: "600"
+  },
+  categoriesList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 8
+  },
+  categoryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#1A1A1A",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#2A2A2A",
+    gap: 6
+  },
+  categoryChipText: {
+    fontSize: 12,
+    color: "#FFFFFF",
+    fontWeight: "500"
   },
   filterScroll: {
     marginVertical: 12

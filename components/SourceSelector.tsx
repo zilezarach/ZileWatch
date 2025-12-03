@@ -26,7 +26,8 @@ export default function SourceSelector({ onSourceChange }: SourceSelectorProps) 
     color: string;
   }> = [
     { id: "crichd", label: "CricHD", icon: "broadcast-tower", color: "#4CAF50" },
-    { id: "live-ru", label: "LiveRu", icon: "satellite-dish", color: "#FF6B35" }
+    { id: "live-ru", label: "LiveRu", icon: "satellite-dish", color: "#FF6B35" },
+    { id: "streamed", label: "Streamed", icon: "play-circle", color: "#00008b" }
   ];
 
   return (
