@@ -128,7 +128,7 @@ export default function GamesScreen() {
       }));
 
       try {
-        const liveData = await fetchLiveSports();
+        const liveData = await fetchLiveSports(streamSource, signal);
         if (signal?.aborted) throw new Error("Aborted");
 
         const regular = liveData.filter(item => !item.isFeatured);
@@ -383,6 +383,7 @@ export default function GamesScreen() {
           url = isChannel ? await getChannelsStream(id) : await getStreamUrl(id, undefined, streamSource);
           console.log(`Fetched Url: ${url}`);
         }
+
         setLoadingItems(prev => {
           const newSet = new Set(prev);
           newSet.delete(id);

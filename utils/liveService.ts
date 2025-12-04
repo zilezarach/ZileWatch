@@ -413,10 +413,13 @@ export async function fetchLiveSports(prefferedSource?: Source, signal?: AbortSi
         break;
       case "crichd":
         result = await fetchCricHDChannels(signal);
+        break;
       case "streamed":
         result = await fetchStreamed(signal);
+        break;
       default:
         result = await fetchLiveRuChannels(signal);
+        break;
     }
     if (!result || result.length === 0) {
       console.warn(" No live sports data received from API");
@@ -764,7 +767,7 @@ async function fetchCricHDChannels(signal?: AbortSignal): Promise<LiveItem[]> {
           {
             id: index + 1,
             name: stream.channelName,
-            streamUrl: stream.m3u8Url || stream.streamUrl || ""
+            streamUrl: ""
           }
         ],
         isFeatured: false,
