@@ -12,34 +12,40 @@ export default {
     splash: {
       image: "./assets/images/Original.png",
       resizeMode: "cover",
-      backgroundColor: "#000000"
+      backgroundColor: "#000000",
     },
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.zile.zileWatch"
+      bundleIdentifier: "com.zile.zileWatch",
     },
     android: {
       package: "com.zile.zileWatch",
       adaptiveIcon: {
         foregroundImage: "./assets/images/adaptive-icon.png",
-        backgroundColor: "#ffffff"
+        backgroundColor: "#ffffff",
       },
-      permissions: ["INTERNET", "ACCESS_NETWORK_STATE", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"],
+      permissions: [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+      ],
       hermesEnabled: true,
       enableProguardInReleaseBuilds: true,
       enableShrinkResourcesInReleaseBuilds: true,
-      useLegacyPackaging: false
+      useLegacyPackaging: false,
     },
     web: {
       bundler: "metro",
       output: "static",
-      favicon: "./assets/images/favicon.png"
+      favicon: "./assets/images/favicon.png",
     },
     plugins: [
       "expo-router",
       "react-native-video",
       "expo-screen-orientation",
       "expo-media-library",
+      "expo-video",
       "expo-file-system",
       [
         "expo-build-properties",
@@ -76,13 +82,13 @@ export default {
               
               # Remove unused resources
               -dontwarn **
-            `
-          }
-        }
-      ]
+            `,
+          },
+        },
+      ],
     ],
     experiments: {
-      typedRoutes: true
+      typedRoutes: true,
     },
     extra: {
       youtubeApiKey: process.env.YOUTUBE_API_KEY,
@@ -92,8 +98,8 @@ export default {
       zileLive: process.env.zileLive || "https://live-zile.0xzile.sbs",
       extractorUrl: process.env.extractorUrl || "https://extractor.0xzile.sbs",
       eas: {
-        projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4"
-      }
-    }
-  }
+        projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4",
+      },
+    },
+  },
 };
