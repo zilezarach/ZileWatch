@@ -109,6 +109,10 @@ export interface StreamingInfo {
   selectedServer?: { id: string; name: string };
   name?: string;
   tmbdID?: string;
+  headers?: {
+    Referer?: string;
+    "User-Agent"?: string;
+  };
   availableQualities?: StreamingLink[];
 }
 
@@ -335,29 +339,132 @@ export async function getMovieStreamingUrl(
   vidfastOnly: boolean = false,
   useWootly: boolean = false,
 ): Promise<StreamingInfo> {
+  console.log("[STREAMING] Starting with:", {
+    movieId,
+    useFallback,
+    vidfastOnly,
+    useWootly,
+  });
+
+  // ========================================
+  // 1. VIDFAST SOURCE
+  // ========================================
   if (vidfastOnly) {
+    console.log("[VIDFAST] Fetching stream...");
     const vidfastUrl = `${EXTRA_URL}/vidfast/${movieId}`;
-    const resp = await axios.get<{ success: boolean; data: any }>(vidfastUrl, {
-      timeout: 15000,
-    });
-    if (!resp.data.success || !resp.data.data)
-      throw new Error("Vidfast failed");
-    const { streamUrl } = resp.data.data;
-    if (!streamUrl) {
-      throw new Error("No stream URL found in Vidfast response");
+
+    try {
+      const resp = await axios.get<{ success: boolean; data: any }>(
+        vidfastUrl,
+        {
+          timeout: 20000,
+        },
+      );
+
+      console.log("[VIDFAST] Response:", JSON.stringify(resp.data, null, 2));
+
+      if (!resp.data.success || !resp.data.data) {
+        throw new Error("Vidfast failed - no data returned");
+      }
+
+      const streamData = resp.data.data;
+
+      if (!streamData.streamUrl) {
+        throw new Error("No stream URL found in Vidfast response");
+      }
+
+      console.log("[VIDFAST] Stream validated:", streamData.isValidated);
+      console.log("[VIDFAST] Method:", streamData.method);
+      console.log(
+        "[VIDFAST] Found streams:",
+        streamData.foundStreams?.length || 0,
+      );
+
+      return {
+        streamUrl: streamData.streamUrl,
+        selectedServer: {
+          id: movieId,
+          name: `Vidfast (${streamData.method || "direct"})`,
+        },
+        availableQualities:
+          streamData.foundStreams?.map((url: string, index: number) => ({
+            quality:
+              index === 0
+                ? "1080P"
+                : index === 1
+                  ? "720P"
+                  : `Stream ${index + 1}`,
+            url: url,
+            server: "Vidfast",
+          })) || [],
+        headers: streamData.headers,
+        subtitles: [],
+      };
+    } catch (error: any) {
+      console.error("[VIDFAST] Error:", error.message);
+      if (error.response) {
+        console.error("[VIDFAST] Response status:", error.response.status);
+        console.error("[VIDFAST] Response data:", error.response.data);
+      }
+      throw error;
     }
-    return {
-      streamUrl,
-      selectedServer: { id: movieId, name: "Vidfast" },
-      availableQualities: [],
-    };
   }
+
+  // ========================================
+  // 2. WOOTLY SOURCE
+  // ========================================
+  if (useWootly) {
+    console.log("[WOOTLY] Fetching stream...");
+    return getWootlyStreamingUrl(movieId, false, false, true);
+  }
+
+  // ========================================
+  // 3. TMDB FALLBACK SOURCE
+  // ========================================
   if (useFallback) {
+    console.log("[FALLBACK] Fetching TMDB stream...");
+
     try {
       const fallbackUrl = `${EXTRA_URL}/tmdb/${movieId}`;
-      const resp = await axios.get(fallbackUrl, { timeout: 15000 });
-      if (resp.data && resp.data.success && Array.isArray(resp.data.data)) {
-        const sources: any[] = resp.data.data;
+      console.log("[FALLBACK] URL:", fallbackUrl);
+
+      const resp = await axios.get(fallbackUrl, { timeout: 20000 });
+
+      console.log("[FALLBACK] Response:", JSON.stringify(resp.data, null, 2));
+
+      // Handle nested response structure
+      const responseData = resp.data?.data || resp.data;
+
+      // Check if it's the autoembed response format
+      if (responseData?.streamUrl) {
+        console.log("[FALLBACK] Found autoembed format response");
+
+        return {
+          streamUrl: responseData.streamUrl,
+          subtitles: [],
+          selectedServer: {
+            id: movieId,
+            name: responseData.method || responseData.source || "TMDB",
+          },
+          availableQualities:
+            responseData.foundStreams?.map((url: string, index: number) => ({
+              quality:
+                index === 0
+                  ? "1080P"
+                  : index === 1
+                    ? "720P"
+                    : `Quality ${index + 1}`,
+              url: url,
+              server: responseData.source || "TMDB",
+            })) || [],
+          headers: responseData.headers,
+        };
+      }
+
+      // Otherwise handle as array of sources (legacy format)
+      if (resp.data?.success && Array.isArray(responseData)) {
+        const sources: any[] = responseData;
+
         const m3u8Links: StreamingLink[] = sources
           .filter((source) => source.stream && source.stream.includes(".m3u8"))
           .map((source) => ({
@@ -367,81 +474,124 @@ export async function getMovieStreamingUrl(
           }));
 
         if (m3u8Links.length === 0) {
-          // Optional: Check for non-m3u8 links if no m3u8 found
-          const otherLinks: StreamingLink[] = sources.map((source) => ({
-            quality: source.quality || "auto",
-            url: source.stream,
-            server: source.server || "Unknown Server",
-          }));
+          const otherLinks: StreamingLink[] = sources
+            .filter((source) => source.stream)
+            .map((source) => ({
+              quality: source.quality || "auto",
+              url: source.stream,
+              server: source.server || "Unknown Server",
+            }));
+
           if (otherLinks.length > 0) {
             console.warn(
-              "No .m3u8 links found, using first available link from extractor.",
+              "[FALLBACK] No .m3u8 links found, using first available link",
             );
             const firstLink = otherLinks[0];
+
             return {
               streamUrl: firstLink.url,
               subtitles: [],
               selectedServer: { id: movieId, name: firstLink.server },
-              name: sources[0]?.name || `S${movieId}`,
+              name: sources[0]?.name || `Movie ${movieId}`,
               availableQualities: otherLinks,
             };
           }
-          throw new Error(
-            "No playable .m3u8 (or any other) stream links found from extractor.",
-          );
+
+          throw new Error("No playable stream links found from fallback");
         }
+
         let defaultStream =
           m3u8Links.find((link) => link.quality === "1080p") ||
           m3u8Links.find((link) => link.quality === "720p") ||
           m3u8Links.find((link) => link.quality.toLowerCase() === "auto") ||
           m3u8Links[0];
+
         return {
           streamUrl: defaultStream.url,
           subtitles: [],
           selectedServer: { id: movieId, name: defaultStream.server },
-          name: sources[0]?.name || `S${movieId}`,
+          name: sources[0]?.name || `Movie ${movieId}`,
           availableQualities: m3u8Links,
         };
       } else {
-        throw new Error(
-          `Fallback extractor returned no data or unsuccessful response for ${fallbackUrl}`,
-        );
+        throw new Error("Fallback extractor returned no data");
       }
     } catch (error: any) {
-      console.log("Fallback is not available", error);
-      throw new Error("Fallback Error");
+      console.error("[FALLBACK] Error:", error.message);
+      throw new Error(`Fallback failed: ${error.message}`);
     }
   }
 
-  if (useWootly) {
-    return getWootlyStreamingUrl(movieId, vidfastOnly, useFallback, useWootly);
-  }
+  // ========================================
+  // 4. PRIMARY TMDB SOURCE (DEFAULT)
+  // ========================================
+  console.log("[PRIMARY] Fetching TMDB movie details...");
 
   try {
-    // 1) Fetch movie details
-    console.log(`[API] Fetching movie details for ID: ${movieId}`);
-    const detail = await api.get<MovieDetailResponse>(
+    // Fetch movie details (or directly get streaming info)
+    const detail = await api.get<any>(
       `/movie/${incomingSlug ? `${incomingSlug}-${movieId}` : movieId}`,
     );
 
+    console.log(
+      "[PRIMARY] Response structure:",
+      JSON.stringify(detail.data, null, 2),
+    );
+
+    // Check if response contains direct streaming data (from backend's autoembed)
+    if (detail.data?.data?.streamUrl) {
+      console.log("[PRIMARY] Found direct stream URL in response");
+      const streamData = detail.data.data;
+
+      return {
+        streamUrl: streamData.streamUrl,
+        subtitles:
+          streamData.tracks?.map((track: any) => ({
+            file: track.file,
+            label: track.label || "Unknown",
+            kind: track.kind || "subtitles",
+            default: track.default,
+          })) || [],
+        selectedServer: {
+          id: movieId,
+          name: streamData.method || streamData.source || "AutoEmbed",
+        },
+        availableQualities:
+          streamData.foundStreams?.map((url: string, index: number) => ({
+            quality:
+              index === 0
+                ? "1080P"
+                : index === 1
+                  ? "720P"
+                  : `Quality ${index + 1}`,
+            url: url,
+            server: streamData.source || "AutoEmbed",
+          })) || [],
+        headers: streamData.headers,
+      };
+    }
+
+    // Otherwise, follow the original flow (legacy API format)
     const { title, slug: returnedSlug, episodeId } = detail.data;
+
+    console.log("[PRIMARY] Movie details:", { title, episodeId });
 
     if (!episodeId) {
       throw new Error(`No episode ID found for movie ${movieId} (${title})`);
     }
 
-    // 2) Build slug for subsequent requests
+    // Build slug for subsequent requests
     const baseSlug = incomingSlug || returnedSlug || slugify(title);
     const watchSlug = formatWatchSlug(baseSlug);
 
-    // 3) Fetch servers
-    console.log(
-      `[API] Fetching servers for movie: ${watchSlug}-${movieId}, episodeId: ${episodeId}`,
-    );
+    // Fetch servers
+    console.log("[PRIMARY] Fetching servers...");
     const srv = await api.get<{ servers: ServerResponse[]; success?: boolean }>(
       `/movie/${watchSlug}-${movieId}/servers`,
       { params: { episodeId } },
     );
+
+    console.log("[PRIMARY] Servers response:", srv.data);
 
     if (!srv.data.success || !srv.data.servers?.length) {
       throw new Error("No streaming servers available for this movie");
@@ -451,12 +601,12 @@ export async function getMovieStreamingUrl(
     const selectedServer =
       servers.find((s) => s.isVidstream === false) ||
       servers.find((s) => s.name.toLowerCase().includes("vidcloud")) ||
-      servers[1];
+      servers[0];
 
-    // 5) Fetch sources
-    console.log(
-      `[API] Fetching sources for movie: ${watchSlug}-${movieId}, server: ${selectedServer.name}`,
-    );
+    console.log("[PRIMARY] Selected server:", selectedServer);
+
+    // Fetch sources
+    console.log("[PRIMARY] Fetching sources...");
     const src = await api.get<SourcesResponse>(
       `/movie/${watchSlug}-${movieId}/sources`,
       {
@@ -464,10 +614,13 @@ export async function getMovieStreamingUrl(
       },
     );
 
+    console.log("[PRIMARY] Sources response:", src.data);
+
     if (!src.data.success || !src.data.sources?.length) {
       throw new Error("No playable sources found for this movie");
     }
-    // 6) Build streaming info response
+
+    // Build streaming info response
     return {
       streamUrl: src.data.sources[0].file,
       subtitles:
@@ -479,7 +632,8 @@ export async function getMovieStreamingUrl(
         })) || [],
       selectedServer,
     };
-  } catch (error) {
+  } catch (error: any) {
+    console.error("[PRIMARY] Error:", error.message);
     return handleApiError(error, "Stream setup failed");
   }
 }
@@ -611,7 +765,10 @@ async function getWootlyStreamingUrl(
       url += `/${seasonNumber}/${episodeNumber}`;
     }
 
-    const resp = await axios.get(url, { timeout: 15000 });
+    console.log("[WOOTLY] Fetching from:", url);
+    const resp = await axios.get(url, { timeout: 20000 });
+
+    console.log("[WOOTLY] Response:", JSON.stringify(resp.data, null, 2));
 
     if (
       resp.data &&
@@ -621,55 +778,148 @@ async function getWootlyStreamingUrl(
     ) {
       const sources = resp.data.data;
 
-      // Filter for .mp4
-      const mp4Links: StreamingLink[] = sources
-        .filter((source: any) => source.url && source.url.includes(".mp4"))
+      // Helper function to determine quality
+      const determineQuality = (source: any): string => {
+        // Skip timestamp-like qualities
+        if (source.quality && /^\d{10,}P?$/i.test(source.quality)) {
+          return "Unknown";
+        }
+
+        // Check for valid quality formats
+        if (source.quality && /^\d{3,4}[pP]$/i.test(source.quality)) {
+          return source.quality.toUpperCase();
+        }
+
+        // Extract from URL
+        const url = source.url || source.stream || "";
+        const qualityMatch = url.match(/(\d{3,4})[pP]/i);
+        if (qualityMatch) {
+          return qualityMatch[1] + "P";
+        }
+
+        // Check file extension for quality indicators
+        if (url.includes(".mp4")) return "HD";
+        if (url.includes(".webm")) return "HD";
+
+        return "Unknown";
+      };
+
+      // Helper to check if URL is playable
+      const isPlayableUrl = (url: string): boolean => {
+        if (!url || typeof url !== "string") return false;
+
+        // Check for direct video files
+        if (/\.(mp4|webm|mkv|avi|mov|m3u8)(\?|$)/i.test(url)) return true;
+
+        // Check for nebula.to CDN
+        if (url.includes("nebula.to")) return true;
+
+        // Check for known streaming domains
+        const streamingDomains = ["wootly", "luluvdo", "dood"];
+        if (streamingDomains.some((domain) => url.includes(domain)))
+          return true;
+
+        return false;
+      };
+
+      // Process all sources
+      const allLinks: StreamingLink[] = sources
+        .filter((source: any) => {
+          const url = source.url || source.stream;
+          return url && isPlayableUrl(url);
+        })
         .map((source: any) => ({
-          quality: source.quality || "auto",
-          url: source.url,
-          server: source.source || "Wootly",
+          quality: determineQuality(source),
+          url: source.url || source.stream,
+          server: source.source || source.server || "Wootly",
         }));
 
-      if (mp4Links.length === 0) {
-        // Fallback to any available link
-        const otherLinks: StreamingLink[] = sources.map((source: any) => ({
-          quality: source.quality || "auto",
-          url: source.url,
-          server: source.source || "Wootly",
-        }));
-        if (otherLinks.length > 0) {
-          const firstLink = otherLinks[0];
-          return {
-            streamUrl: firstLink.url,
-            subtitles: [], // Add subtitles if available in response
-            selectedServer: { id, name: firstLink.server },
-            availableQualities: otherLinks,
-          };
-        }
+      if (allLinks.length === 0) {
+        console.error(
+          "[WOOTLY] No playable URLs found. Available sources:",
+          sources,
+        );
         throw new Error("No playable streams found from Wootly");
       }
 
-      // Select best quality (e.g., 1080p > 720p > auto)
+      console.log("[WOOTLY] Playable links found:", allLinks.length);
+      allLinks.forEach((link, idx) => {
+        console.log(
+          `  ${idx + 1}. [${link.quality}] ${link.server}: ${link.url.substring(0, 80)}...`,
+        );
+      });
+
+      // Prioritize nebula.to sources (they're more reliable)
+      const nebulaLinks = allLinks.filter((link) =>
+        link.url.includes("nebula.to"),
+      );
+      const otherLinks = allLinks.filter(
+        (link) => !link.url.includes("nebula.to"),
+      );
+
+      // Prefer MP4 over WebM
+      const mp4Links = nebulaLinks.filter((link) => link.url.includes(".mp4"));
+      const webmLinks = nebulaLinks.filter((link) =>
+        link.url.includes(".webm"),
+      );
+
+      // Build priority list
+      const linksToUse = [...mp4Links, ...webmLinks, ...otherLinks];
+
+      if (linksToUse.length === 0) {
+        throw new Error("No valid streams after filtering");
+      }
+
+      // Select best quality stream
       let defaultStream =
-        mp4Links.find((link) => link.quality === "1080p") ||
-        mp4Links.find((link) => link.quality === "720p") ||
-        mp4Links.find((link) => link.quality.toLowerCase() === "auto") ||
-        mp4Links[0];
+        linksToUse.find((link) => link.quality === "1080P") ||
+        linksToUse.find((link) => link.quality === "720P") ||
+        linksToUse.find((link) => link.quality === "HD") ||
+        linksToUse.find((link) =>
+          link.quality.toLowerCase().includes("auto"),
+        ) ||
+        linksToUse[0];
+
+      console.log("[WOOTLY] Selected stream:", {
+        quality: defaultStream.quality,
+        server: defaultStream.server,
+        url: defaultStream.url.substring(0, 80) + "...",
+      });
+
+      // Get headers from source
+      const firstSourceWithUrl = sources.find(
+        (s: any) =>
+          s.url === defaultStream.url || s.stream === defaultStream.url,
+      );
+
+      const streamHeaders = firstSourceWithUrl?.headers;
 
       return {
         streamUrl: defaultStream.url,
         selectedServer: { id, name: defaultStream.server },
-        availableQualities: mp4Links,
+        availableQualities: linksToUse,
+        subtitles: [],
+        headers: streamHeaders
+          ? {
+              Referer: streamHeaders.Referer || "https://web.wootly.ch",
+              "User-Agent":
+                streamHeaders["User-Agent"] ||
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            }
+          : undefined,
       };
     } else {
       throw new Error("Wootly returned no data or unsuccessful response");
     }
   } catch (error: any) {
-    console.error("Wootly streaming error:", error);
+    console.error("[WOOTLY] Error:", error.message);
+    if (error.response) {
+      console.error("[WOOTLY] Response status:", error.response.status);
+      console.error("[WOOTLY] Response data:", error.response.data);
+    }
     throw new Error(`Wootly failed: ${error.message}`);
   }
 }
-
 // 5) Episode → streaming flow
 export async function getEpisodeStreamingUrl(
   seriesId: string,

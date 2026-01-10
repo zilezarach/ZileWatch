@@ -12,7 +12,7 @@ import {
   BackHandler,
   Animated,
 } from "react-native";
-import { Video, ResizeMode } from "expo-av";
+import { Video, ResizeMode, AVPlaybackStatus } from "expo-av";
 import axios from "axios";
 import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
 import { Ionicons, MaterialIcons } from "@expo/vector-icons";
@@ -62,17 +62,19 @@ export default function StreamVideo() {
   const [toast, setToast] = useState<string | null>(null);
   const [loadingSourceId, setLoadingSourceId] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState<number>(0);
+  const [isVideoReady, setIsVideoReady] = useState<boolean>(false);
 
   const cleanupVideo = async () => {
     if (videoRef.current) {
       try {
-        await videoRef.current.pauseAsync();
+        await videoRef.current.stopAsync();
         await videoRef.current.unloadAsync();
       } catch (err) {
         console.warn("Failed to cleanup video:", err);
       }
-      setShouldPlayVideo(false);
     }
+    setIsVideoReady(false);
+    setShouldPlayVideo(false);
   };
 
   const showToast = (message: string) => {
@@ -103,7 +105,7 @@ export default function StreamVideo() {
   useEffect(() => {
     if (!isFocused) {
       cleanupVideo();
-    } else if (!shouldPlayVideo) {
+    } else if (!shouldPlayVideo && streamUrl) {
       setShouldPlayVideo(true);
     }
   }, [isFocused]);
@@ -123,12 +125,8 @@ export default function StreamVideo() {
   );
 
   useEffect(() => {
-    const unsubscribe = navigation.addListener("beforeRemove", () => {
-      if (videoRef.current) {
-        videoRef.current.pauseAsync().catch(() => {});
-        videoRef.current.unloadAsync().catch(() => {});
-        setShouldPlayVideo(false);
-      }
+    const unsubscribe = navigation.addListener("beforeRemove", async () => {
+      await cleanupVideo();
       ScreenOrientation.lockAsync(
         ScreenOrientation.OrientationLock.PORTRAIT,
       ).catch(() => {});
@@ -145,18 +143,12 @@ export default function StreamVideo() {
     };
   }, []);
 
-  useEffect(() => {
-    if (!streamUrl && videoRef.current) {
-      videoRef.current.unloadAsync().catch(() => {});
-    }
-  }, [streamUrl]);
-
   const handleGoBack = async () => {
     await cleanupVideo();
     try {
-      ScreenOrientation.lockAsync(
+      await ScreenOrientation.lockAsync(
         ScreenOrientation.OrientationLock.PORTRAIT,
-      ).catch(() => {});
+      );
     } catch (error) {
       console.warn("Failed to lock orientation", error);
     }
@@ -231,7 +223,17 @@ export default function StreamVideo() {
     setLoadingSourceId(serverId);
     setLoading(true);
     setError(null);
+    setIsVideoReady(false);
     showToast(`Switching to ${name}...`);
+
+    // Unload previous video
+    if (videoRef.current) {
+      try {
+        await videoRef.current.unloadAsync();
+      } catch (err) {
+        console.warn("Failed to unload video:", err);
+      }
+    }
 
     try {
       const effectiveSlug = slug || streamingService.slugify(videoTitle);
@@ -245,6 +247,8 @@ export default function StreamVideo() {
 
       const src = resp.data.sources?.[0]?.src;
       if (!src) throw new Error("No source URL returned");
+
+      console.log("✅ Stream URL received:", src);
 
       setStreamUrl(src);
       setSourceName(name);
@@ -267,11 +271,36 @@ export default function StreamVideo() {
     }
   };
 
-  const handleVideoError = (e: any) => {
-    console.error("Video error:", e);
-    const errorMsg = "Playback failed. Try switching servers.";
+  const handleVideoError = (error: any) => {
+    console.error("❌ VIDEO ERROR:");
+    console.error("  Platform:", Platform.OS);
+    console.error("  Error:", error);
+    console.error("  Stream URL:", streamUrl);
+    console.error("  Source:", sourceName);
+
+    // On Android, the error object might be in different formats
+    const errorMsg =
+      error?.error ||
+      error?.message ||
+      "Playback failed. Try switching servers.";
+
     setError(errorMsg);
     showToast(errorMsg);
+    setIsVideoReady(false);
+  };
+
+  const handlePlaybackStatusUpdate = (status: AVPlaybackStatus) => {
+    if (status.isLoaded) {
+      // Video is loaded and ready
+      if (!isVideoReady) {
+        console.log("✅ Video playback ready");
+        setIsVideoReady(true);
+      }
+    } else if ("error" in status && status.error) {
+      // Error occurred
+      console.error("⚠️ Playback status error:", status.error);
+      handleVideoError(status);
+    }
   };
 
   const autoRetry = async () => {
@@ -291,6 +320,7 @@ export default function StreamVideo() {
     if (!directStreamUrl) {
       fetchSources();
     } else {
+      console.log("📺 Using direct stream URL:", directStreamUrl);
       setLoading(false);
     }
   }, [movieId, episodeId]);
@@ -398,9 +428,14 @@ export default function StreamVideo() {
           <View style={styles.errorActions}>
             <TouchableOpacity
               style={styles.retryButton}
-              onPress={() =>
-                directStreamUrl ? setError(null) : fetchSources()
-              }
+              onPress={() => {
+                setError(null);
+                if (directStreamUrl) {
+                  setStreamUrl(directStreamUrl);
+                } else {
+                  fetchSources();
+                }
+              }}
               accessibilityLabel="Retry loading"
               accessibilityRole="button"
             >
@@ -424,19 +459,24 @@ export default function StreamVideo() {
             isLandscape ? styles.fullscreenVideoContainer : styles.videoBox
           }
         >
-          {shouldPlayVideo && (
+          {shouldPlayVideo && streamUrl && (
             <Video
               ref={videoRef}
               source={{ uri: streamUrl }}
               useNativeControls
               resizeMode={ResizeMode.CONTAIN}
               style={isLandscape ? styles.fullscreenVideo : styles.video}
+              shouldPlay={true}
               onError={handleVideoError}
               onLoad={() => {
-                console.log("Video loaded");
-                showToast("Video loaded successfully");
+                console.log("✅ Video loaded successfully");
+                showToast("Video loaded");
               }}
-              shouldPlay={true}
+              onLoadStart={() => {
+                console.log("⏳ Video loading started");
+                console.log("  Stream URL:", streamUrl);
+              }}
+              onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
             />
           )}
         </View>
@@ -490,6 +530,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#121212",
     borderBottomWidth: 1,
     borderBottomColor: "#333",
+    width: "100%",
   },
   back: {
     padding: 8,
@@ -507,6 +548,7 @@ const styles = StyleSheet.create({
     padding: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#333",
+    width: "100%",
   },
   sourceText: {
     color: "#aaa",
@@ -626,8 +668,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#000",
   },
   fullscreenVideo: {
-    width: height,
-    height: width,
+    width: "100%",
+    height: "100%",
   },
   switchToVidfastButton: {
     marginTop: 12,

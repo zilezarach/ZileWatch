@@ -1,6 +1,6 @@
 import axios from "axios";
 import Constants from "expo-constants";
-// Ensure your environment variable is correctly loaded
+
 const YOUTUBE_API = Constants.expoConfig.extra.youtubeApiKey;
 const YOUTUBE_URL = "https://youtube.googleapis.com/youtube/v3/videos";
 
