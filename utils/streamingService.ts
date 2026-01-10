@@ -780,28 +780,24 @@ async function getWootlyStreamingUrl(
 
       // Helper function to determine quality
       const determineQuality = (source: any): string => {
-        // Skip timestamp-like qualities
-        if (source.quality && /^\d{10,}P?$/i.test(source.quality)) {
-          return "Unknown";
-        }
+        const url = source.url || source.stream || "";
 
-        // Check for valid quality formats
-        if (source.quality && /^\d{3,4}[pP]$/i.test(source.quality)) {
+        // Nebula MP4 = AUTO (best)
+        if (url.includes(".mp4")) return "AUTO";
+
+        // HLS
+        if (url.includes(".m3u8")) return "AUTO";
+
+        // Explicit quality
+        if (source.quality && /^\d{3,4}[pP]$/.test(source.quality)) {
           return source.quality.toUpperCase();
         }
 
-        // Extract from URL
-        const url = source.url || source.stream || "";
-        const qualityMatch = url.match(/(\d{3,4})[pP]/i);
-        if (qualityMatch) {
-          return qualityMatch[1] + "P";
-        }
+        // Try extract from URL
+        const match = url.match(/(\d{3,4})[pP]/);
+        if (match) return `${match[1]}P`;
 
-        // Check file extension for quality indicators
-        if (url.includes(".mp4")) return "HD";
-        if (url.includes(".webm")) return "HD";
-
-        return "Unknown";
+        return "AUTO";
       };
 
       // Helper to check if URL is playable
@@ -813,11 +809,6 @@ async function getWootlyStreamingUrl(
 
         // Check for nebula.to CDN
         if (url.includes("nebula.to")) return true;
-
-        // Check for known streaming domains
-        const streamingDomains = ["wootly", "luluvdo", "dood"];
-        if (streamingDomains.some((domain) => url.includes(domain)))
-          return true;
 
         return false;
       };
@@ -872,12 +863,8 @@ async function getWootlyStreamingUrl(
 
       // Select best quality stream
       let defaultStream =
-        linksToUse.find((link) => link.quality === "1080P") ||
-        linksToUse.find((link) => link.quality === "720P") ||
-        linksToUse.find((link) => link.quality === "HD") ||
-        linksToUse.find((link) =>
-          link.quality.toLowerCase().includes("auto"),
-        ) ||
+        linksToUse.find((l) => l.url.includes(".mp4")) ||
+        linksToUse.find((l) => l.url.includes(".m3u8")) ||
         linksToUse[0];
 
       console.log("[WOOTLY] Selected stream:", {
@@ -1098,59 +1085,59 @@ export async function getEpisodeStreamingUrlFallback(
 
     const resp = await axios.get(fallbackUrl, { timeout: 15000 });
 
-    if (resp.data && resp.data.success && Array.isArray(resp.data.data)) {
-      const sources: any[] = resp.data.data;
-      const m3u8Links: StreamingLink[] = sources
-        .filter((source) => source.stream && source.stream.includes(".m3u8"))
-        .map((source) => ({
-          quality: source.quality || "auto",
-          url: source.stream,
-          server: source.server || "Unknown Server",
+    if (!resp.data?.success || !resp.data?.data) {
+      throw new Error(`Extractor returned unsuccessful response`);
+    }
+
+    const data = resp.data.data;
+
+    if (data.streamUrl) {
+      return {
+        streamUrl: data.streamUrl,
+        subtitles: data.tracks || [],
+        selectedServer: {
+          id: seriesId,
+          name: data.source || "Extractor",
+        },
+        name: `S${seasonNumber}E${episodeNumber}`,
+        availableQualities: [
+          {
+            quality: "auto",
+            url: data.streamUrl,
+            server: data.source || "Extractor",
+          },
+        ],
+      };
+    }
+    if (Array.isArray(data)) {
+      const m3u8Links: StreamingLink[] = data
+        .filter(
+          (s) => s.streamUrl?.includes(".m3u8") || s.stream?.includes(".m3u8"),
+        )
+        .map((s) => ({
+          quality: s.quality || "auto",
+          url: s.streamUrl || s.stream,
+          server: s.server || s.source || "Unknown",
         }));
 
-      if (m3u8Links.length === 0) {
-        // Optional: Check for non-m3u8 links if no m3u8 found
-        const otherLinks: StreamingLink[] = sources.map((source) => ({
-          quality: source.quality || "auto",
-          url: source.stream,
-          server: source.server || "Unknown Server",
-        }));
-        if (otherLinks.length > 0) {
-          console.warn(
-            "No .m3u8 links found, using first available link from extractor.",
-          );
-          const firstLink = otherLinks[0];
-          return {
-            streamUrl: firstLink.url,
-            subtitles: [],
-            selectedServer: { id: seriesId, name: firstLink.server },
-            name: sources[0]?.name || `S${seasonNumber}E${episodeNumber}`,
-            availableQualities: otherLinks,
-          };
-        }
-        throw new Error(
-          "No playable .m3u8 (or any other) stream links found from extractor.",
-        );
+      if (!m3u8Links.length) {
+        throw new Error("No playable stream links found");
       }
 
-      let defaultStream =
-        m3u8Links.find((link) => link.quality === "1080p") ||
-        m3u8Links.find((link) => link.quality === "720p") ||
-        m3u8Links.find((link) => link.quality.toLowerCase() === "auto") ||
+      const defaultStream =
+        m3u8Links.find((l) => l.quality === "1080p") ||
+        m3u8Links.find((l) => l.quality === "720p") ||
         m3u8Links[0];
 
       return {
         streamUrl: defaultStream.url,
         subtitles: [],
         selectedServer: { id: seriesId, name: defaultStream.server },
-        name: sources[0]?.name || `S${seasonNumber}E${episodeNumber}`,
+        name: `S${seasonNumber}E${episodeNumber}`,
         availableQualities: m3u8Links,
       };
-    } else {
-      throw new Error(
-        `Fallback extractor returned no data or unsuccessful response for ${fallbackUrl}`,
-      );
     }
+    throw new Error("Unknown extractor response format");
   } catch (error: any) {
     console.error("Episode fallback error:", error);
     throw new Error(`Fallback streaming failed: ${error.message}`);
