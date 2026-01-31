@@ -12,7 +12,7 @@ const TMBD_URL = Constants.expoConfig?.extra?.TMBD_URL;
 export const EXTRA_URL =
   Constants.expoConfig?.extra?.extractorUrl ||
   (Constants.manifest as any)?.extra?.extractorUrl ||
-  "https://extractor.0xzile.sbs";
+  "";
 
 interface ExtendedAxiosRequestConfig extends AxiosRequestConfig {
   _retry?: number;
@@ -425,7 +425,7 @@ export async function getMovieStreamingUrl(
     console.log("[FALLBACK] Fetching TMDB stream...");
 
     try {
-      const fallbackUrl = `${EXTRA_URL}/tmdb/${movieId}`;
+      const fallbackUrl = `${EXTRA_URL}/flixer/${movieId}`;
       console.log("[FALLBACK] URL:", fallbackUrl);
 
       const resp = await axios.get(fallbackUrl, { timeout: 20000 });
@@ -1080,7 +1080,7 @@ export async function getEpisodeStreamingUrlFallback(
   episodeNumber: string,
 ): Promise<StreamingInfo> {
   try {
-    const fallbackUrl = `${EXTRA_URL}/tmdb/${seriesId}/${seasonNumber}/${episodeNumber}`;
+    const fallbackUrl = `${EXTRA_URL}/flixer/${seriesId}/${seasonNumber}/${episodeNumber}`;
     console.log(`[FALLBACK] Fetching episode stream from: ${fallbackUrl}`);
 
     const resp = await axios.get(fallbackUrl, { timeout: 15000 });
