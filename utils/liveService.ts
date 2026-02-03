@@ -17,7 +17,7 @@ export interface Channel {
   streamUrl: string;
 }
 
-export type Source = "dlhd"; // Simplified to only DLHD
+export type Source = "dlhd"; // Made to one source at the monment 
 
 export interface TVChannels {
   id: number;
