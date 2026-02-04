@@ -17,7 +17,7 @@ export interface Channel {
   streamUrl: string;
 }
 
-export type Source = "dlhd"; // Made to one source at the monment 
+export type Source = "dlhd" | "viprow";
 
 export interface TVChannels {
   id: number;
@@ -33,6 +33,18 @@ export interface DLHDChannel {
   proxyUrl: string;
   lastUpdated: number;
   isWorking: boolean;
+}
+
+export interface VipRowEvent {
+  id: string;
+  title: string;
+  sport: string;
+  time: string;
+  isoTime: string;
+  url: string;
+  isLive: boolean;
+  startsIn?: string;
+  streamUrl: string;
 }
 
 export interface LiveItem {
@@ -64,7 +76,6 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT);
 
-    // Forward external abort → internal controller
     if (options.signal) {
       if (options.signal.aborted) {
         controller.abort();
@@ -91,13 +102,11 @@ async function fetchWithRetry(url: string, options: RequestInit = {}, retries = 
       });
 
       clearTimeout(timeoutId);
-
       console.log(`✅ Response: ${response.status} ${response.statusText}`);
       return response;
     } catch (error) {
       clearTimeout(timeoutId);
       lastError = error instanceof Error ? error : new Error(String(error));
-
       console.warn(`⚠️ Attempt ${i + 1} failed: ${lastError.message}`);
 
       if (lastError.name === "AbortError" || options.signal?.aborted) {
@@ -169,13 +178,13 @@ export async function fetchDLHDChannels(signal?: AbortSignal): Promise<LiveItem[
 }
 
 /**
- * Get DLHD stream URL for a specific channel
+ * Fetch VIPRow schedule from backend
  */
-export async function getDLHDStreamUrl(channelId: string, signal?: AbortSignal): Promise<string> {
+export async function fetchVipRowSchedule(signal?: AbortSignal): Promise<LiveItem[]> {
   try {
-    console.log(`🎬 Getting DLHD stream for channel: ${channelId}`);
+    console.log("📡 Fetching VIPRow schedule...");
+    const url = `${API}/viprow/schedule`;
 
-    const url = `${API}/dlhd/channel/${encodeURIComponent(channelId)}`;
     const res = await fetchWithRetry(url, { signal });
 
     if (!res.ok) {
@@ -184,30 +193,61 @@ export async function getDLHDStreamUrl(channelId: string, signal?: AbortSignal):
 
     const data = await res.json();
 
-    if (!data.success || !data.stream?.proxyUrl) {
-      throw new Error("No stream URL found");
+    if (!data.success || !data.events || !Array.isArray(data.events)) {
+      throw new Error("Invalid VIPRow API response");
     }
 
-    console.log(`✅ Got DLHD stream URL for channel ${channelId}`);
-    return data.stream.proxyUrl;
+    const liveItems: LiveItem[] = data.events.map((event: VipRowEvent) => {
+      const category = formatSportName(event.sport);
+      const eventTime = new Date(event.isoTime.includes("Z") ? event.isoTime : event.isoTime + "Z");
+      const endTime = new Date(eventTime.getTime() + 4 * 60 * 60 * 1000); // 4 hours duration
+
+      return {
+        id: event.id,
+        match: event.title,
+        category: category,
+        start: eventTime.toISOString(),
+        end: endTime.toISOString(),
+        logo: getSportLogo(event.sport),
+        channels: [
+          {
+            id: 1,
+            name: "VIPRow Stream",
+            streamUrl: event.streamUrl
+          }
+        ],
+        isFeatured: event.isLive,
+        source: "viprow" as const,
+        streamUrl: event.streamUrl
+      };
+    });
+
+    console.log(`✅ Successfully loaded ${liveItems.length} VIPRow events`);
+    return liveItems;
   } catch (error: any) {
-    console.error(`❌ Error getting DLHD stream:`, error);
+    console.error("❌ Error fetching VIPRow schedule:", error);
     throw error;
   }
 }
 
 /**
- * Main function to fetch live sports data (now only DLHD)
+ * Main function to fetch live sports data (DLHD + VIPRow)
  */
-export async function fetchLiveSports(signal?: AbortSignal): Promise<LiveItem[]> {
+export async function fetchLiveSports(signal?: AbortSignal, source: Source = "dlhd"): Promise<LiveItem[]> {
   try {
-    console.log("📺 Fetching live sports from DLHD...");
+    console.log(`📺 Fetching live sports from ${source.toUpperCase()}...`);
 
-    const result = await fetchDLHDChannels(signal);
+    let result: LiveItem[];
+
+    if (source === "viprow") {
+      result = await fetchVipRowSchedule(signal);
+    } else {
+      result = await fetchDLHDChannels(signal);
+    }
 
     if (!result || result.length === 0) {
-      console.warn("⚠️ No live sports data received from DLHD");
-      const cachedData = await getCachedLiveSports();
+      console.warn(`⚠️ No live sports data received from ${source.toUpperCase()}`);
+      const cachedData = await getCachedLiveSports(source);
       if (cachedData.length > 0) {
         console.log(`📦 Returning ${cachedData.length} cached sports items`);
         return cachedData;
@@ -215,14 +255,14 @@ export async function fetchLiveSports(signal?: AbortSignal): Promise<LiveItem[]>
       return [];
     }
 
-    await cacheLiveSports(result);
-    console.log(`✅ Successfully loaded ${result.length} DLHD channels`);
+    await cacheLiveSports(result, source);
+    console.log(`✅ Successfully loaded ${result.length} ${source.toUpperCase()} items`);
     return result;
   } catch (error) {
     console.error("❌ Error fetching live sports:", error);
 
     if (error instanceof Error && (error.message.includes("network") || error.message.includes("fetch"))) {
-      const cachedData = await getCachedLiveSports();
+      const cachedData = await getCachedLiveSports(source);
       if (cachedData.length > 0) {
         console.log(`📦 Fallback: Returning ${cachedData.length} cached sports items`);
         return cachedData;
@@ -234,7 +274,7 @@ export async function fetchLiveSports(signal?: AbortSignal): Promise<LiveItem[]>
 }
 
 /**
- * Get stream URL (simplified for DLHD only)
+ * Get stream URL (works for both DLHD and VIPRow)
  */
 export async function getStreamUrl(channelId: string, signal?: AbortSignal, streamUrl?: string): Promise<string> {
   if (!channelId?.trim()) {
@@ -251,7 +291,7 @@ export async function getStreamUrl(channelId: string, signal?: AbortSignal, stre
   }
 
   // Check cache
-  const cacheKey = `dlhd_${cleanChannelId}`;
+  const cacheKey = `stream_${cleanChannelId}`;
   const cachedStream = streamUrlCache.get(cacheKey);
   if (cachedStream && cachedStream.expires > Date.now()) {
     console.log(`💾 Using cached stream URL for ${cleanChannelId}`);
@@ -259,7 +299,27 @@ export async function getStreamUrl(channelId: string, signal?: AbortSignal, stre
   }
 
   try {
-    const url = await getDLHDStreamUrl(cleanChannelId, signal);
+    // Determine if it's DLHD or VIPRow based on ID format
+    let url: string;
+    if (cleanChannelId.startsWith("viprow-")) {
+      // VIPRow events already have streamUrl in the event data
+      throw new Error("VIPRow stream URL should be provided directly");
+    } else {
+      // DLHD channel
+      const dlhdUrl = `${API}/dlhd/channel/${encodeURIComponent(cleanChannelId)}`;
+      const res = await fetchWithRetry(dlhdUrl, { signal });
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+      }
+
+      const data = await res.json();
+      if (!data.success || !data.stream?.proxyUrl) {
+        throw new Error("No stream URL found");
+      }
+
+      url = data.stream.proxyUrl;
+    }
 
     // Cache the result
     const cacheEntry = {
@@ -285,34 +345,24 @@ export async function getStreamUrl(channelId: string, signal?: AbortSignal, stre
 }
 
 /**
- * Helper function to generate stable IDs
- */
-function generateStableId(channelName: string): string {
-  return channelName
-    .toLowerCase()
-    .replace(/[^a-z0-9]/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_|_$/g, "");
-}
-
-/**
  * Get cached live sports from AsyncStorage
  */
-async function getCachedLiveSports(): Promise<LiveItem[]> {
+async function getCachedLiveSports(source: Source): Promise<LiveItem[]> {
   try {
-    const cached = await AsyncStorage.getItem("cachedLiveSports");
+    const cacheKey = `cachedLiveSports_${source}`;
+    const cached = await AsyncStorage.getItem(cacheKey);
     if (cached) {
       const parsed = JSON.parse(cached);
       const isExpired = Date.now() - parsed.timestamp > CACHE_DURATION;
       if (!isExpired && Array.isArray(parsed.data)) {
-        console.log(`📦 Retrieved ${parsed.data.length} cached live sports`);
+        console.log(`📦 Retrieved ${parsed.data.length} cached live sports from ${source}`);
         return parsed.data;
       } else {
-        console.log("⏰ Cached live sports expired");
+        console.log(`⏰ Cached live sports from ${source} expired`);
       }
     }
   } catch (error) {
-    console.warn("⚠️ Failed to get cached live sports:", error);
+    console.warn(`⚠️ Failed to get cached live sports from ${source}:`, error);
   }
   return [];
 }
@@ -320,24 +370,70 @@ async function getCachedLiveSports(): Promise<LiveItem[]> {
 /**
  * Cache live sports to AsyncStorage
  */
-async function cacheLiveSports(data: LiveItem[]): Promise<void> {
+async function cacheLiveSports(data: LiveItem[], source: Source): Promise<void> {
   try {
+    const cacheKey = `cachedLiveSports_${source}`;
     await AsyncStorage.setItem(
-      "cachedLiveSports",
+      cacheKey,
       JSON.stringify({
         data,
         timestamp: Date.now(),
+        source,
         version: "2.0"
       })
     );
-    console.log(`💾 Cached ${data.length} live sports items`);
+    console.log(`💾 Cached ${data.length} live sports items for ${source}`);
   } catch (error) {
-    console.warn("⚠️ Failed to cache live sports:", error);
+    console.warn(`⚠️ Failed to cache live sports for ${source}:`, error);
   }
 }
 
 /**
- * Fetch TV channels from API (kept for compatibility)
+ * Format sport name for display
+ */
+function formatSportName(sport: string): string {
+  const sportMap: { [key: string]: string } = {
+    football: "Football",
+    soccer: "Football",
+    basketball: "Basketball",
+    nba: "NBA",
+    tennis: "Tennis",
+    baseball: "Baseball",
+    hockey: "Hockey",
+    mma: "MMA",
+    boxing: "Boxing",
+    f1: "Formula 1",
+    "formula-1": "Formula 1",
+    golf: "Golf",
+    rugby: "Rugby",
+    cricket: "Cricket"
+  };
+
+  const normalized = sport.toLowerCase().replace(/[_-]/g, " ").trim();
+  return sportMap[normalized] || sport.charAt(0).toUpperCase() + sport.slice(1);
+}
+
+/**
+ * Get sport logo URL
+ */
+function getSportLogo(sport: string): string {
+  const sportLogos: { [key: string]: string } = {
+    football: "https://upload.wikimedia.org/wikipedia/en/e/e3/Premier_League_Logo.svg",
+    soccer: "https://upload.wikimedia.org/wikipedia/en/e/e3/Premier_League_Logo.svg",
+    basketball: "https://upload.wikimedia.org/wikipedia/en/0/03/National_Basketball_Association_logo.svg",
+    nba: "https://upload.wikimedia.org/wikipedia/en/0/03/National_Basketball_Association_logo.svg",
+    tennis: "https://upload.wikimedia.org/wikipedia/en/3/3e/Tennis_pictogram.svg",
+    baseball: "https://upload.wikimedia.org/wikipedia/en/a/a6/Major_League_Baseball_logo.svg",
+    hockey: "https://upload.wikimedia.org/wikipedia/en/3/3a/National_Hockey_League_logo.svg",
+    f1: "https://upload.wikimedia.org/wikipedia/commons/3/33/F1.svg",
+    "formula-1": "https://upload.wikimedia.org/wikipedia/commons/3/33/F1.svg"
+  };
+
+  return sportLogos[sport.toLowerCase()] || "https://via.placeholder.com/150x150?text=Live+Sport";
+}
+
+/**
+ * Fetch TV channels from API
  */
 export async function fetchChannels(signal?: AbortSignal): Promise<TVChannels[]> {
   try {
@@ -385,6 +481,27 @@ export async function fetchChannels(signal?: AbortSignal): Promise<TVChannels[]>
       return cachedChannels;
     }
     throw error;
+  }
+}
+
+export async function getPreferredSource(): Promise<Source> {
+  try {
+    const stored = await AsyncStorage.getItem("preferredSource");
+    if (stored && (stored === "dlhd" || stored === "viprow")) {
+      return stored as Source;
+    }
+  } catch (error) {
+    console.warn("⚠️ Failed to get preferred source:", error);
+  }
+  return "dlhd";
+}
+
+export async function setPreferredSource(source: Source): Promise<void> {
+  try {
+    await AsyncStorage.setItem("preferredSource", source);
+    console.log(`💾 Saved preferred source: ${source}`);
+  } catch (error) {
+    console.warn("⚠️ Failed to save preferred source:", error);
   }
 }
 
@@ -534,13 +651,17 @@ export async function preloadSessions(channelIds: string[]): Promise<void> {
     return;
   }
 
-  console.log(`🚀 Preloading ${channelIds.length} DLHD channels`);
+  console.log(`🚀 Preloading ${channelIds.length} channels`);
 
   const results = await Promise.allSettled(
     channelIds.map(async channelId => {
       try {
-        await getDLHDStreamUrl(channelId);
-        console.log(`✅ Preloaded ${channelId}`);
+        if (channelId.startsWith("viprow-")) {
+          console.log(`ℹ️ Skipping preload for VIPRow event: ${channelId}`);
+        } else {
+          await getStreamUrl(channelId);
+          console.log(`✅ Preloaded ${channelId}`);
+        }
       } catch (error) {
         console.warn(`⚠️ Failed to preload ${channelId}`);
       }
@@ -558,7 +679,7 @@ export async function loadCachedStreams(): Promise<void> {
   try {
     console.log("💾 Loading cached streams...");
     const keys = await AsyncStorage.getAllKeys();
-    const streamKeys = keys.filter(key => key.startsWith("streamUrl_"));
+    const streamKeys = keys.filter(key => key.startsWith("streamUrl_") || key.startsWith("stream_"));
 
     if (streamKeys.length === 0) {
       console.log("ℹ️ No cached streams found");
@@ -572,7 +693,7 @@ export async function loadCachedStreams(): Promise<void> {
       if (value) {
         try {
           const { url, expires } = JSON.parse(value);
-          const channelId = key.replace("streamUrl_", "");
+          const channelId = key.replace("streamUrl_", "").replace("stream_", "");
           if (expires > Date.now()) {
             streamUrlCache.set(channelId, { url, expires });
           } else {
@@ -603,7 +724,9 @@ export async function clearStreamCache(): Promise<void> {
     console.log("🧹 Clearing stream cache...");
     streamUrlCache.clear();
     const keys = await AsyncStorage.getAllKeys();
-    const streamKeys = keys.filter(key => key.startsWith("streamUrl_"));
+    const streamKeys = keys.filter(
+      key => key.startsWith("streamUrl_") || key.startsWith("stream_") || key.startsWith("cachedLiveSports_")
+    );
     if (streamKeys.length > 0) {
       await AsyncStorage.multiRemove(streamKeys);
       console.log(`🧹 Cleared ${streamKeys.length} cached streams`);

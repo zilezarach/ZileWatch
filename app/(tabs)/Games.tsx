@@ -16,6 +16,7 @@ import {
   Animated,
   SafeAreaView
 } from "react-native";
+import SourceSelector from "../../components/SourceSelector";
 import {
   loadCachedStreams,
   fetchLiveSports,
@@ -25,6 +26,7 @@ import {
   getStreamUrl,
   getChannelsStream,
   preloadSessions,
+  Source,
   LiveItem,
   TVChannels
 } from "../../utils/liveService";
@@ -63,6 +65,7 @@ export default function GamesScreen() {
   const [categories, setCategories] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [channels, setChannels] = useState<TVChannels[]>([]);
+  const [selectedSource, setSelectedSource] = useState<Source>("dlhd");
   const [showChannels, setShowChannels] = useState(false);
   const [loadingState, setLoadingState] = useState<LoadingState>({
     initial: true,
@@ -97,7 +100,7 @@ export default function GamesScreen() {
       }));
 
       try {
-        const liveData = await fetchLiveSports(signal);
+        const liveData = await fetchLiveSports(signal, selectedSource);
         if (signal?.aborted) throw new Error("Aborted");
 
         const regular = liveData.filter(item => !item.isFeatured);
@@ -135,7 +138,7 @@ export default function GamesScreen() {
         }
       }
     },
-    [sessionStatus]
+    [sessionStatus, selectedSource]
   );
 
   const loadChannelsData = useCallback(async (signal?: AbortSignal): Promise<TVChannels[]> => {
@@ -203,7 +206,10 @@ export default function GamesScreen() {
 
         console.log("📺 Loading DLHD sports data, isRefresh:", isRefresh);
 
-        const [sportsData, channelsData] = await Promise.allSettled([loadSportsData(signal), loadChannelsData(signal)]);
+        const [sportsData, channelsData] = await Promise.allSettled([
+          loadSportsData(signal),
+          loadChannelsData(signal)
+        ]);
 
         if (signal.aborted) return;
 
@@ -646,6 +652,22 @@ export default function GamesScreen() {
       loadSportsData
     ]
   );
+  const handleSourceChange = useCallback(
+    (newSource: Source) => {
+      console.log(`📡 Switching source from ${selectedSource} to ${newSource}`);
+
+      // Update source
+      setSelectedSource(newSource);
+
+      // Clear selection and session status
+      setSelectedCategory(null);
+      setSessionStatus("idle");
+
+      // Force reload with new source
+      loadData(true, true);
+    },
+    [selectedSource, loadData]
+  );
 
   if (loadingState.initial) {
     return (
@@ -656,7 +678,7 @@ export default function GamesScreen() {
             <ActivityIndicator size="large" color="#FF6B35" />
           </View>
           <Text style={styles.loadingText}>Loading Live Content...</Text>
-          <Text style={styles.loadingSubtext}>Fetching DLHD channels</Text>
+          <Text style={styles.loadingSubtext}>Fetching {selectedSource === "dlhd" ? "DLHD" : "VIPRow"} channels</Text>
         </View>
       </SafeAreaView>
     );
@@ -698,6 +720,15 @@ export default function GamesScreen() {
             <Text style={[styles.segmentText, showChannels && styles.segmentTextActive]}>Channels</Text>
           </Pressable>
         </View>
+
+        {/* NEW: Source Selector - only show when Sports tab is active */}
+        {!showChannels && (
+          <SourceSelector
+            selectedSource={selectedSource}
+            onSourceChange={handleSourceChange}
+            disabled={loadingState.sportsLoading}
+          />
+        )}
       </View>
       {showChannels ? (
         <FlatList
@@ -743,7 +774,9 @@ export default function GamesScreen() {
           {categories.length > 0 && renderCategoryFilter()}
           {renderStatsHeader()}
           {filteredList.length > 0
-            ? filteredList.map((item, index) => <View key={`${item.id}_${index}`}>{renderMatch({ item, index })}</View>)
+            ? filteredList.map((item, index) => (
+                <View key={`${item.id}_${index}`}>{renderMatch({ item, index })}</View>
+              ))
             : renderEmptyState()}
         </ScrollView>
       )}
