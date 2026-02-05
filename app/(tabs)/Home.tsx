@@ -264,13 +264,13 @@ export default function Home() {
         timeout: 60000,
       });
 
-      if (!response.data.success || !response.data.streamUrl) {
+      if (!response.data.success || !response.data.directUrl) {
         throw new Error("Unable to get streaming URL");
       }
 
       // Navigate to VideoPlayer with streaming URL
       navigation.navigate("VideoPlayer", {
-        videoUrl: response.data.streamUrl,
+        videoUrl: response.data.directUrl,
         isStreaming: true,
         originalUrl: videoUrl,
       });
@@ -313,11 +313,11 @@ export default function Home() {
         },
       );
 
-      if (!streamResponse.data.success || !streamResponse.data.streamUrl) {
+      if (!streamResponse.data.success || !streamResponse.data.directUrl) {
         throw new Error("No direct stream URL available");
       }
 
-      const downloadUrl = streamResponse.data.streamUrl;
+      const downloadUrl = streamResponse.data.directUrl;
       const ext = option === "video" ? "mp4" : "m4a";
       const filename = `${selectedVideo.title.replace(/[^a-z0-9]/gi, "_")}_${Date.now()}.${ext}`;
       const filepath = `${dir}${filename}`;

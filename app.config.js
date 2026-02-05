@@ -12,28 +12,33 @@ export default {
     splash: {
       image: "./assets/images/Original.png",
       resizeMode: "cover",
-      backgroundColor: "#000000"
+      backgroundColor: "#000000",
     },
     ios: {
       supportsTablet: true,
-      bundleIdentifier: "com.zile.zileWatch"
+      bundleIdentifier: "com.zile.zileWatch",
     },
     android: {
       package: "com.zile.zileWatch",
       adaptiveIcon: {
         foregroundImage: "./assets/images/adaptive-icon.png",
-        backgroundColor: "#ffffff"
+        backgroundColor: "#ffffff",
       },
-      permissions: ["INTERNET", "ACCESS_NETWORK_STATE", "READ_EXTERNAL_STORAGE", "WRITE_EXTERNAL_STORAGE"],
+      permissions: [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+      ],
       hermesEnabled: true,
       enableProguardInReleaseBuilds: true,
       enableShrinkResourcesInReleaseBuilds: true,
-      useLegacyPackaging: false
+      useLegacyPackaging: false,
     },
     web: {
       bundler: "metro",
       output: "static",
-      favicon: "./assets/images/favicon.png"
+      favicon: "./assets/images/favicon.png",
     },
     plugins: [
       "expo-router",
@@ -77,13 +82,13 @@ export default {
               
               # Remove unused resources
               -dontwarn **
-            `
-          }
-        }
-      ]
+            `,
+          },
+        },
+      ],
     ],
     experiments: {
-      typedRoutes: true
+      typedRoutes: true,
     },
     extra: {
       youtubeApiKey: process.env.YOUTUBE_API_KEY,
@@ -91,10 +96,11 @@ export default {
       TMBD_KEY: process.env.TMBD_KEY || "3d87c19403c5b4902b9617fc74eb3866",
       TMBD_URL: "https://api.themoviedb.org/3",
       zileLive: process.env.zileLive || "https://live-api.buffalofamily.club",
-      extractorUrl: process.env.extractorUrl || "https://vidapi.buffalofamily.club",
+      extractorUrl:
+        process.env.extractorUrl || "https://vidapi.buffalofamily.club",
       eas: {
-        projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4"
-      }
-    }
-  }
+        projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4",
+      },
+    },
+  },
 };
