@@ -4,7 +4,7 @@ export default {
   expo: {
     name: "ZileWatch",
     slug: "ZileWatch",
-    version: "1.0.2",
+    version: "1.0.3",
     orientation: "default",
     icon: "./assets/images/Original.png",
     scheme: "myapp",
