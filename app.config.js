@@ -4,7 +4,7 @@ export default {
   expo: {
     name: "ZileWatch",
     slug: "ZileWatch",
-    version: "1.0.3",
+    version: "1.0.4",
     orientation: "default",
     icon: "./assets/images/Original.png",
     scheme: "myapp",
@@ -92,12 +92,11 @@ export default {
     },
     extra: {
       youtubeApiKey: process.env.YOUTUBE_API_KEY,
-      API_Backend: process.env.API_KEY || "https://backend.buffalofamily.club",
+      API_Backend: process.env.API_KEY || "https://backend.0xzile.uk",
       TMBD_KEY: process.env.TMBD_KEY || "3d87c19403c5b4902b9617fc74eb3866",
       TMBD_URL: "https://api.themoviedb.org/3",
-      zileLive: process.env.zileLive || "https://live-api.buffalofamily.club",
-      extractorUrl:
-        process.env.extractorUrl || "https://vidapi.buffalofamily.club",
+      zileLive: process.env.zileLive || "https://live-api.0xzile.uk",
+      extractorUrl: process.env.extractorUrl || "https://vidapi.0xzile.uk",
       eas: {
         projectId: "c15c7750-d9d3-4cd2-b590-244bc514c9f4",
       },
