@@ -1,11 +1,11 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { View, Text, StyleSheet, Pressable, Platform } from "react-native";
 import { FontAwesome5 } from "@expo/vector-icons";
-import { Source } from "../utils/liveService";
+import { SourceChannel } from "../utils/liveService";
 
-interface SourceSelectorProps {
-  selectedSource: Source;
-  onSourceChange: (source: Source) => void;
+interface SelectorProps {
+  selectedSource: SourceChannel;
+  onSourceChange: (source: SourceChannel) => void;
   disabled?: boolean;
 }
 
@@ -13,34 +13,34 @@ export default function SourceSelector({
   selectedSource,
   onSourceChange,
   disabled = false,
-}: SourceSelectorProps) {
+}: SelectorProps) {
   const sources: Array<{
-    id: Source;
+    id: SourceChannel;
     label: string;
     icon: string;
     color: string;
     description: string;
   }> = [
     {
-      id: "viprow",
-      label: "VIPRow",
-      icon: "globe",
-      color: "#FF6B35",
-      description: "Live Sports Events",
-    },
-    {
-      id: "dlhd",
-      label: "DLHD",
+      id: "cdn",
+      label: "CDN Live",
       icon: "tv",
       color: "#4CAF50",
-      description: "Premium Sports Channels",
+      description: "Premium Channel Source",
+    },
+    {
+      id: "Tv-Org",
+      label: "TV Org",
+      icon: "tv",
+      color: "#FF6B35",
+      description: "USA Tv Provider",
     },
   ];
 
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
-        <Text style={styles.label}>Stream Source</Text>
+        <Text style={styles.label}>Tv Source</Text>
         <View style={styles.statusBadge}>
           <View
             style={[

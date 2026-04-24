@@ -1,25 +1,21 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   View,
   Text,
-  Button,
   Alert,
   ActivityIndicator,
   Modal,
   StyleSheet,
   TouchableOpacity,
+  Platform,
 } from "react-native";
-
 import * as Application from "expo-application";
 import * as Device from "expo-device";
 import * as FileSystem from "expo-file-system";
-import * as Linking from "expo-linking";
-import SHA256 from "crypto-js/sha256";
-import Base64 from "crypto-js/enc-base64";
+import * as IntentLauncher from "expo-intent-launcher";
 import Constants from "expo-constants";
 
 const URL = Constants.expoConfig?.extra?.API_Backend;
-
 const UPDATE_URL = `${URL}/update/check`;
 
 interface Update {
@@ -27,13 +23,15 @@ interface Update {
   changelog: string;
   fileName: string;
   downloadUrl: string;
-  sha256: string;
+  sha256?: string;
 }
 
 export default function UpdateManager() {
   const [update, setUpdate] = useState<Update | null>(null);
-  const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const downloadResumable = useRef<FileSystem.DownloadResumable | null>(null);
 
   useEffect(() => {
     checkForUpdates();
@@ -42,11 +40,11 @@ export default function UpdateManager() {
   async function checkForUpdates() {
     try {
       const res = await fetch(UPDATE_URL);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const data: Update = await res.json();
+      const currentVersion = Application.nativeApplicationVersion ?? "0.0.0";
 
-      const currentVersion = Application.nativeApplicationVersion;
-
-      if (data.version !== currentVersion) {
+      if (isNewerVersion(data.version, currentVersion)) {
         setUpdate(data);
         setModalVisible(true);
       }
@@ -55,88 +53,150 @@ export default function UpdateManager() {
     }
   }
 
+  // Proper semver comparison instead of strict equality
+  function isNewerVersion(remote: string, current: string): boolean {
+    const parse = (v: string) => v.split(".").map(Number);
+    const [rMaj, rMin, rPat] = parse(remote);
+    const [cMaj, cMin, cPat] = parse(current);
+    if (rMaj !== cMaj) return rMaj > cMaj;
+    if (rMin !== cMin) return rMin > cMin;
+    return rPat > cPat;
+  }
+
   async function downloadAndInstall() {
     if (!update) return;
-    setLoading(true);
+
+    // Android only — iOS handles updates via App Store
+    if (Platform.OS !== "android") {
+      Alert.alert("Update", "Please update via the App Store.");
+      return;
+    }
+
+    setDownloading(true);
+    setDownloadProgress(0);
+
+    const fileUri = `${FileSystem.cacheDirectory}${update.fileName}`;
 
     try {
-      const fileUri = `${FileSystem.cacheDirectory}${update.fileName}`;
-      const downloadRes = await FileSystem.downloadAsync(
+      // Remove any previous download of same file
+      const fileInfo = await FileSystem.getInfoAsync(fileUri);
+      if (fileInfo.exists) await FileSystem.deleteAsync(fileUri);
+
+      // Download with progress tracking
+      downloadResumable.current = FileSystem.createDownloadResumable(
         update.downloadUrl,
         fileUri,
+        {},
+        (progress) => {
+          const pct =
+            progress.totalBytesExpectedToWrite > 0
+              ? Math.round(
+                  (progress.totalBytesWritten /
+                    progress.totalBytesExpectedToWrite) *
+                    100,
+                )
+              : 0;
+          setDownloadProgress(pct);
+        },
       );
 
-      // SHA256 verification
-      const fileData = await FileSystem.readAsStringAsync(downloadRes.uri, {
-        encoding: FileSystem.EncodingType.Base64,
+      const result = await downloadResumable.current.downloadAsync();
+      if (!result?.uri) throw new Error("Download failed — no file URI");
+
+      // Verify file actually exists and has size
+      const info = await FileSystem.getInfoAsync(result.uri);
+      if (!info.exists || info.size === 0) {
+        throw new Error("Downloaded file is empty or missing");
+      }
+
+      setDownloading(false);
+      setModalVisible(false);
+
+      // Get content URI for Android package installer
+      const contentUri = await FileSystem.getContentUriAsync(result.uri);
+
+      await IntentLauncher.startActivityAsync("android.intent.action.VIEW", {
+        data: contentUri,
+        flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+        type: "application/vnd.android.package-archive",
       });
-      const localHash = SHA256(Base64.parse(fileData)).toString();
-
-      if (localHash !== update.sha256)
-        throw new Error("File integrity check failed!");
-
-      setLoading(false);
-      Alert.alert("Update ready", "Opening installer...");
-      await Linking.openURL(downloadRes.uri);
     } catch (err: any) {
-      setLoading(false);
-      Alert.alert("Update failed", err.message);
+      setDownloading(false);
+      console.error("Update install error:", err);
+      Alert.alert(
+        "Update Failed",
+        err.message || "Could not download or install update.",
+        [
+          { text: "Retry", onPress: downloadAndInstall },
+          { text: "Cancel", style: "cancel" },
+        ],
+      );
     }
   }
 
-  // Additional device info logging for debugging (optional)
-  useEffect(() => {
-    if (__DEV__) {
-      console.log("Device Info:", {
-        brand: Device.brand,
-        modelName: Device.modelName,
-        osName: Device.osName,
-        osVersion: Device.osVersion,
-        appVersion: Application.nativeApplicationVersion,
-        buildVersion: Application.nativeBuildVersion,
-      });
-    }
-  }, []);
+  function cancelDownload() {
+    downloadResumable.current?.pauseAsync().catch(() => {});
+    setDownloading(false);
+    setDownloadProgress(0);
+  }
 
-  if (!update) return null;
+  if (!update || !modalVisible) return null;
 
   return (
     <Modal
       visible={modalVisible}
       transparent
       animationType="fade"
-      onRequestClose={() => setModalVisible(false)}
+      onRequestClose={() => !downloading && setModalVisible(false)}
     >
       <View style={styles.overlay}>
         <View style={styles.modal}>
-          <Text style={styles.title}>🚀 Update Available!</Text>
+          <Text style={styles.title}>🚀 Update Available</Text>
           <Text style={styles.version}>v{update.version}</Text>
           <Text style={styles.currentVersion}>
-            Current: version{Application.nativeApplicationVersion}
+            Current: v{Application.nativeApplicationVersion}
           </Text>
-          <Text style={styles.changelog}>{update.changelog}</Text>
 
-          {loading ? (
-            <ActivityIndicator
-              size="large"
-              color="#7d0b02"
-              style={{ marginTop: 20 }}
-            />
+          <View style={styles.changelogBox}>
+            <Text style={styles.changelogTitle}>What's new</Text>
+            <Text style={styles.changelog}>{update.changelog}</Text>
+          </View>
+
+          {downloading ? (
+            <View style={styles.progressContainer}>
+              <ActivityIndicator size="large" color="#7d0b02" />
+              <Text style={styles.progressText}>
+                Downloading... {downloadProgress}%
+              </Text>
+              {/* Progress bar */}
+              <View style={styles.progressBarBg}>
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    { width: `${downloadProgress}%` },
+                  ]}
+                />
+              </View>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={cancelDownload}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
           ) : (
             <View style={styles.buttonRow}>
               <TouchableOpacity
                 style={styles.buttonUpdate}
                 onPress={downloadAndInstall}
               >
-                <Text style={styles.buttonText}>Update</Text>
+                <Text style={styles.buttonTextWhite}>Update Now</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.buttonSkip}
                 onPress={() => setModalVisible(false)}
               >
-                <Text style={[styles.buttonText, { color: "#7d0b02" }]}>
-                  Skip
-                </Text>
+                <Text style={styles.buttonTextRed}>Later</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -149,71 +209,113 @@ export default function UpdateManager() {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0,0,0,0.6)",
+    backgroundColor: "rgba(0,0,0,0.65)",
     justifyContent: "center",
     alignItems: "center",
   },
   modal: {
-    width: "85%",
+    width: "88%",
     backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 20,
+    borderRadius: 16,
+    padding: 24,
     alignItems: "center",
-    elevation: 5,
+    elevation: 8,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 6,
   },
   title: {
-    fontSize: 20,
-    fontWeight: "700",
-    marginBottom: 8,
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 6,
     textAlign: "center",
+    color: "#111",
   },
   version: {
     fontSize: 18,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#7d0b02",
-    marginBottom: 4,
+    marginBottom: 2,
   },
   currentVersion: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 12,
+    fontSize: 13,
+    color: "#999",
+    marginBottom: 16,
+  },
+  changelogBox: {
+    width: "100%",
+    backgroundColor: "#fef2f2",
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 20,
+    borderLeftWidth: 3,
+    borderLeftColor: "#7d0b02",
+  },
+  changelogTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#7d0b02",
+    marginBottom: 4,
+    textTransform: "uppercase",
   },
   changelog: {
     fontSize: 14,
     color: "#333",
-    textAlign: "center",
-    marginBottom: 20,
     lineHeight: 20,
+  },
+  progressContainer: {
+    width: "100%",
+    alignItems: "center",
+    gap: 10,
+  },
+  progressText: {
+    fontSize: 14,
+    color: "#555",
+    fontWeight: "600",
+  },
+  progressBarBg: {
+    width: "100%",
+    height: 8,
+    backgroundColor: "#eee",
+    borderRadius: 4,
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: "100%",
+    backgroundColor: "#7d0b02",
+    borderRadius: 4,
+  },
+  cancelButton: {
+    marginTop: 4,
+    padding: 8,
+  },
+  cancelText: {
+    color: "#999",
+    fontSize: 13,
   },
   buttonRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     width: "100%",
+    gap: 10,
   },
   buttonUpdate: {
     flex: 1,
     backgroundColor: "#7d0b02",
-    padding: 12,
-    borderRadius: 8,
-    marginRight: 10,
+    padding: 14,
+    borderRadius: 10,
     alignItems: "center",
   },
   buttonSkip: {
     flex: 1,
     backgroundColor: "#fff",
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
+    padding: 14,
+    borderRadius: 10,
+    borderWidth: 1.5,
     borderColor: "#7d0b02",
     alignItems: "center",
   },
-  buttonText: {
-    fontWeight: "700",
-    color: "#fff",
-    fontSize: 16,
-  },
+  buttonTextWhite: { fontWeight: "700", color: "#fff", fontSize: 15 },
+  buttonTextRed: { fontWeight: "700", color: "#7d0b02", fontSize: 15 },
 });

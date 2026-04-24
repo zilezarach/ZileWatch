@@ -33,7 +33,7 @@ interface EpisodeItem {
 }
 
 // Define source types
-type SourceType = "primary" | "fallback" | "vidfast" | "wootly";
+type SourceType = "tmdb" | "fallback" | "vidfast" | "wootly";
 
 interface SourceOption {
   id: SourceType;
@@ -67,7 +67,7 @@ export default function EpisodeListScreen() {
 
   // New state for source switching
   const [selectedSourceType, setSelectedSourceType] = useState<SourceType>(
-    useFallback ? "fallback" : "primary",
+    useFallback ? "fallback" : "tmdb",
   );
   const [sourceModalVisible, setSourceModalVisible] = useState(false);
   const [streamLoading, setStreamLoading] = useState(false);
@@ -77,15 +77,10 @@ export default function EpisodeListScreen() {
 
   // Define available sources
   const availableSources: SourceOption[] = [
-    //{
-    //id: "primary",
-    //name: "Source One",
-    //description: "Primary streaming source",
-    //},
     {
-      id: "fallback",
+      id: "tmdb",
       name: "Source One",
-      description: "Default streaming source",
+      description: "Primary streaming source",
     },
     {
       id: "vidfast",
@@ -161,43 +156,6 @@ export default function EpisodeListScreen() {
     fetchEpisodes();
   };
 
-  // Fetch sources for a given episode (only for primary source) to be removed next updated
-  const fetchSources = async (episodeId: string) => {
-    if (selectedSourceType !== "primary") {
-      return;
-    }
-
-    try {
-      setLoading(true);
-      const resp = await streamingService.getEpisodeSources(
-        tv_id.toString(),
-        episodeId,
-        slug,
-      );
-
-      if (resp.servers && resp.servers.length > 0) {
-        setSources(resp.servers);
-
-        // Auto-select preferred source
-        const preferred =
-          resp.servers.find(
-            (s) => s.name.toLowerCase().includes("vidcloud") || s.isVidstream,
-          ) || resp.servers[0];
-
-        setSelectedSource(preferred);
-      } else {
-        setSources([]);
-        setSelectedSource(null);
-        Alert.alert("Error", "No streaming sources available");
-      }
-    } catch (error) {
-      console.error("Failed to fetch sources:", error);
-      Alert.alert("Error", "Failed to load streaming sources");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   // Debounce guard
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -206,39 +164,14 @@ export default function EpisodeListScreen() {
 
     setCurrentEpisode(ep);
 
-    // Handle different source types
-    if (
-      selectedSourceType === "fallback" ||
-      selectedSourceType === "vidfast" ||
-      selectedSourceType === "wootly"
-    ) {
-      const episodeForStreaming: Episode = {
-        ...ep,
-        name: ep.name || ep.title || `Episode ${ep.number}`,
-        episode_number: ep.number,
-      };
-      startStreaming(episodeForStreaming);
-      return;
-    }
+    const episodeForStreaming: Episode = {
+      ...ep,
+      name: ep.name || ep.title || `Episode ${ep.number}`,
+      episode_number: ep.number,
+    };
 
-    // For primary source, fetch sources first
-    debounceRef.current = setTimeout(async () => {
-      try {
-        await fetchSources(ep.id);
-        if (selectedSource) {
-          const episodeForStreaming: Episode = {
-            ...ep,
-            name: ep.name || ep.title || `Episode ${ep.number}`,
-            episode_number: ep.number,
-          };
-          startStreaming(episodeForStreaming);
-        } else {
-          setModalVisible(true);
-        }
-      } catch (error) {
-        console.error("Failed to fetch sources:", error);
-        Alert.alert("Error", "Failed to load streaming sources");
-      }
+    debounceRef.current = setTimeout(() => {
+      startStreaming(episodeForStreaming);
       debounceRef.current = null;
     }, 300);
   };
@@ -265,27 +198,28 @@ export default function EpisodeListScreen() {
   const startStreaming = async (ep: Episode) => {
     try {
       setStreamLoading(true);
-      console.log(
-        `EpisodeList: Starting stream for episode ${ep.id} (Number: ${ep.number}), sourceType: ${selectedSourceType}`,
-      );
-      const fetchStream = async () => {
-        let info: StreamingInfo;
-        switch (selectedSourceType) {
-          case "vidfast":
-            // Use Vidfast source
-            info = await streamingService.getEpisodeStreamingUrl(
+
+      let info: StreamingInfo;
+
+      switch (selectedSourceType) {
+        case "vidfast":
+          info = await withRetries(() =>
+            streamingService.getEpisodeStreamingUrl(
               tv_id.toString(),
               ep.id.toString(),
-              undefined, // serverId
-              slug, // incomingSlug
+              undefined,
+              slug,
               true, // vidfastOnly
-              false, // useFallback
-              seasonNumberForApi.toString(), // seasonNumber
-              (ep.episode_number || ep.number || 0).toString(), // episodeNumber
-            );
-            break;
-          case "wootly": // New case for wootly
-            info = await streamingService.getEpisodeStreamingUrl(
+              false,
+              seasonNumberForApi.toString(),
+              (ep.episode_number || ep.number || 0).toString(),
+            ),
+          );
+          break;
+
+        case "wootly":
+          info = await withRetries(() =>
+            streamingService.getEpisodeStreamingUrl(
               tv_id.toString(),
               ep.id.toString(),
               undefined,
@@ -294,53 +228,62 @@ export default function EpisodeListScreen() {
               false,
               seasonNumberForApi.toString(),
               (ep.episode_number || ep.number || 0).toString(),
-              true,
-            );
-            break;
-          case "fallback":
-          default:
-            // Use fallback source
-            info = await streamingService.getEpisodeStreamingUrl(
-              tv_id.toString(),
-              ep.id.toString(),
-              undefined, // serverId
-              slug, // incomingSlug
-              false, // vidfastOnly
-              true, // useFallback
-              seasonNumberForApi.toString(), // seasonNumber
-              (ep.episode_number || ep.number || 0).toString(), // episodeNumber
-            );
-            break;
-        }
-        return info;
-      };
-      let info: StreamingInfo;
-      if (selectedSourceType === "vidfast" || selectedSourceType === "wootly") {
-        info = await withRetries(fetchStream);
-      } else {
-        info = await fetchStream();
+              true, // useWootly
+            ),
+          );
+          break;
+
+        case "fallback":
+          info = await streamingService.getEpisodeStreamingUrl(
+            tv_id.toString(),
+            ep.id.toString(),
+            undefined,
+            slug,
+            false,
+            true, // useFallback
+            seasonNumberForApi.toString(),
+            (ep.episode_number || ep.number || 0).toString(),
+          );
+          break;
+
+        case "tmdb":
+        default:
+          // Primary backend flow: slug + seriesId → /servers → /sources
+          info = await streamingService.getEpisodeStreamingUrl(
+            tv_id.toString(),
+            ep.id.toString(),
+            undefined, // no specific serverId; service picks best
+            slug, // required for primary flow
+            false, // vidfastOnly
+            false, // useFallback
+            // NO seasonNumber/episodeNumber — primary flow uses episodeId + slug
+          );
+          break;
       }
-      console.log("EpisodeList: Stream info received:", info);
+
       const sourceName =
         selectedSourceType === "vidfast"
-          ? "Vidfast"
+          ? "Source Two"
           : selectedSourceType === "wootly"
-            ? "Wootly"
-            : "Source One";
+            ? "Source Three"
+            : selectedSourceType === "fallback"
+              ? "Source One (TMDB)"
+              : "Source One";
+
       navigation.navigate("Stream", {
         mediaType: "tvSeries",
         id: tv_id.toString(),
         episode: (ep.episode_number || ep.number || 0).toString(),
         videoTitle: `${seriesTitle} S${seasonNumberForApi}E${ep.number} - ${ep.name}`,
-        slug: slug,
+        slug,
         streamUrl: info.streamUrl,
-        sourceName: sourceName,
+        sourceName,
         subtitles: info.subtitles,
         availableQualities: info.availableQualities || [],
         useFallback: selectedSourceType === "fallback",
       });
     } catch (err: any) {
-      console.error("EpisodeList: Stream error:", err);
+      console.error("Stream error:", err);
       Alert.alert(
         "Error",
         `Failed to start stream: ${err.message || "Unknown error"}`,
@@ -349,7 +292,6 @@ export default function EpisodeListScreen() {
       setStreamLoading(false);
     }
   };
-
   const handleSourceSelect = (src: any) => {
     setSelectedSource(src);
     setModalVisible(false);
@@ -414,7 +356,6 @@ export default function EpisodeListScreen() {
               onPress={(e) => {
                 e.stopPropagation();
                 setCurrentEpisode(item);
-                fetchSources(item.id);
                 setModalVisible(true);
               }}
             >
