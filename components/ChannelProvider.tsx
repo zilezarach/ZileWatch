@@ -29,11 +29,11 @@ export default function SourceSelector({
       description: "Premium Channel Source",
     },
     {
-      id: "Tv-Org",
-      label: "TV Org",
+      id: "Dlhd",
+      label: "DLHD",
       icon: "tv",
       color: "#FF6B35",
-      description: "USA Tv Provider",
+      description: "Daddy-Livestream",
     },
   ];
 

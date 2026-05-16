@@ -12,6 +12,12 @@ export const API =
 
 console.log("🔍 API URL being used:", API);
 
+export const IPTV_API =
+  Constants.expoConfig?.extra?.iptvLive || "http://localhost:3000";
+
+export const WORKER_URL =
+  "https://zile-proxy-worker.stream-zile-proxy.workers.dev";
+
 // Type definitions
 export interface Channel {
   id: number;
@@ -19,9 +25,25 @@ export interface Channel {
   streamUrl: string;
 }
 
-export type Source = "viprow" | "dlhd";
+export type Source = "viprow" | "livesx";
 
-export type SourceChannel = "cdn" | "Tv-Org";
+export type SourceChannel = "cdn" | "Dlhd";
+
+export interface LiveSXEvent {
+  sport: string;
+  league: string;
+  home_team: string;
+  away_team: string;
+  home_score: string;
+  away_score: string;
+  score: string;
+  start_time: string;
+  event_url: string;
+  status: "live" | "upcoming" | string;
+  raw_description: string;
+  stream_url: string;
+  eid?: string;
+}
 
 export interface TVChannels {
   id: string;
@@ -52,9 +74,19 @@ export interface VipRowEvent {
   streamUrl: string;
 }
 
+export interface LiveSXStreamResponse {
+  success: boolean;
+  eid: string;
+  url: string;
+  source: string;
+  headers?: Record<string, string>;
+}
+
 export interface LiveItem {
   id: string;
   name?: string;
+  url?: string;
+  success?: boolean;
   match: string;
   category: string;
   start: string;
@@ -62,8 +94,17 @@ export interface LiveItem {
   end: string;
   channels: Channel[];
   isFeatured?: boolean;
+  status?: "live" | "upcoming";
   source?: Source;
   streamUrl?: string;
+  homeTeam?: string;
+  awayTeam?: string;
+  homeScore?: string;
+  awayScore?: string;
+  score?: string;
+  league?: string;
+  proxyStreamUrl?: string;
+  eid?: string;
 }
 
 export interface CDNLiveChannels {
@@ -80,6 +121,16 @@ export interface CDNLiveChannels {
 const CACHE_DURATION = 60 * 60 * 1000;
 const REQUEST_TIMEOUT = 15000;
 const MAX_RETRIES = 3;
+//Helper function to extract EID from stream URL
+function extractEid(streamUrl: string): string | undefined {
+  try {
+    const u = new URL(streamUrl);
+    return u.searchParams.get("eid") ?? undefined;
+  } catch {
+    const match = streamUrl.match(/[?&]eid=([^&]+)/);
+    return match?.[1];
+  }
+}
 
 /**
  * Enhanced fetch wrapper with retry logic
@@ -112,10 +163,7 @@ async function fetchWithRetry(
         ...options,
         signal: controller.signal,
         headers: {
-          "User-Agent": "ZileWatch/2.0",
-          Accept: "*/*",
-          "Cache-Control": "max-age=300",
-          Connection: "keep-alive",
+          Accept: "application/json, */*",
           ...options.headers,
         },
       });
@@ -128,7 +176,8 @@ async function fetchWithRetry(
       lastError = error instanceof Error ? error : new Error(String(error));
       console.warn(`⚠️ Attempt ${i + 1} failed: ${lastError.message}`);
 
-      if (lastError.name === "AbortError" || options.signal?.aborted) {
+      // AFTER — only bail on external abort, let internal timeouts retry
+      if (options.signal?.aborted) {
         throw lastError;
       }
 
@@ -145,15 +194,49 @@ async function fetchWithRetry(
   );
 }
 
+//Get the actual StreamUrl from livesx
+export async function reoslveLiveSXStreamUrl(
+  signal?: AbortSignal,
+  streamUrl?: string,
+): Promise<LiveSXStreamResponse> {
+  const eid = extractEid(streamUrl || "");
+  if (!eid) {
+    throw new Error("Unable to extract EID from stream URL");
+  }
+  const cacheKey = `livesx_stream_${eid}`;
+  const cached = streamUrlCache.get(cacheKey);
+  if (cached && cached.expires > Date.now()) {
+    console.log(`💾 Cache hit for LiveSX EID ${eid}`);
+    // Return a synthetic response shape so callers stay consistent
+    return { success: true, eid, url: cached.url, source: "livesx" };
+  }
+  //Forward the request to getStreamUrl which will handle caching and retries
+  const resolved = `https://zileapp.0xzile.uk/livetv/stream?eid=${encodeURIComponent(eid)}`;
+  console.log(`Resolving LivetSX stream URL for EID: ${eid}`);
+  const res = await fetchWithRetry(resolved, { signal });
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}: ${res.statusText}`);
+  }
+  const data: LiveSXStreamResponse = await res.json();
+  if (!data.success || !data.url) {
+    throw new Error("Invalid response from stream URL resolution");
+  }
+  streamUrlCache.set(cacheKey, {
+    url: data.url,
+    expires: Date.now() + CACHE_DURATION,
+  });
+  return data;
+}
+
 /**
- * Fetch DLHD channels from backend
+ * Fetch LivetSX channels from backend
  */
-export async function fetchDLHDChannels(
+export async function fetchLiveSXEvents(
   signal?: AbortSignal,
 ): Promise<LiveItem[]> {
   try {
-    console.log("📡 Fetching DLHD channels...");
-    const url = `${API}/dlhd/streams`;
+    console.log("📡 Fetching LivetSX channels...");
+    const url = `${API}/livesx/events`;
 
     const res = await fetchWithRetry(url, { signal });
 
@@ -164,40 +247,60 @@ export async function fetchDLHDChannels(
     const data = await res.json();
 
     if (!data.success || !data.streams || !Array.isArray(data.streams)) {
-      throw new Error("Invalid DLHD API response");
+      throw new Error("Invalid LivetSX API response");
     }
 
-    const liveItems: LiveItem[] = data.streams.map(
-      (stream: DLHDChannel, index: number) => {
-        const category = extractCategoryFromName(stream.channelName);
-        const now = new Date();
-        const tomorrow = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+    if (Array.isArray(data.events) && data.events.length > 0) {
+      const liveItems: LiveItem[] = data.events.map(
+        (event: LiveSXEvent, index: number) => {
+          const eid = extractEid(event.stream_url);
+          const now = new Date();
+          // Parse "HH:MM" start_time on today's date
+          let startDate = now;
+          try {
+            const [h, m] = event.start_time.split(":").map(Number);
+            startDate = new Date(now);
+            startDate.setHours(h, m, 0, 0);
+          } catch {
+            /* keep now */
+          }
+          const endDate = new Date(startDate.getTime() + 4 * 60 * 60 * 1000);
 
-        return {
-          id: stream.channelId,
-          match: stream.channelName,
-          category: category,
-          start: now.toISOString(),
-          end: tomorrow.toISOString(),
-          logo: getChannelLogo(stream.channelName),
-          channels: [
-            {
-              id: parseInt(stream.channelId),
-              name: stream.channelName,
-              streamUrl: stream.proxyUrl,
-            },
-          ],
-          isFeatured: false,
-          source: "dlhd" as const,
-          streamUrl: stream.proxyUrl,
-        };
-      },
-    );
+          return {
+            id: eid ?? `livesx-${index}`,
+            match: `${event.home_team} vs ${event.away_team}`,
+            homeTeam: event.home_team,
+            awayTeam: event.away_team,
+            homeScore: event.home_score,
+            awayScore: event.away_score,
+            score: event.score,
+            league: event.league,
+            category: formatSportName(event.sport),
+            start: startDate.toISOString(),
+            end: endDate.toISOString(),
+            logo: getSportLogo(event.sport),
+            channels: [
+              {
+                id: index + 1,
+                name: event.league || event.sport,
+                streamUrl: event.stream_url,
+              },
+            ],
+            isFeatured: event.status === "live",
+            status: event.status === "live" ? "live" : "upcoming",
+            source: "livesx" as const,
+            proxyStreamUrl: event.stream_url,
+            eid,
+          } satisfies LiveItem;
+        },
+      );
 
-    console.log(`✅ Successfully loaded ${liveItems.length} DLHD channels`);
-    return liveItems;
+      console.log(`✅ Loaded ${liveItems.length} LiveSX events (new shape)`);
+      return liveItems;
+    }
+    return [];
   } catch (error: any) {
-    console.error("❌ Error fetching DLHD channels:", error);
+    console.error("❌ Error fetching LiveSX events:", error);
     throw error;
   }
 }
@@ -267,7 +370,7 @@ export async function fetchVipRowSchedule(
 }
 
 /**
- * Main function to fetch live sports data (DLHD + VIPRow)
+ * Main function to fetch live sports data (LivetSX + VIPRow)
  */
 export async function fetchLiveSports(
   signal?: AbortSignal,
@@ -281,7 +384,7 @@ export async function fetchLiveSports(
     if (source === "viprow") {
       result = await fetchVipRowSchedule(signal);
     } else {
-      result = await fetchDLHDChannels(signal);
+      result = await fetchLiveSXEvents(signal);
     }
 
     if (!result || result.length === 0) {
@@ -329,6 +432,7 @@ export async function fetchLiveSports(
 export async function getStreamUrl(
   channelId: string,
   signal?: AbortSignal,
+  proxyStreamUrl?: string,
   streamUrl?: string,
 ): Promise<string> {
   if (!channelId?.trim()) {
@@ -337,6 +441,18 @@ export async function getStreamUrl(
 
   const cleanChannelId = channelId.trim();
   console.log(`🎬 Getting stream URL for channel: ${cleanChannelId}`);
+
+  if (proxyStreamUrl) {
+    try {
+      const livesxRes = await reoslveLiveSXStreamUrl(signal, proxyStreamUrl);
+      return livesxRes.url;
+    } catch (err: any) {
+      console.warn(
+        "Failed to resolve LiveSX stream URL, falling back to normal flow",
+        err,
+      );
+    }
+  }
 
   // If streamUrl is already provided (from cache), use it
   if (streamUrl) {
@@ -353,14 +469,18 @@ export async function getStreamUrl(
   }
 
   try {
-    // Determine if it's DLHD or VIPRow based on ID format
+    // Determine if it's LiveSX or VIPRow based on ID format
     let url: string;
     if (cleanChannelId.startsWith("viprow-")) {
       // VIPRow events already have streamUrl in the event data
       throw new Error("VIPRow stream URL should be provided directly");
     } else {
-      // DLHD channel
-      const dlhdUrl = `${API}/dlhd/channel/${encodeURIComponent(cleanChannelId)}`;
+      const eid = extractEid(streamUrl || "");
+      if (!eid) {
+        throw new Error("Unable to extract EID from stream URL");
+      }
+      // LiveSx/Events
+      const dlhdUrl = `https://zileapp.0xzile.uk/livetv/stream?eid=${encodeURIComponent(eid)}`;
       const res = await fetchWithRetry(dlhdUrl, { signal });
 
       if (!res.ok) {
@@ -501,15 +621,16 @@ function getSportLogo(sport: string): string {
 }
 
 /**
- * Fetch TV channels from API
+ * Fetch TV channels from API  CHANGED TO DLHD CHannels
  */
+
 export async function fetchChannels(
   signal?: AbortSignal,
-  source: SourceChannel = "Tv-Org",
+  source: SourceChannel = "Dlhd",
 ): Promise<TVChannels[]> {
   try {
     console.log("📺 Fetching TV channels...");
-    const url = `${API}/streams/channels`;
+    const url = `${IPTV_API}/dlhd/channels`;
 
     const res = await fetchWithRetry(url, { signal });
 
@@ -530,18 +651,26 @@ export async function fetchChannels(
     }
 
     const validChannels = channelsArray
-      .map((channel, index) => {
+      .map((channel) => {
         if (!channel || typeof channel !== "object") return null;
-        if (!channel.name && !channel.id) return null;
+
+        const id = String(channel.id ?? channel.channelId ?? "");
+        const name =
+          channel.title || // ← RPI field
+          channel.name || // ← fallback
+          channel.channelName || // ← fallback
+          "";
+
+        if (!id || !name) return null;
 
         return {
-          id: String(channel.id ?? index),
-          name: channel.name || `Channel ${index + 1}`,
+          id,
+          name,
           image: channel.image || channel.logo || "",
-          streamUrl: channel.streamUrl || channel.url || "",
-        };
+          streamUrl: `${WORKER_URL}?channel=${id}`,
+        } satisfies TVChannels;
       })
-      .filter((channel): channel is TVChannels => channel !== null);
+      .filter((ch): ch is TVChannels => ch !== null);
 
     await cacheChannels(validChannels, source);
     return validChannels;
@@ -624,7 +753,7 @@ export async function fetchAllChannels(
 export async function getPreferredSource(): Promise<Source> {
   try {
     const stored = await AsyncStorage.getItem("preferredSource");
-    if (stored && (stored === "dlhd" || stored === "viprow")) {
+    if (stored && (stored === "livesx" || stored === "viprow")) {
       return stored as Source;
     }
   } catch (error) {
@@ -673,6 +802,7 @@ export async function setPreferredCHSource(
 export async function getChannelsStream(
   id: string,
   signal?: AbortSignal,
+  source?: SourceChannel,
 ): Promise<string> {
   if (!id?.trim()) {
     throw new Error("Channel ID is required");
@@ -680,6 +810,11 @@ export async function getChannelsStream(
 
   const cleanId = id.trim();
   console.log(`📺 Getting channels stream for ID: ${cleanId}`);
+
+  const resolvedSource = source ?? (await getPreferredCHsource());
+  if (resolvedSource === "Dlhd") {
+    return getDLHDStream(cleanId, signal);
+  }
 
   const cachedStream = streamUrlCache.get(cleanId);
   if (cachedStream && cachedStream.expires > Date.now()) {
@@ -740,6 +875,30 @@ export async function getCDNStream(
     console.error("Unable to fetch Channel Stream", error);
     throw error;
   }
+}
+
+export async function getDLHDStream(
+  id: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  if (!id?.trim()) throw new Error("Channel ID is required");
+  const cleanId = id.trim();
+
+  // Check stream URL cache first
+  const cached = streamUrlCache.get(`dlhd_${cleanId}`);
+  if (cached && cached.expires > Date.now()) {
+    console.log(`💾 Using cached DLHD stream for ${cleanId}`);
+    return cached.url;
+  }
+  // Worker will call RPI internally or extract directly
+  const streamUrl = `${WORKER_URL}?channel=${cleanId}`;
+
+  streamUrlCache.set(`dlhd_${cleanId}`, {
+    url: streamUrl,
+    expires: Date.now() + CACHE_DURATION,
+  });
+  console.log(`📺 DLHD stream URL: ${streamUrl}`);
+  return streamUrl;
 }
 
 //Get all Channels Streams

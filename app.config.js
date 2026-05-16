@@ -92,6 +92,7 @@ export default {
     },
     extra: {
       youtubeApiKey: process.env.YOUTUBE_API_KEY,
+      iptvLive: process.env.IPTVLIVE || "https://zileapp.0xzile.uk",
       API_Backend: process.env.API_KEY || "https://backend.0xzile.uk",
       TMBD_KEY: process.env.TMBD_KEY || "3d87c19403c5b4902b9617fc74eb3866",
       TMBD_URL: "https://api.themoviedb.org/3",

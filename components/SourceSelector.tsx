@@ -29,11 +29,11 @@ export default function SourceSelector({
       description: "Live Sports Events",
     },
     {
-      id: "dlhd",
-      label: "DLHD",
+      id: "livesx",
+      label: "LivesX",
       icon: "tv",
       color: "#4CAF50",
-      description: "Premium Sports Channels",
+      description: "Live Sports",
     },
   ];
 

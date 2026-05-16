@@ -16,7 +16,6 @@ import {
   ActivityIndicator,
   StatusBar,
   RefreshControl,
-  Dimensions,
   Platform,
   Alert,
   Animated,
@@ -42,8 +41,6 @@ import { useNavigation, useFocusEffect } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { RootStackParamList } from "../../types/navigation";
 import { FontAwesome, FontAwesome5 } from "@expo/vector-icons";
-
-const { width: screenWidth, height: screenHeight } = Dimensions.get("window");
 
 interface LoadingState {
   initial: boolean;
@@ -105,7 +102,10 @@ export default function GamesScreen() {
     useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
   const loadSportsData = useCallback(
-    async (signal?: AbortSignal): Promise<LiveItem[]> => {
+    async (
+      signal?: AbortSignal,
+      sourceOverride?: Source,
+    ): Promise<LiveItem[]> => {
       if (signal?.aborted) throw new Error("Aborted");
 
       setLoadingState((prev) => ({
@@ -115,7 +115,8 @@ export default function GamesScreen() {
       }));
 
       try {
-        const liveData = await fetchLiveSports(signal, selectedSource);
+        const activeSource = sourceOverride ?? selectedSource;
+        const liveData = await fetchLiveSports(signal, activeSource);
         if (signal?.aborted) throw new Error("Aborted");
 
         const regular = liveData.filter((item) => !item.isFeatured);
@@ -173,7 +174,7 @@ export default function GamesScreen() {
         const processedChannels: TVChannels[] = channelData.map(
           (channel, index) => ({
             id: String(channel.id ?? index),
-            name: channel.name || `Channel ${index}`,
+            name: channel.name,
             image: channel.image || "",
             streamUrl: channel.streamUrl || "",
           }),
@@ -194,7 +195,7 @@ export default function GamesScreen() {
   );
 
   const loadData = useCallback(
-    async (isRefresh = false, forceReload = false) => {
+    async (isRefresh = false, forceReload = false, sourceOverride?: Source) => {
       if (isLoadingRef.current && !forceReload) {
         console.log("Load already in progress, skipping...");
         return;
@@ -227,7 +228,7 @@ export default function GamesScreen() {
         console.log("📺 Loading DLHD sports data, isRefresh:", isRefresh);
 
         const [sportsData, channelsData] = await Promise.allSettled([
-          loadSportsData(signal),
+          loadSportsData(signal, sourceOverride),
           loadChannelsData(signal),
         ]);
 
@@ -578,7 +579,7 @@ export default function GamesScreen() {
 
             <View style={styles.channelInfo}>
               <Text style={styles.channelName} numberOfLines={1}>
-                {item.name || "TV Channel"}
+                {item.name}
               </Text>
               {renderChannelAction(channelId)}
             </View>
@@ -794,9 +795,9 @@ export default function GamesScreen() {
       setSessionStatus("idle");
 
       // Force reload with new source
-      loadData(true, true);
+      loadData(true, true, newSource);
     },
-    [selectedSource, loadData],
+    [loadData],
   );
 
   const handleChannelSourceChange = useCallback(
@@ -821,7 +822,8 @@ export default function GamesScreen() {
           </View>
           <Text style={styles.loadingText}>Loading Live Content...</Text>
           <Text style={styles.loadingSubtext}>
-            Fetching {selectedSource === "viprow" ? "DLHD" : "VIPRow"} channels
+            Fetching {selectedSource === "viprow" ? "LiveSx" : "VIPRow"}{" "}
+            channels
           </Text>
         </View>
       </SafeAreaView>
